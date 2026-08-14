@@ -2,6 +2,7 @@
 
 import type { FormEvent } from "react";
 import { useState } from "react";
+import { useStore } from "./cart-store";
 import { showToast } from "./toast";
 
 type CheckoutValues = {
@@ -21,6 +22,7 @@ type CheckoutErrors = Partial<Record<keyof CheckoutValues, string>>;
 const initialValues: CheckoutValues = { email: "", firstName: "", lastName: "", address: "", city: "", region: "", zip: "", country: "United States", deliveryMethod: "Standard delivery" };
 
 export function CheckoutForm({ onComplete }: { onComplete: () => void }) {
+  const { cart } = useStore();
   const [values, setValues] = useState<CheckoutValues>(initialValues);
   const [errors, setErrors] = useState<CheckoutErrors>({});
   const [submitting, setSubmitting] = useState(false);
@@ -47,11 +49,19 @@ export function CheckoutForm({ onComplete }: { onComplete: () => void }) {
       return;
     }
     setSubmitting(true);
-    showToast("Preparing your demo order...", "info");
-    window.setTimeout(() => onComplete(), 650);
+    showToast("Preparing secure checkout...", "info");
+    void fetch("/api/checkout", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ ...values, items: cart.map((item) => ({ productId: item.id, variantId: item.variantId, quantity: item.quantity })) }) }).then(async (response) => {
+      const payload = await response.json().catch(() => ({})) as { checkoutUrl?: string; error?: string };
+      if (!response.ok || !payload.checkoutUrl) throw new Error(payload.error || "Unable to start payment.");
+      onComplete();
+      window.location.assign(payload.checkoutUrl);
+    }).catch((error) => {
+      setSubmitting(false);
+      showToast(error instanceof Error ? error.message : "Unable to start payment.", "error");
+    });
   }
 
-  return <form className="checkout-form" onSubmit={submit} noValidate><div className="checkout-heading"><p className="eyebrow">Northline / Checkout</p><h1>Let&apos;s get you<br /><em>on your way.</em></h1><p>This is a demo checkout. No payment will be processed.</p></div><fieldset><legend>Contact</legend><Field id="checkout-email" label="Email address" value={values.email} error={errors.email} type="email" placeholder="you@example.com" onChange={(value) => update("email", value)} /><label className="checkbox-label"><input type="checkbox" /> Email me with field notes and new gear</label></fieldset><fieldset><legend>Delivery</legend><div className="form-two"><Field id="checkout-first-name" label="First name" value={values.firstName} error={errors.firstName} placeholder="First name" onChange={(value) => update("firstName", value)} /><Field id="checkout-last-name" label="Last name" value={values.lastName} error={errors.lastName} placeholder="Last name" onChange={(value) => update("lastName", value)} /></div><Field id="checkout-address" label="Address" value={values.address} error={errors.address} placeholder="Street address" onChange={(value) => update("address", value)} /><div className="form-three"><Field id="checkout-city" label="City" value={values.city} error={errors.city} placeholder="City" onChange={(value) => update("city", value)} /><Field id="checkout-region" label="State / region" value={values.region} error={errors.region} placeholder="State" onChange={(value) => update("region", value)} /><Field id="checkout-zip" label="ZIP code" value={values.zip} error={errors.zip} placeholder="ZIP" onChange={(value) => update("zip", value)} /></div><SelectField id="checkout-country" label="Country" value={values.country} options={["United States", "Canada", "United Kingdom", "Australia"]} onChange={(value) => update("country", value)} /><SelectField id="checkout-delivery" label="Delivery method" value={values.deliveryMethod} options={["Standard delivery", "Express delivery"]} onChange={(value) => update("deliveryMethod", value)} /></fieldset><fieldset><legend>Payment</legend><div className="payment-placeholder"><span>Demo mode</span><p>Payment processing will be connected here.</p></div></fieldset><button className="button button-dark button-wide" type="submit" disabled={submitting}>{submitting ? "Preparing order..." : "Place demo order -&gt;"}</button></form>;
+  return <form className="checkout-form" onSubmit={submit} noValidate><div className="checkout-heading"><p className="eyebrow">Northline / Checkout</p><h1>Let&apos;s get you<br /><em>on your way.</em></h1><p>Secure payment is handled by Stripe. Your card details never touch this storefront.</p></div><fieldset><legend>Contact</legend><Field id="checkout-email" label="Email address" value={values.email} error={errors.email} type="email" placeholder="you@example.com" onChange={(value) => update("email", value)} /><label className="checkbox-label"><input type="checkbox" /> Email me with field notes and new gear</label></fieldset><fieldset><legend>Delivery</legend><div className="form-two"><Field id="checkout-first-name" label="First name" value={values.firstName} error={errors.firstName} placeholder="First name" onChange={(value) => update("firstName", value)} /><Field id="checkout-last-name" label="Last name" value={values.lastName} error={errors.lastName} placeholder="Last name" onChange={(value) => update("lastName", value)} /></div><Field id="checkout-address" label="Address" value={values.address} error={errors.address} placeholder="Street address" onChange={(value) => update("address", value)} /><div className="form-three"><Field id="checkout-city" label="City" value={values.city} error={errors.city} placeholder="City" onChange={(value) => update("city", value)} /><Field id="checkout-region" label="State / region" value={values.region} error={errors.region} placeholder="State" onChange={(value) => update("region", value)} /><Field id="checkout-zip" label="ZIP code" value={values.zip} error={errors.zip} placeholder="ZIP" onChange={(value) => update("zip", value)} /></div><SelectField id="checkout-country" label="Country" value={values.country} options={["United States", "Canada", "United Kingdom", "Australia"]} onChange={(value) => update("country", value)} /><SelectField id="checkout-delivery" label="Delivery method" value={values.deliveryMethod} options={["Standard delivery", "Express delivery"]} onChange={(value) => update("deliveryMethod", value)} /></fieldset><fieldset><legend>Payment</legend><div className="payment-placeholder"><span>Stripe secure checkout</span><p>You&apos;ll be redirected to Stripe to enter card details.</p></div></fieldset><button className="button button-dark button-wide" type="submit" disabled={submitting}>{submitting ? "Preparing secure checkout..." : "Continue to secure payment -&gt;"}</button></form>;
 }
 
 function Field({ id, label, value, error, placeholder, type = "text", onChange }: { id: string; label: string; value: string; error?: string; placeholder: string; type?: string; onChange: (value: string) => void }) {

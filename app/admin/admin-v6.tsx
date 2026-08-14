@@ -1,11 +1,12 @@
 "use client";
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import type { CmsAsset, CmsAuditLog, CmsInvitation, CmsMember, CmsRevision, CmsSchedule, CmsSite, CmsRole, CmsSnapshotDiff } from "../../db/cms";
+import type { CmsAsset, CmsAuditLog, CmsDomain, CmsInvitation, CmsMember, CmsRevision, CmsSchedule, CmsSite, CmsRole, CmsSnapshotDiff } from "../../db/cms";
+import type { CmsInventoryRow, CmsOrder } from "../../db/commerce";
 import { products as templateProducts, type Product } from "../data/products";
 import { type EditableSiteConfig, useSiteRuntime } from "../components/site-runtime";
 
-type AdminTab = "overview" | "brand" | "content" | "products" | "media" | "access" | "team" | "domains" | "activity" | "release" | "versions";
+type AdminTab = "overview" | "brand" | "content" | "products" | "media" | "access" | "team" | "domains" | "activity" | "release" | "commerce" | "versions";
 type Notice = { tone: "success" | "error" | "info"; text: string } | null;
 
 const tabs: Array<{ id: AdminTab; label: string }> = [
@@ -19,6 +20,7 @@ const tabs: Array<{ id: AdminTab; label: string }> = [
   { id: "domains", label: "Domains" },
   { id: "activity", label: "Activity" },
   { id: "release", label: "Release control" },
+  { id: "commerce", label: "Orders & stock" },
   { id: "versions", label: "Versions" },
 ];
 
@@ -155,15 +157,22 @@ type P0PanelsProps = {
   revokeAccessInvite: (id: string) => Promise<void>;
   auditLogs: CmsAuditLog[];
   loadWorkspaceData: () => Promise<void>;
+  orders: CmsOrder[];
+  inventory: CmsInventoryRow[];
+  loadCommerceData: () => Promise<void>;
+  updateOrder: (order: CmsOrder) => Promise<void>;
+  updateStock: (row: CmsInventoryRow, quantity: number) => Promise<void>;
+  domains: CmsDomain[];
 };
 
 function P0Panels(props: P0PanelsProps) {
-  const { tab, config, updateConfig, setHome, toggleModule, moveModule, domainForm, setDomainForm, saveDomain, site, activeSiteId, cmsRole, diff, scheduleForm, setScheduleForm, saveSchedule, schedules, cancelScheduledPublish, busy, publish, members, invitations, changeMemberRole, removeAccess, revokeAccessInvite, auditLogs, loadWorkspaceData } = props;
+  const { tab, config, updateConfig, setHome, toggleModule, moveModule, domainForm, setDomainForm, saveDomain, site, activeSiteId, cmsRole, diff, scheduleForm, setScheduleForm, saveSchedule, schedules, cancelScheduledPublish, busy, publish, members, invitations, changeMemberRole, removeAccess, revokeAccessInvite, auditLogs, loadWorkspaceData, orders, inventory, loadCommerceData, updateOrder, updateStock, domains } = props;
   if (tab === "content") return <section className="v6-card"><div className="v6-card-heading"><div><p className="eyebrow">P0 content modules</p><h2>Compose the client storefront.</h2></div><span>Draft autosave</span></div><div className="v6-module-list">{["hero", "intro", "products", "story", "journal", "newsletter"].map((module, index) => <div className="v6-inline-row" key={module}><label className="v6-check-field"><input type="checkbox" checked={config.content.home.modules.includes(module)} onChange={() => toggleModule(module)} /> {module}</label><span><button className="text-button" onClick={() => moveModule(module, -1)} disabled={index === 0}>↑</button><button className="text-button" onClick={() => moveModule(module, 1)} disabled={index === 5}>↓</button></span></div>)}</div><div className="v6-divider"><p className="eyebrow">Announcement and navigation</p><div className="v6-form-grid"><Field label="Announcement" value={config.announcement.text} onChange={(value) => updateConfig((current) => { current.announcement.text = value; return current; })} /><Field label="Announcement accent" value={config.announcement.accent} onChange={(value) => updateConfig((current) => { current.announcement.accent = value; return current; })} />{config.navigation.map((item, index) => <Field key={`${item.href}-${index}`} label={`Nav ${index + 1} label | link`} value={`${item.label} | ${item.href}`} onChange={(value) => updateConfig((current) => { const [label, href] = value.split("|"); current.navigation[index] = { label: label.trim(), href: href?.trim() || current.navigation[index].href }; return current; })} />)}</div></div><div className="v6-divider"><p className="eyebrow">Home, trust, contact and SEO</p><div className="v6-form-grid"><Field label="Products label" value={config.content.home.productsLabel} onChange={(value) => setHome("productsLabel", value)} /><Field label="Products title" value={config.content.home.productsTitleLead} onChange={(value) => setHome("productsTitleLead", value)} /><Field label="Products accent" value={config.content.home.productsTitleAccent} onChange={(value) => setHome("productsTitleAccent", value)} /><Field label="Journal label" value={config.content.home.journalLabel} onChange={(value) => setHome("journalLabel", value)} /><Field label="About title" value={config.content.about.titleLead} onChange={(value) => updateConfig((current) => { current.content.about.titleLead = value; return current; })} /><Field label="About accent" value={config.content.about.titleAccent} onChange={(value) => updateConfig((current) => { current.content.about.titleAccent = value; return current; })} /><Field label="About lead" value={config.content.about.lead} onChange={(value) => updateConfig((current) => { current.content.about.lead = value; return current; })} multiline /><Field label="FAQ intro" value={config.content.faq.intro} onChange={(value) => updateConfig((current) => { current.content.faq.intro = value; return current; })} multiline /><Field label="Shipping copy" value={config.content.policies.shippingLead} onChange={(value) => updateConfig((current) => { current.content.policies.shippingLead = value; return current; })} multiline /><Field label="Returns copy" value={config.content.policies.returnsLead} onChange={(value) => updateConfig((current) => { current.content.policies.returnsLead = value; return current; })} multiline /><Field label="Contact email" value={config.content.contact.email} onChange={(value) => updateConfig((current) => { current.content.contact.email = value; return current; })} /><Field label="Trade email" value={config.content.contact.tradeEmail} onChange={(value) => updateConfig((current) => { current.content.contact.tradeEmail = value; return current; })} /><Field label="SEO title" value={config.seo.title} onChange={(value) => updateConfig((current) => { current.seo.title = value; return current; })} /><Field label="SEO description" value={config.seo.description} onChange={(value) => updateConfig((current) => { current.seo.description = value; return current; })} multiline /><Field label="SEO keywords" value={config.seo.keywords} onChange={(value) => updateConfig((current) => { current.seo.keywords = value; return current; })} /></div></div></section>;
-  if (tab === "domains") return <section className="v6-grid"><div className="v6-card"><p className="eyebrow">Public tenant routing</p><h2>One workspace, many storefronts.</h2><p className="v6-muted">Public requests resolve a client site by hostname. Shared Sites URLs continue to use the default site.</p><div className="v6-callout"><strong>{site?.domain || "No custom domain mapped"}</strong><span>{site?.domain ? "Mapped in CMS · verify DNS with Sites" : "Add a domain mapping to route this tenant"}</span></div><a className="text-link" href={`/preview?siteId=${encodeURIComponent(activeSiteId)}`} target="_blank" rel="noreferrer">Open tenant preview <span>↗</span></a></div><div className="v6-card"><p className="eyebrow">Domain mapping</p><h2>Connect the client URL.</h2><form className="v6-form" onSubmit={saveDomain}><Field label="Client site name" value={domainForm.name} onChange={(value) => setDomainForm((current) => ({ ...current, name: value }))} /><Field label="URL slug" value={domainForm.slug} onChange={(value) => setDomainForm((current) => ({ ...current, slug: slugify(value) }))} /><Field label="Custom domain" value={domainForm.domain} onChange={(value) => setDomainForm((current) => ({ ...current, domain: value }))} placeholder="shop.client.com" /><button className="button button-dark" disabled={busy || cmsRole !== "owner"}>Save domain mapping <span>+</span></button></form><p className="v6-help">After saving the mapping, verify the DNS target and activate the Sites custom-domain binding when the client provides the hostname.</p></div></section>;
+  if (tab === "domains") return <section className="v6-grid"><div className="v6-card"><p className="eyebrow">Public tenant routing</p><h2>One workspace, many storefronts.</h2><p className="v6-muted">Public requests resolve a client site by hostname. Shared Sites URLs continue to use the default site.</p><div className="v6-callout"><strong>{site?.domain || "No custom domain mapped"}</strong><span>{site?.domain ? "Mapped in CMS · verify DNS with Sites" : "Add a domain mapping to route this tenant"}</span></div>{domains.map((domain) => <div className="v6-inline-row" key={domain.id}><span>{domain.hostname}<small>Verification: {domain.status}</small></span></div>)}<a className="text-link" href={`/preview?siteId=${encodeURIComponent(activeSiteId)}`} target="_blank" rel="noreferrer">Open tenant preview <span>↗</span></a></div><div className="v6-card"><p className="eyebrow">Domain mapping</p><h2>Connect the client URL.</h2><form className="v6-form" onSubmit={saveDomain}><Field label="Client site name" value={domainForm.name} onChange={(value) => setDomainForm((current) => ({ ...current, name: value }))} /><Field label="URL slug" value={domainForm.slug} onChange={(value) => setDomainForm((current) => ({ ...current, slug: slugify(value) }))} /><Field label="Custom domain" value={domainForm.domain} onChange={(value) => setDomainForm((current) => ({ ...current, domain: value }))} placeholder="shop.client.com" /><button className="button button-dark" disabled={busy || cmsRole !== "owner"}>Save domain mapping <span>+</span></button></form><p className="v6-help">After saving the mapping, verify the DNS target and activate the Sites custom-domain binding when the client provides the hostname.</p></div></section>;
   if (tab === "release") return <section className="v6-grid"><div className="v6-card"><p className="eyebrow">Publish diff</p><h2>{diff?.totalChanges ?? 0} changes waiting.</h2>{diff?.changes.length ? <div className="v6-checks">{diff.changes.map((change) => <div key={change}><span>+</span>{change}</div>)}</div> : <p className="v6-muted">Draft and published storefronts are aligned.</p>}<button className="button button-dark" onClick={() => void publish()} disabled={busy || !diff?.totalChanges || (cmsRole !== "owner" && cmsRole !== "editor")}>Review and publish <span>-&gt;</span></button></div><div className="v6-card"><p className="eyebrow">Scheduled publish</p><h2>Set the release moment.</h2><form className="v6-form" onSubmit={saveSchedule}><Field label="Release label" value={scheduleForm.label} onChange={(value) => setScheduleForm((current) => ({ ...current, label: value }))} /><label className="v6-field"><span>Publish at</span><input type="datetime-local" value={scheduleForm.scheduledAt} onChange={(event) => setScheduleForm((current) => ({ ...current, scheduledAt: event.target.value }))} /></label><button className="button button-dark" disabled={busy || !scheduleForm.scheduledAt || cmsRole === "viewer"}>Schedule release <span>+</span></button></form>{schedules.filter((schedule) => schedule.status === "pending").map((schedule) => <div className="v6-inline-row" key={schedule.id}><span>{schedule.label}<small>{new Date(schedule.scheduledAt).toLocaleString()}</small></span><button className="text-button danger" onClick={() => void cancelScheduledPublish(schedule.id)}>Cancel</button></div>)}</div></section>;
   if (tab === "team") return <section className="v6-card"><div className="v6-card-heading"><div><p className="eyebrow">Member lifecycle</p><h2>Invite, change, revoke.</h2></div><span>Owner controlled</span></div><div className="v6-member-list">{members.map((member) => <div key={`${member.siteId}-${member.userId}`}><span>{member.email}</span><select value={member.role} disabled={cmsRole !== "owner"} onChange={(event) => void changeMemberRole(member.userId, event.target.value as CmsRole)}><option value="viewer">Viewer</option><option value="editor">Editor</option><option value="owner">Owner</option></select><button className="text-button danger" onClick={() => void removeAccess(member.userId)}>Remove</button></div>)}</div><div className="v6-divider"><p className="eyebrow">Pending invitations</p>{invitations.map((invitation) => <div className="v6-inline-row" key={invitation.id}><span>{invitation.email} · {invitation.role}<small>{invitation.status} · expires {new Date(invitation.expiresAt).toLocaleDateString()}</small></span>{invitation.status === "pending" && <button className="text-button danger" onClick={() => void revokeAccessInvite(invitation.id)}>Revoke</button>}</div>)}{invitations.length === 0 && <p className="v6-muted">No pending invitations.</p>}</div><p className="v6-help">The existing invite form creates a secure seven-day link and copies it to the clipboard. The link can be sent through the client’s preferred email channel.</p></section>;
   if (tab === "activity") return <section className="v6-card"><div className="v6-card-heading"><div><p className="eyebrow">Audit trail</p><h2>Every important change, visible.</h2></div><button className="text-button" onClick={() => void loadWorkspaceData()}>Refresh activity</button></div><div className="v6-version-list">{auditLogs.map((log) => <article key={log.id}><div><strong>{log.action}</strong><span>{log.actorEmail} · {log.entityType}{log.entityId ? ` / ${log.entityId}` : ""}</span></div><time>{new Date(log.createdAt).toLocaleString()}</time></article>)}{auditLogs.length === 0 && <div className="v6-empty">No audited changes yet.</div>}</div></section>;
+  if (tab === "commerce") return <section className="v6-grid"><div className="v6-card v6-card-large"><div className="v6-card-heading"><div><p className="eyebrow">Order operations</p><h2>{orders.length} recent orders.</h2></div><button className="text-button" onClick={() => void loadCommerceData()}>Refresh</button></div><div className="v6-version-list">{orders.map((order) => <article key={order.id}><div><strong>{order.orderNumber} · ${order.total.toFixed(2)}</strong><span>{order.email} · {order.paymentStatus} · {order.fulfillmentStatus}</span></div><div className="v6-actions"><select value={order.fulfillmentStatus} disabled={cmsRole !== "owner" && cmsRole !== "editor"} onChange={(event) => void updateOrder({ ...order, fulfillmentStatus: event.target.value })}><option value="unfulfilled">Unfulfilled</option><option value="processing">Processing</option><option value="shipped">Shipped</option><option value="delivered">Delivered</option><option value="cancelled">Cancelled</option></select><button className="text-button" onClick={() => void updateOrder(order)}>Save</button></div></article>)}{orders.length === 0 && <div className="v6-empty">No orders yet. Orders appear here after Stripe confirms payment.</div>}</div></div><div className="v6-card"><div className="v6-card-heading"><div><p className="eyebrow">Inventory / SKU</p><h2>Live stock.</h2></div></div><div className="v6-version-list">{inventory.map((row) => <article key={`${row.productId}-${row.variantId}`}><div><strong>{row.productName} · {row.variantLabel}</strong><span>{row.sku} · {row.reservedQuantity} reserved</span></div><label className="v6-inline-input"><span className="sr-only">Quantity</span><input type="number" min="0" defaultValue={row.quantity} onBlur={(event) => void updateStock(row, Number(event.target.value))} /></label></article>)}{inventory.length === 0 && <div className="v6-empty">Inventory rows initialize from the published catalog.</div>}</div></div></section>;
   return null;
 }
 
@@ -179,6 +188,9 @@ export function AdminStudioV6() {
   const [auditLogs, setAuditLogs] = useState<CmsAuditLog[]>([]);
   const [schedules, setSchedules] = useState<CmsSchedule[]>([]);
   const [diff, setDiff] = useState<CmsSnapshotDiff | null>(null);
+  const [orders, setOrders] = useState<CmsOrder[]>([]);
+  const [inventory, setInventory] = useState<CmsInventoryRow[]>([]);
+  const [domains, setDomains] = useState<CmsDomain[]>([]);
   const [notice, setNotice] = useState<Notice>(null);
   const [authRequired, setAuthRequired] = useState(false);
   const [busy, setBusy] = useState(false);
@@ -217,22 +229,24 @@ export function AdminStudioV6() {
 
   const loadWorkspaceData = useCallback(async () => {
     const query = `?siteId=${encodeURIComponent(activeSiteId)}`;
-    const [membersResponse, assetsResponse, revisionsResponse, auditResponse, diffResponse, schedulesResponse] = await Promise.all([
+    const [membersResponse, assetsResponse, revisionsResponse, auditResponse, diffResponse, schedulesResponse, domainsResponse] = await Promise.all([
       fetch(`/api/cms/members${query}`, { cache: "no-store" }),
       fetch(`/api/cms/assets${query}`, { cache: "no-store" }),
       fetch(`/api/cms/revisions${query}`, { cache: "no-store" }),
       fetch(`/api/cms/audit${query}`, { cache: "no-store" }),
       fetch(`/api/cms/diff${query}`, { cache: "no-store" }),
       fetch(`/api/cms/schedules${query}`, { cache: "no-store" }),
+      fetch(`/api/cms/domains${query}`, { cache: "no-store" }),
     ]);
-    const [membersPayload, assetsPayload, revisionsPayload, auditPayload, diffPayload, schedulesPayload] = await Promise.all([
+    const [membersPayload, assetsPayload, revisionsPayload, auditPayload, diffPayload, schedulesPayload, domainsPayload] = await Promise.all([
       membersResponse.json().catch(() => ({})),
       assetsResponse.json().catch(() => ({})),
       revisionsResponse.json().catch(() => ({})),
       auditResponse.json().catch(() => ({})),
       diffResponse.json().catch(() => ({})),
       schedulesResponse.json().catch(() => ({})),
-    ]) as [{ members?: CmsMember[]; invitations?: CmsInvitation[] }, { assets?: CmsAsset[] }, { revisions?: CmsRevision[] }, { logs?: CmsAuditLog[] }, { diff?: CmsSnapshotDiff }, { schedules?: CmsSchedule[] }];
+      domainsResponse.json().catch(() => ({})),
+    ]) as [{ members?: CmsMember[]; invitations?: CmsInvitation[] }, { assets?: CmsAsset[] }, { revisions?: CmsRevision[] }, { logs?: CmsAuditLog[] }, { diff?: CmsSnapshotDiff }, { schedules?: CmsSchedule[] }, { domains?: CmsDomain[] }];
     if (membersResponse.ok) setMembers(membersPayload.members ?? []);
     if (membersResponse.ok) setInvitations(membersPayload.invitations ?? []);
     if (assetsResponse.ok) setAssets(assetsPayload.assets ?? []);
@@ -240,6 +254,21 @@ export function AdminStudioV6() {
     if (auditResponse.ok) setAuditLogs(auditPayload.logs ?? []);
     if (diffResponse.ok) setDiff(diffPayload.diff ?? null);
     if (schedulesResponse.ok) setSchedules(schedulesPayload.schedules ?? []);
+    if (domainsResponse.ok) setDomains(domainsPayload.domains ?? []);
+  }, [activeSiteId]);
+
+  const loadCommerceData = useCallback(async () => {
+    const query = `?siteId=${encodeURIComponent(activeSiteId)}`;
+    const [ordersResponse, inventoryResponse] = await Promise.all([
+      fetch(`/api/cms/orders${query}`, { cache: "no-store" }),
+      fetch(`/api/cms/inventory${query}`, { cache: "no-store" }),
+    ]);
+    const [ordersPayload, inventoryPayload] = await Promise.all([
+      ordersResponse.json().catch(() => ({})) as Promise<{ orders?: CmsOrder[] }>,
+      inventoryResponse.json().catch(() => ({})) as Promise<{ inventory?: CmsInventoryRow[] }>,
+    ]);
+    if (ordersResponse.ok) setOrders(ordersPayload.orders ?? []);
+    if (inventoryResponse.ok) setInventory(inventoryPayload.inventory ?? []);
   }, [activeSiteId]);
 
   useEffect(() => {
@@ -260,6 +289,12 @@ export function AdminStudioV6() {
     // eslint-disable-next-line react-hooks/set-state-in-effect
     if (!authRequired) void loadWorkspaceData();
   }, [authRequired, loadWorkspaceData]);
+
+  useEffect(() => {
+    // The commerce panel synchronizes operational D1 data for the selected site.
+    // eslint-disable-next-line react-hooks/set-state-in-effect
+    if (!authRequired) void loadCommerceData();
+  }, [authRequired, loadCommerceData]);
 
   const setBrand = (field: "name" | "mark" | "descriptor" | "tagline" | "footerLine" | "originLine", value: string) => {
     updateConfig((current) => {
@@ -399,6 +434,25 @@ export function AdminStudioV6() {
     else setNotice({ tone: "error", text: "Unable to revoke invitation." });
   };
 
+  const updateOrder = async (order: CmsOrder) => {
+    const response = await fetch("/api/cms/orders", { method: "PATCH", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ siteId: activeSiteId, orderId: order.id, fulfillmentStatus: order.fulfillmentStatus, trackingNumber: order.trackingNumber || "" }) });
+    const payload = await response.json().catch(() => ({})) as { order?: CmsOrder; error?: string };
+    if (response.ok && payload.order) {
+      setOrders((current) => current.map((item) => item.id === order.id ? payload.order as CmsOrder : item));
+      setNotice({ tone: "success", text: `${order.orderNumber} updated.` });
+    } else setNotice({ tone: "error", text: payload.error || "Unable to update order." });
+  };
+
+  const updateStock = async (row: CmsInventoryRow, quantity: number) => {
+    if (!Number.isInteger(quantity) || quantity < 0) return setNotice({ tone: "error", text: "Stock must be a whole number of zero or more." });
+    const response = await fetch("/api/cms/inventory", { method: "PATCH", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ siteId: activeSiteId, productId: row.productId, variantId: row.variantId, quantity }) });
+    const payload = await response.json().catch(() => ({})) as { inventory?: CmsInventoryRow; error?: string };
+    if (response.ok && payload.inventory) {
+      setInventory((current) => current.map((item) => item.productId === row.productId && item.variantId === row.variantId ? { ...item, ...payload.inventory } : item));
+      setNotice({ tone: "success", text: `${row.sku} inventory updated.` });
+    } else setNotice({ tone: "error", text: payload.error || "Unable to update inventory." });
+  };
+
   const uploadMedia = async (event: React.FormEvent) => {
     event.preventDefault();
     const file = mediaInput.current?.files?.[0];
@@ -532,7 +586,7 @@ export function AdminStudioV6() {
           <span>Draft changes autosave · public stays on published version</span>
         </nav>
 
-        <P0Panels tab={tab} config={config} updateConfig={updateConfig} setHome={setHome} toggleModule={toggleModule} moveModule={moveModule} domainForm={domainForm} setDomainForm={setDomainForm} saveDomain={saveDomain} site={site} activeSiteId={activeSiteId} cmsRole={cmsRole} diff={diff} scheduleForm={scheduleForm} setScheduleForm={setScheduleForm} saveSchedule={saveSchedule} schedules={schedules} cancelScheduledPublish={cancelScheduledPublish} busy={busy} publish={publish} members={members} invitations={invitations} changeMemberRole={changeMemberRole} removeAccess={removeAccess} revokeAccessInvite={revokeAccessInvite} auditLogs={auditLogs} loadWorkspaceData={loadWorkspaceData} />
+        <P0Panels tab={tab} config={config} updateConfig={updateConfig} setHome={setHome} toggleModule={toggleModule} moveModule={moveModule} domainForm={domainForm} setDomainForm={setDomainForm} saveDomain={saveDomain} site={site} activeSiteId={activeSiteId} cmsRole={cmsRole} diff={diff} scheduleForm={scheduleForm} setScheduleForm={setScheduleForm} saveSchedule={saveSchedule} schedules={schedules} cancelScheduledPublish={cancelScheduledPublish} busy={busy} publish={publish} members={members} invitations={invitations} changeMemberRole={changeMemberRole} removeAccess={removeAccess} revokeAccessInvite={revokeAccessInvite} auditLogs={auditLogs} loadWorkspaceData={loadWorkspaceData} orders={orders} inventory={inventory} loadCommerceData={loadCommerceData} updateOrder={updateOrder} updateStock={updateStock} domains={domains} />
 
         {tab === "overview" && <section className="v6-grid v6-overview">
           <div className="v6-card v6-card-large"><p className="eyebrow">Launch readiness</p><h2>{checks.filter((check) => check.done).length}/{checks.length} checks ready.</h2><p className="v6-muted">Publish creates a revision that can be rolled back from the Versions tab.</p><div className="v6-checks">{checks.map((check) => <div className={check.done ? "done" : ""} key={check.label}><span>{check.done ? "✓" : "·"}</span>{check.label}</div>)}</div><button className="button button-dark" onClick={() => void publish()} disabled={busy || checks.some((check) => !check.done)}>Publish when ready <span>↗</span></button></div>

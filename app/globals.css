@@ -480,6 +480,11 @@ button:disabled, .button:disabled { cursor: not-allowed; opacity: .45; }
 .v6-field textarea { min-height: 98px; resize: vertical; line-height: 1.5; }
 .v6-field input:focus, .v6-field textarea:focus, .v6-field select:focus, .v6-sitebar select:focus, .v6-product-tools input:focus, .v6-product-tools select:focus, .v6-palette input[type="text"]:focus { border-color: var(--ink); }
 .v6-actions { display: flex; flex-wrap: wrap; gap: 10px; align-items: center; }
+.v6-inline-row { display: flex; align-items: center; justify-content: space-between; gap: 14px; border-top: 1px solid var(--line); padding: 12px 0; font-size: 12px; }
+.v6-inline-row small { display: block; color: var(--muted); margin-top: 4px; font-size: 10px; }
+.v6-inline-input input { width: 86px; border: 1px solid var(--line); background: var(--paper); color: var(--ink); padding: 9px; }
+.v6-callout { display: grid; gap: 8px; border: 1px dashed var(--line); padding: 18px; margin: 24px 0; }
+.v6-callout span { color: var(--muted); font-size: 11px; }
 .v6-divider { border-top: 1px solid var(--line); margin-top: 35px; padding-top: 25px; }
 .v6-palette { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 15px; }
 .v6-palette label > div { display: flex; gap: 8px; }

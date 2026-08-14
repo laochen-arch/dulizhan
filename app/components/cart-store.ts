@@ -96,5 +96,10 @@ export function useStore() {
       persist();
       emit();
     },
+    clearCart: () => {
+      state = { ...state, cart: [] };
+      persist();
+      emit();
+    },
   };
 }

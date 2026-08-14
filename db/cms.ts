@@ -60,6 +60,17 @@ export type CmsSchedule = {
   publishedAt: string | null;
 };
 
+export type CmsDomain = {
+  id: string;
+  siteId: string;
+  hostname: string;
+  status: "pending" | "verified" | "active" | "failed";
+  verificationToken: string;
+  verifiedAt: string | null;
+  lastCheckedAt: string | null;
+  createdAt: string;
+};
+
 export type CmsSnapshotDiff = {
   configChanged: boolean;
   productsAdded: number;
@@ -101,14 +112,14 @@ export type CmsSnapshot = {
   role?: CmsRole;
 };
 
-type D1Statement = {
+export type D1Statement = {
   bind: (...values: unknown[]) => D1Statement;
   run: () => Promise<unknown>;
   first: <T>() => Promise<T | null>;
   all: <T>() => Promise<{ results: T[] }>;
 };
 
-type D1DatabaseLike = {
+export type D1DatabaseLike = {
   prepare: (sql: string) => D1Statement;
   batch: (statements: D1Statement[]) => Promise<unknown>;
 };
@@ -152,7 +163,7 @@ function hostnameFromRequestHost(host: string | null) {
   return normalizeDomain(host) ?? "";
 }
 
-async function recordAudit(
+export async function recordAudit(
   database: D1DatabaseLike,
   siteId: string,
   actor: { userId: string; email: string },
@@ -186,13 +197,15 @@ function getD1(): D1DatabaseLike {
   return database;
 }
 
+export const getCmsDatabase = getD1;
+
 export function getMediaBucket(): R2BucketLike {
   const bucket = (env as unknown as { MEDIA?: R2BucketLike }).MEDIA;
   if (!bucket) throw new Error("Media storage is not available. Configure the Sites R2 binding as MEDIA.");
   return bucket;
 }
 
-async function ensureCmsSchema(database: D1DatabaseLike) {
+export async function ensureCmsSchema(database: D1DatabaseLike) {
   await database.batch([
     database.prepare(`CREATE TABLE IF NOT EXISTS cms_sites (
       id TEXT PRIMARY KEY,
@@ -288,6 +301,95 @@ async function ensureCmsSchema(database: D1DatabaseLike) {
       created_at TEXT NOT NULL,
       published_at TEXT
     )`),
+    database.prepare(`CREATE TABLE IF NOT EXISTS cms_site_domains (
+      id TEXT PRIMARY KEY,
+      site_id TEXT NOT NULL,
+      hostname TEXT NOT NULL UNIQUE,
+      status TEXT NOT NULL DEFAULT 'pending',
+      verification_token TEXT NOT NULL,
+      verified_at TEXT,
+      last_checked_at TEXT,
+      created_at TEXT NOT NULL
+    )`),
+    database.prepare(`CREATE TABLE IF NOT EXISTS cms_inventory (
+      site_id TEXT NOT NULL,
+      product_id TEXT NOT NULL,
+      variant_id TEXT NOT NULL,
+      sku TEXT NOT NULL,
+      quantity INTEGER NOT NULL DEFAULT 0,
+      reserved_quantity INTEGER NOT NULL DEFAULT 0,
+      updated_at TEXT NOT NULL,
+      PRIMARY KEY (site_id, product_id, variant_id)
+    )`),
+    database.prepare(`CREATE TABLE IF NOT EXISTS cms_inventory_transactions (
+      id TEXT PRIMARY KEY,
+      site_id TEXT NOT NULL,
+      product_id TEXT NOT NULL,
+      variant_id TEXT NOT NULL,
+      sku TEXT NOT NULL,
+      delta INTEGER NOT NULL,
+      reason TEXT NOT NULL,
+      reference_id TEXT,
+      created_by TEXT NOT NULL,
+      created_at TEXT NOT NULL
+    )`),
+    database.prepare(`CREATE TABLE IF NOT EXISTS cms_orders (
+      id TEXT PRIMARY KEY,
+      site_id TEXT NOT NULL,
+      order_number TEXT NOT NULL UNIQUE,
+      email TEXT NOT NULL,
+      customer_name TEXT NOT NULL,
+      currency TEXT NOT NULL DEFAULT 'usd',
+      subtotal REAL NOT NULL,
+      shipping REAL NOT NULL,
+      tax REAL NOT NULL DEFAULT 0,
+      total REAL NOT NULL,
+      status TEXT NOT NULL DEFAULT 'pending',
+      payment_status TEXT NOT NULL DEFAULT 'pending',
+      fulfillment_status TEXT NOT NULL DEFAULT 'unfulfilled',
+      stripe_session_id TEXT UNIQUE,
+      stripe_payment_intent_id TEXT,
+      shipping_address TEXT NOT NULL,
+      tracking_number TEXT,
+      created_at TEXT NOT NULL,
+      updated_at TEXT NOT NULL,
+      paid_at TEXT,
+      shipped_at TEXT
+    )`),
+    database.prepare(`CREATE TABLE IF NOT EXISTS cms_order_items (
+      id TEXT PRIMARY KEY,
+      order_id TEXT NOT NULL,
+      site_id TEXT NOT NULL,
+      product_id TEXT NOT NULL,
+      variant_id TEXT NOT NULL,
+      sku TEXT NOT NULL,
+      name TEXT NOT NULL,
+      variant_label TEXT NOT NULL,
+      unit_price REAL NOT NULL,
+      quantity INTEGER NOT NULL,
+      payload TEXT NOT NULL
+    )`),
+    database.prepare(`CREATE TABLE IF NOT EXISTS cms_payment_events (
+      id TEXT PRIMARY KEY,
+      site_id TEXT NOT NULL,
+      provider_event_id TEXT NOT NULL UNIQUE,
+      event_type TEXT NOT NULL,
+      payload TEXT NOT NULL,
+      created_at TEXT NOT NULL,
+      processed_at TEXT
+    )`),
+    database.prepare(`CREATE TABLE IF NOT EXISTS cms_order_notifications (
+      id TEXT PRIMARY KEY,
+      site_id TEXT NOT NULL,
+      order_id TEXT NOT NULL,
+      type TEXT NOT NULL,
+      status TEXT NOT NULL DEFAULT 'pending',
+      provider_id TEXT,
+      error TEXT,
+      created_at TEXT NOT NULL,
+      sent_at TEXT,
+      UNIQUE(order_id, type)
+    )`),
     database.prepare("CREATE INDEX IF NOT EXISTS cms_sites_status_idx ON cms_sites(status)"),
     database.prepare("CREATE INDEX IF NOT EXISTS cms_site_products_site_idx ON cms_site_products(site_id)"),
     database.prepare("CREATE INDEX IF NOT EXISTS cms_members_email_idx ON cms_members(site_id, email)"),
@@ -297,6 +399,15 @@ async function ensureCmsSchema(database: D1DatabaseLike) {
     database.prepare("CREATE INDEX IF NOT EXISTS cms_invitations_email_idx ON cms_invitations(site_id, email)"),
     database.prepare("CREATE INDEX IF NOT EXISTS cms_audit_site_idx ON cms_audit_logs(site_id, created_at)"),
     database.prepare("CREATE INDEX IF NOT EXISTS cms_schedules_site_idx ON cms_scheduled_publishes(site_id, status, scheduled_at)"),
+    database.prepare("CREATE INDEX IF NOT EXISTS cms_site_domains_site_idx ON cms_site_domains(site_id)"),
+    database.prepare("CREATE INDEX IF NOT EXISTS cms_inventory_site_sku_idx ON cms_inventory(site_id, sku)"),
+    database.prepare("CREATE INDEX IF NOT EXISTS cms_inventory_tx_site_idx ON cms_inventory_transactions(site_id, created_at)"),
+    database.prepare("CREATE INDEX IF NOT EXISTS cms_orders_site_status_idx ON cms_orders(site_id, status, created_at)"),
+    database.prepare("CREATE INDEX IF NOT EXISTS cms_orders_site_email_idx ON cms_orders(site_id, email)"),
+    database.prepare("CREATE INDEX IF NOT EXISTS cms_order_items_order_idx ON cms_order_items(order_id)"),
+    database.prepare("CREATE INDEX IF NOT EXISTS cms_order_items_site_idx ON cms_order_items(site_id)"),
+    database.prepare("CREATE INDEX IF NOT EXISTS cms_payment_events_site_idx ON cms_payment_events(site_id, created_at)"),
+    database.prepare("CREATE INDEX IF NOT EXISTS cms_order_notifications_site_idx ON cms_order_notifications(site_id, created_at)"),
   ]);
 }
 
@@ -366,6 +477,13 @@ export async function updateSiteIdentity(siteId: string, changes: { name?: strin
   }
   const timestamp = now();
   await database.prepare("UPDATE cms_sites SET name = ?1, slug = ?2, domain = ?3, updated_at = ?4 WHERE id = ?5").bind(name, slug, domain, timestamp, siteId).run();
+  if (domain) {
+    await database.prepare(`INSERT INTO cms_site_domains (id, site_id, hostname, status, verification_token, verified_at, last_checked_at, created_at)
+      VALUES (?1, ?2, ?3, 'pending', ?4, NULL, NULL, ?5)
+      ON CONFLICT(hostname) DO UPDATE SET site_id = excluded.site_id, status = CASE WHEN cms_site_domains.status = 'verified' THEN cms_site_domains.status ELSE 'pending' END`).bind(`domain_${crypto.randomUUID()}`, siteId, domain, `verify_${crypto.randomUUID()}`, timestamp).run();
+  } else {
+    await database.prepare("DELETE FROM cms_site_domains WHERE site_id = ?1").bind(siteId).run();
+  }
   await recordAudit(database, siteId, { userId, email }, "site.updated", "site", siteId, { name, slug, domain });
   return { ...current, name, slug, domain, updatedAt: timestamp };
 }
