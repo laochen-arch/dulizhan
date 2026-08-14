@@ -115,7 +115,10 @@ function readStoredCatalog(): Product[] {
 }
 
 async function fetchCmsPayload(siteId: string, mode: CmsMode): Promise<CmsPayload> {
-  const params = new URLSearchParams({ siteId, mode });
+  const params = new URLSearchParams({ mode });
+  // Public storefronts resolve the tenant from the request Host header.
+  // Draft/admin workspaces keep an explicit site selection.
+  if (mode === "draft") params.set("siteId", siteId);
   const response = await fetch(`/api/cms?${params.toString()}`, { cache: "no-store" });
   const payload = await response.json().catch(() => ({})) as CmsPayload & { error?: string; code?: string };
   if (!response.ok) {
@@ -173,6 +176,7 @@ export function SiteRuntimeProvider({ children }: { children: React.ReactNode })
     try {
       const payload = await fetchCmsPayload(activeSiteId, cmsMode);
       applyCmsPayload(payload);
+      if (cmsMode === "published" && payload.site.id !== activeSiteId) setActiveSiteIdState(payload.site.id);
       setCmsReady(true);
       setCmsStatus("synced");
     } catch (error) {

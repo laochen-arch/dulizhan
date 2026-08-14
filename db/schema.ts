@@ -87,3 +87,40 @@ export const cmsAssets = sqliteTable("cms_assets", {
   createdAt: text("created_at").notNull(),
   createdBy: text("created_by").notNull(),
 }, (table) => [index("cms_assets_site_idx").on(table.siteId)]);
+
+export const cmsInvitations = sqliteTable("cms_invitations", {
+  id: text("id").primaryKey(),
+  siteId: text("site_id").notNull(),
+  email: text("email").notNull(),
+  role: text("role").notNull().default("viewer"),
+  tokenHash: text("token_hash").notNull().unique(),
+  status: text("status").notNull().default("pending"),
+  expiresAt: text("expires_at").notNull(),
+  invitedBy: text("invited_by").notNull(),
+  createdAt: text("created_at").notNull(),
+  acceptedAt: text("accepted_at"),
+}, (table) => [index("cms_invitations_site_idx").on(table.siteId, table.status), index("cms_invitations_email_idx").on(table.siteId, table.email)]);
+
+export const cmsAuditLogs = sqliteTable("cms_audit_logs", {
+  id: text("id").primaryKey(),
+  siteId: text("site_id").notNull(),
+  actorUserId: text("actor_user_id").notNull(),
+  actorEmail: text("actor_email").notNull(),
+  action: text("action").notNull(),
+  entityType: text("entity_type").notNull(),
+  entityId: text("entity_id"),
+  metadata: text("metadata"),
+  createdAt: text("created_at").notNull(),
+}, (table) => [index("cms_audit_site_idx").on(table.siteId, table.createdAt)]);
+
+export const cmsScheduledPublishes = sqliteTable("cms_scheduled_publishes", {
+  id: text("id").primaryKey(),
+  siteId: text("site_id").notNull(),
+  label: text("label").notNull(),
+  scheduledAt: text("scheduled_at").notNull(),
+  status: text("status").notNull().default("pending"),
+  createdBy: text("created_by").notNull(),
+  createdByEmail: text("created_by_email").notNull(),
+  createdAt: text("created_at").notNull(),
+  publishedAt: text("published_at"),
+}, (table) => [index("cms_schedules_site_idx").on(table.siteId, table.status, table.scheduledAt)]);

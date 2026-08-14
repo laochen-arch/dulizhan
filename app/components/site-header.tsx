@@ -32,7 +32,7 @@ export function SiteHeader() {
 
   return (
     <header className="site-header">
-      <div className="announcement">Free US shipping on orders over $100 <span>-</span> Built for the long way around</div>
+      <div className="announcement">{config.announcement.text} <span>-</span> {config.announcement.accent}</div>
       <div className="nav-wrap container">
         <button type="button" className="menu-toggle" aria-label={menuOpen ? "Close menu" : "Open menu"} aria-expanded={menuOpen} onClick={() => setMenuOpen((open) => !open)}>
           <span />

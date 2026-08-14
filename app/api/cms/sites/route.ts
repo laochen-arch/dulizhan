@@ -1,5 +1,5 @@
-import { createSite, listSites } from "../../../../db/cms";
-import { errorResponse, currentUser } from "../helpers";
+import { createSite, listSites, updateSiteIdentity } from "../../../../db/cms";
+import { errorResponse, currentUser, getSiteId, requireMember } from "../helpers";
 
 export const dynamic = "force-dynamic";
 
@@ -23,6 +23,18 @@ export async function POST(request: Request) {
     if (!name || !/^[a-z0-9]+(?:-[a-z0-9]+)*$/.test(slug)) return Response.json({ error: "Provide a client name and a lowercase URL slug.", code: "INVALID_SITE" }, { status: 400 });
     const site = await createSite(name, slug, user.userId, user.email);
     return Response.json({ site }, { status: 201, headers: { "Cache-Control": "no-store" } });
+  } catch (error) {
+    return errorResponse(error);
+  }
+}
+
+export async function PATCH(request: Request) {
+  try {
+    const payload = await request.json() as { siteId?: string; name?: string; slug?: string; domain?: string | null };
+    const siteId = getSiteId(request, payload.siteId);
+    const access = await requireMember(siteId, "owner");
+    const site = await updateSiteIdentity(siteId, { name: payload.name, slug: payload.slug, domain: payload.domain }, access.user.userId, access.user.email);
+    return Response.json({ site }, { headers: { "Cache-Control": "no-store" } });
   } catch (error) {
     return errorResponse(error);
   }

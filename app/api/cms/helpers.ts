@@ -40,6 +40,10 @@ export function errorResponse(error: unknown) {
   if (message === "FORBIDDEN") return Response.json({ error: "You do not have access to this client site.", code: "FORBIDDEN" }, { status: 403, headers: { "Cache-Control": "no-store" } });
   if (message === "VIEWER_READ_ONLY") return Response.json({ error: "Viewer accounts cannot edit or publish content.", code: "VIEWER_READ_ONLY" }, { status: 403, headers: { "Cache-Control": "no-store" } });
   if (message === "REVISION_NOT_FOUND" || message === "ASSET_NOT_FOUND") return Response.json({ error: "The requested CMS record was not found.", code: message }, { status: 404, headers: { "Cache-Control": "no-store" } });
+  if (message === "INVITATION_NOT_FOUND" || message === "MEMBER_NOT_FOUND") return Response.json({ error: "The requested access record was not found.", code: message }, { status: 404, headers: { "Cache-Control": "no-store" } });
+  if (["INVALID_INVITATION", "INVITATION_NOT_ACTIVE", "INVITATION_EMAIL_MISMATCH"].includes(message)) return Response.json({ error: "This invitation cannot be accepted by the current account.", code: message }, { status: 400, headers: { "Cache-Control": "no-store" } });
+  if (["LAST_OWNER", "CANNOT_REMOVE_SELF", "DOMAIN_IN_USE"].includes(message)) return Response.json({ error: "This access or domain change is not allowed.", code: message }, { status: 400, headers: { "Cache-Control": "no-store" } });
+  if (["INVALID_SITE", "INVALID_MEMBER", "INVALID_SCHEDULE"].includes(message)) return Response.json({ error: "The submitted CMS fields are invalid.", code: message }, { status: 400, headers: { "Cache-Control": "no-store" } });
   if (message === "SITE_NOT_FOUND") return Response.json({ error: "The requested client site was not found.", code: message }, { status: 404, headers: { "Cache-Control": "no-store" } });
   if (message.startsWith("PUBLISH_CHECKS:")) {
     try {

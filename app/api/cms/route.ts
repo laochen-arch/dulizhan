@@ -1,4 +1,4 @@
-import { readSnapshot, writeDraft } from "../../../db/cms";
+import { readSnapshot, resolveSiteByHost, writeDraft } from "../../../db/cms";
 import type { Product } from "../../data/products";
 import type { SiteConfig } from "../../data/site-config";
 import { errorResponse, getSiteId, requireMember } from "./helpers";
@@ -27,7 +27,10 @@ export async function GET(request: Request) {
   try {
     const url = new URL(request.url);
     const mode = url.searchParams.get("mode") === "draft" ? "draft" : "published";
-    const siteId = getSiteId(request);
+    const explicitSiteId = url.searchParams.get("siteId");
+    const siteId = explicitSiteId && /^[a-zA-Z0-9_-]{2,80}$/.test(explicitSiteId)
+      ? explicitSiteId
+      : mode === "published" ? (await resolveSiteByHost(request.headers.get("host"))).id : getSiteId(request);
     const access = mode === "draft" ? await requireMember(siteId, "viewer") : null;
     const snapshot = await readSnapshot(siteId, mode, access ? { userId: access.user.userId, email: access.user.email } : undefined);
     return Response.json(snapshot, { headers: { "Cache-Control": "no-store" } });

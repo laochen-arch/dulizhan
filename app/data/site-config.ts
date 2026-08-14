@@ -39,6 +39,10 @@ export const siteConfig = {
     { label: "Organize", href: "/shop?category=Organize" },
     { label: "Our story", href: "/about" },
   ],
+  announcement: {
+    text: "Free US shipping on orders over $100",
+    accent: "Built for the long way around",
+  },
   assets: {
     hero: "https://images.unsplash.com/photo-1522199710521-72d69614c702?auto=format&fit=crop&w=1800&q=88",
     story: "https://images.unsplash.com/photo-1464822759023-fed622ff2c3b?auto=format&fit=crop&w=1200&q=85",
@@ -47,6 +51,7 @@ export const siteConfig = {
   },
   content: {
     home: {
+      modules: ["hero", "intro", "products", "story", "journal", "newsletter"],
       heroLabel: "Northline Supply / Est. 2024",
       heroTitleLead: "Pack lighter.",
       heroTitleAccent: "Go further.",
@@ -64,6 +69,12 @@ export const siteConfig = {
       newsletterTitleLead: "Small notes for",
       newsletterTitleAccent: "faraway places.",
       newsletterBody: "New gear, field notes, and occasional reasons to change your route.",
+      productsLabel: "The essentials",
+      productsTitleLead: "Take only",
+      productsTitleAccent: "what matters.",
+      journalLabel: "From the journal",
+      journalTitleLead: "Notes for",
+      journalTitleAccent: "the road ahead.",
     },
     about: {
       label: "Northline / Our story",
@@ -91,6 +102,11 @@ export const siteConfig = {
       returnsLead: "Returns are accepted within 30 days of delivery when items are unused and in original condition.",
       shippingThreshold: "$100",
     },
+    legal: {
+      privacyLabel: "Privacy",
+      termsLabel: "Terms",
+      accessibilityLabel: "Accessibility",
+    },
   },
   seo: {
     title: "Considered gear for the space between here and there.",
@@ -102,6 +118,7 @@ export const siteConfig = {
     replacementMode: "Replace config, catalog, media, and legal copy per client",
     handoffRule: "New client materials should map to the replacement list before implementation.",
     localPreviewStorage: "Browser-local demo storage; connect a CMS or database for production editing.",
+    handoffStatus: "Ready for client replacement",
   },
 } as const;
 

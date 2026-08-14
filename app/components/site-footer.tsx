@@ -18,7 +18,7 @@ export function SiteFooter() {
         <div className="footer-column"><p className="footer-label">Support</p><Link href="/shipping">Shipping & returns</Link><a href={`mailto:${config.content.contact.email}`}>Contact us</a><a href={`mailto:${config.content.contact.tradeEmail}`}>Trade inquiries</a></div>
         <div className="footer-column"><p className="footer-label">Follow along</p><a href={config.content.contact.instagram} target="_blank" rel="noreferrer">Instagram -&gt;</a><a href={config.content.contact.pinterest} target="_blank" rel="noreferrer">Pinterest -&gt;</a><a href={config.content.contact.youtube} target="_blank" rel="noreferrer">YouTube -&gt;</a></div>
       </div>
-      <div className="container footer-bottom"><span>(c) {new Date().getFullYear()} {config.brand.name}</span><span>Privacy - Terms - Accessibility</span></div>
+      <div className="container footer-bottom"><span>(c) {new Date().getFullYear()} {config.brand.name}</span><span><Link href="/shipping">{config.content.legal.privacyLabel}</Link> - <Link href="/shipping">{config.content.legal.termsLabel}</Link> - <Link href="/shipping">{config.content.legal.accessibilityLabel}</Link></span></div>
     </footer>
   );
 }

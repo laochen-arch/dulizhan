@@ -15,6 +15,13 @@
       "when": 1786721961277,
       "tag": "0001_futuristic_warbound",
       "breakpoints": true
+    },
+    {
+      "idx": 2,
+      "version": "6",
+      "when": 1786726290447,
+      "tag": "0002_tricky_ben_parker",
+      "breakpoints": true
     }
   ]
 }
