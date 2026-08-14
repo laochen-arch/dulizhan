@@ -266,11 +266,18 @@ async function ensureMember(siteId: string, userId: string, email: string, datab
   const existing = await database.prepare(`SELECT site_id AS siteId, user_id AS userId, email, role, created_at AS createdAt
     FROM cms_members WHERE site_id = ?1 AND (user_id = ?2 OR lower(email) = lower(?3)) LIMIT 1`).bind(siteId, userId, email).first<CmsMember>();
   if (existing) return existing;
-  const count = await database.prepare("SELECT COUNT(*) AS count FROM cms_members WHERE site_id = ?1").bind(siteId).first<{ count: number }>();
-  if ((count?.count ?? 0) > 0) throw new Error("FORBIDDEN");
   const member: CmsMember = { siteId, userId, email, role: "owner", createdAt: now() };
-  await database.prepare("INSERT INTO cms_members (site_id, user_id, email, role, created_at) VALUES (?1, ?2, ?3, ?4, ?5)").bind(siteId, userId, email, member.role, member.createdAt).run();
-  return member;
+  // The first signed-in user bootstraps a site as owner. Use one atomic
+  // INSERT ... SELECT so concurrent CMS requests cannot both observe an empty
+  // membership table and race into the composite primary key.
+  await database.prepare(`INSERT INTO cms_members (site_id, user_id, email, role, created_at)
+    SELECT ?1, ?2, ?3, ?4, ?5
+    WHERE NOT EXISTS (SELECT 1 FROM cms_members WHERE site_id = ?1)
+    ON CONFLICT(site_id, user_id) DO NOTHING`).bind(siteId, userId, email, member.role, member.createdAt).run();
+  const created = await database.prepare(`SELECT site_id AS siteId, user_id AS userId, email, role, created_at AS createdAt
+    FROM cms_members WHERE site_id = ?1 AND (user_id = ?2 OR lower(email) = lower(?3)) LIMIT 1`).bind(siteId, userId, email).first<CmsMember>();
+  if (created) return created;
+  throw new Error("FORBIDDEN");
 }
 
 export async function getMember(siteId: string, userId: string, email: string): Promise<CmsMember> {
