@@ -1,6 +1,8 @@
 "use client";
 
+import { usePathname } from "next/navigation";
 import { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState } from "react";
+import type { CmsMode, CmsRole, CmsSite, CmsRevision } from "../../db/cms";
 import { products, type Product } from "../data/products";
 import { siteConfig, type SiteConfig } from "../data/site-config";
 
@@ -15,10 +17,15 @@ export type CmsStatus = "connecting" | "synced" | "saving" | "saved" | "offline"
 
 export const SITE_CONFIG_STORAGE_KEY = "northline-site-config-v3";
 export const PRODUCT_CATALOG_STORAGE_KEY = "northline-product-catalog-v3";
+export const ACTIVE_SITE_STORAGE_KEY = "northline-active-site-v6";
 
 type CmsPayload = {
+  site: CmsSite;
   config: SiteConfig;
   catalog: Product[];
+  mode: CmsMode;
+  updatedAt: string;
+  role?: CmsRole;
 };
 
 type RuntimeContextValue = {
@@ -27,11 +34,19 @@ type RuntimeContextValue = {
   hydrated: boolean;
   cmsStatus: CmsStatus;
   cmsError: string;
+  activeSiteId: string;
+  site: CmsSite | null;
+  cmsMode: CmsMode;
+  cmsRole?: CmsRole;
   updateConfig: (updater: (current: EditableSiteConfig) => EditableSiteConfig) => void;
   updateCatalog: (updater: (current: Product[]) => Product[]) => void;
   resetConfig: () => void;
   resetCatalog: () => void;
   refreshCms: () => Promise<void>;
+  setActiveSiteId: (siteId: string) => void;
+  publishCms: (label?: string) => Promise<{ ok: boolean; error?: string; checks?: string[] }>;
+  fetchRevisions: () => Promise<CmsRevision[]>;
+  rollbackCms: (revisionId: string) => Promise<boolean>;
 };
 
 const RuntimeContext = createContext<RuntimeContextValue | null>(null);
@@ -99,15 +114,16 @@ function readStoredCatalog(): Product[] {
   }
 }
 
-async function fetchCmsPayload(): Promise<CmsPayload> {
-  const response = await fetch("/api/cms", { cache: "no-store" });
+async function fetchCmsPayload(siteId: string, mode: CmsMode): Promise<CmsPayload> {
+  const params = new URLSearchParams({ siteId, mode });
+  const response = await fetch(`/api/cms?${params.toString()}`, { cache: "no-store" });
   const payload = await response.json().catch(() => ({})) as CmsPayload & { error?: string; code?: string };
   if (!response.ok) {
     const error = new Error(payload.error || "CMS is unavailable.") as Error & { code?: string };
     error.code = payload.code;
     throw error;
   }
-  if (!payload.config || !Array.isArray(payload.catalog)) throw new Error("CMS returned an invalid storefront payload.");
+  if (!payload.config || !Array.isArray(payload.catalog) || !payload.site) throw new Error("CMS returned an invalid storefront payload.");
   return payload;
 }
 
@@ -120,12 +136,21 @@ function getCmsStatus(error: unknown): CmsStatus {
 }
 
 export function SiteRuntimeProvider({ children }: { children: React.ReactNode }) {
+  const pathname = usePathname();
+  const cmsMode: CmsMode = pathname.startsWith("/admin") || pathname.startsWith("/preview") ? "draft" : "published";
   const [config, setConfig] = useState<EditableSiteConfig>(defaultConfig);
   const [catalog, setCatalog] = useState<Product[]>(() => clone(products));
   const [hydrated, setHydrated] = useState(false);
   const [cmsStatus, setCmsStatus] = useState<CmsStatus>("connecting");
   const [cmsError, setCmsError] = useState("");
   const [cmsReady, setCmsReady] = useState(false);
+  const [activeSiteId, setActiveSiteIdState] = useState(() => {
+    if (typeof window === "undefined") return "default";
+    const storedSiteId = window.localStorage.getItem(ACTIVE_SITE_STORAGE_KEY);
+    return storedSiteId && /^[a-zA-Z0-9_-]{2,80}$/.test(storedSiteId) ? storedSiteId : "default";
+  });
+  const [site, setSite] = useState<CmsSite | null>(null);
+  const [cmsRole, setCmsRole] = useState<CmsRole | undefined>();
   const saveTimer = useRef<ReturnType<typeof window.setTimeout> | null>(null);
   const cmsDirty = useRef(false);
   const changeVersion = useRef(0);
@@ -135,6 +160,8 @@ export function SiteRuntimeProvider({ children }: { children: React.ReactNode })
     const nextCatalog = payload.catalog.map((item) => normalizeProduct(item)).filter(Boolean) as Product[];
     setConfig(nextConfig);
     setCatalog(nextCatalog);
+    setSite(payload.site);
+    setCmsRole(payload.role);
     cmsDirty.current = false;
     window.localStorage.setItem(SITE_CONFIG_STORAGE_KEY, JSON.stringify(nextConfig));
     window.localStorage.setItem(PRODUCT_CATALOG_STORAGE_KEY, JSON.stringify(nextCatalog));
@@ -144,7 +171,7 @@ export function SiteRuntimeProvider({ children }: { children: React.ReactNode })
     setCmsStatus("connecting");
     setCmsError("");
     try {
-      const payload = await fetchCmsPayload();
+      const payload = await fetchCmsPayload(activeSiteId, cmsMode);
       applyCmsPayload(payload);
       setCmsReady(true);
       setCmsStatus("synced");
@@ -153,7 +180,7 @@ export function SiteRuntimeProvider({ children }: { children: React.ReactNode })
       setCmsStatus(getCmsStatus(error));
       setCmsError(getCmsError(error));
     }
-  }, [applyCmsPayload]);
+  }, [activeSiteId, applyCmsPayload, cmsMode]);
 
   useEffect(() => {
     try {
@@ -170,19 +197,15 @@ export function SiteRuntimeProvider({ children }: { children: React.ReactNode })
     }
     setHydrated(true);
     void refreshCms();
-  }, [refreshCms]);
+  }, [activeSiteId, cmsMode, refreshCms]);
 
   useEffect(() => {
-    if (!hydrated || !cmsReady || !cmsDirty.current) return;
+    if (!hydrated || !cmsReady || !cmsDirty.current || cmsMode !== "draft") return;
     if (saveTimer.current) window.clearTimeout(saveTimer.current);
     const versionAtSchedule = changeVersion.current;
     saveTimer.current = window.setTimeout(async () => {
       try {
-        const response = await fetch("/api/cms", {
-          method: "PUT",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ config, catalog }),
-        });
+        const response = await fetch("/api/cms", { method: "PUT", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ siteId: activeSiteId, config, catalog }) });
         const payload = await response.json().catch(() => ({})) as { error?: string; code?: string };
         if (!response.ok) {
           const error = new Error(payload.error || "CMS save failed.") as Error & { code?: string };
@@ -202,7 +225,7 @@ export function SiteRuntimeProvider({ children }: { children: React.ReactNode })
     return () => {
       if (saveTimer.current) window.clearTimeout(saveTimer.current);
     };
-  }, [catalog, config, cmsReady, hydrated]);
+  }, [activeSiteId, catalog, cmsMode, cmsReady, config, hydrated]);
 
   useEffect(() => {
     if (!hydrated) return;
@@ -214,45 +237,69 @@ export function SiteRuntimeProvider({ children }: { children: React.ReactNode })
   const updateConfig = useCallback((updater: (current: EditableSiteConfig) => EditableSiteConfig) => {
     cmsDirty.current = true;
     changeVersion.current += 1;
-    if (cmsReady) setCmsStatus("saving");
+    if (cmsReady && cmsMode === "draft") setCmsStatus("saving");
     setConfig((current) => {
       const next = updater(clone(current));
       window.localStorage.setItem(SITE_CONFIG_STORAGE_KEY, JSON.stringify(next));
       return next;
     });
-  }, [cmsReady]);
+  }, [cmsMode, cmsReady]);
 
   const updateCatalog = useCallback((updater: (current: Product[]) => Product[]) => {
     cmsDirty.current = true;
     changeVersion.current += 1;
-    if (cmsReady) setCmsStatus("saving");
+    if (cmsReady && cmsMode === "draft") setCmsStatus("saving");
     setCatalog((current) => {
       const next = updater(clone(current)).map((product) => normalizeProduct(product)).filter(Boolean) as Product[];
       window.localStorage.setItem(PRODUCT_CATALOG_STORAGE_KEY, JSON.stringify(next));
       return next;
     });
-  }, [cmsReady]);
+  }, [cmsMode, cmsReady]);
 
   const resetConfig = useCallback(() => {
     cmsDirty.current = true;
     changeVersion.current += 1;
-    if (cmsReady) setCmsStatus("saving");
+    if (cmsReady && cmsMode === "draft") setCmsStatus("saving");
     window.localStorage.removeItem(SITE_CONFIG_STORAGE_KEY);
     setConfig(defaultConfig());
-  }, [cmsReady]);
+  }, [cmsMode, cmsReady]);
 
   const resetCatalog = useCallback(() => {
     cmsDirty.current = true;
     changeVersion.current += 1;
-    if (cmsReady) setCmsStatus("saving");
+    if (cmsReady && cmsMode === "draft") setCmsStatus("saving");
     window.localStorage.removeItem(PRODUCT_CATALOG_STORAGE_KEY);
     setCatalog(clone(products));
-  }, [cmsReady]);
+  }, [cmsMode, cmsReady]);
 
-  const value = useMemo(
-    () => ({ config, catalog, hydrated, cmsStatus, cmsError, updateConfig, updateCatalog, resetConfig, resetCatalog, refreshCms }),
-    [catalog, config, cmsError, cmsStatus, hydrated, refreshCms, resetCatalog, resetConfig, updateCatalog, updateConfig],
-  );
+  const setActiveSiteId = useCallback((siteId: string) => {
+    if (!/^[a-zA-Z0-9_-]{2,80}$/.test(siteId)) return;
+    window.localStorage.setItem(ACTIVE_SITE_STORAGE_KEY, siteId);
+    setActiveSiteIdState(siteId);
+  }, []);
+
+  const publishCms = useCallback(async (label = "Published storefront") => {
+    const response = await fetch("/api/cms/publish", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ siteId: activeSiteId, label }) });
+    const payload = await response.json().catch(() => ({})) as { ok?: boolean; error?: string; checks?: string[] };
+    if (!response.ok) return { ok: false, error: payload.error, checks: payload.checks };
+    setCmsStatus("saved");
+    return { ok: true };
+  }, [activeSiteId]);
+
+  const fetchRevisions = useCallback(async () => {
+    const response = await fetch(`/api/cms/revisions?siteId=${encodeURIComponent(activeSiteId)}`, { cache: "no-store" });
+    const payload = await response.json().catch(() => ({})) as { revisions?: CmsRevision[] };
+    return response.ok ? payload.revisions ?? [] : [];
+  }, [activeSiteId]);
+
+  const rollbackCms = useCallback(async (revisionId: string) => {
+    const response = await fetch("/api/cms/revisions", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ siteId: activeSiteId, revisionId }) });
+    if (!response.ok) return false;
+    await refreshCms();
+    return true;
+  }, [activeSiteId, refreshCms]);
+
+  const value = useMemo(() => ({ config, catalog, hydrated, cmsStatus, cmsError, activeSiteId, site, cmsMode, cmsRole, updateConfig, updateCatalog, resetConfig, resetCatalog, refreshCms, setActiveSiteId, publishCms, fetchRevisions, rollbackCms }), [activeSiteId, catalog, cmsError, cmsMode, cmsRole, cmsStatus, config, fetchRevisions, hydrated, publishCms, refreshCms, resetCatalog, resetConfig, rollbackCms, setActiveSiteId, site, updateCatalog, updateConfig]);
 
   return <RuntimeContext.Provider value={value}>{children}</RuntimeContext.Provider>;
 }

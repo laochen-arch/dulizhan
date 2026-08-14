@@ -1,71 +1,50 @@
-import { getChatGPTUser } from "../../chatgpt-auth";
-import { readCmsSnapshot, writeCmsSnapshot } from "../../../db/cms";
+import { readSnapshot, writeDraft } from "../../../db/cms";
 import type { Product } from "../../data/products";
 import type { SiteConfig } from "../../data/site-config";
+import { errorResponse, getSiteId, requireMember } from "./helpers";
 
 export const dynamic = "force-dynamic";
-
-function jsonError(message: string, status: number, code?: string) {
-  return Response.json({ error: message, code }, { status, headers: { "Cache-Control": "no-store" } });
-}
 
 function isValidProduct(product: unknown): product is Product {
   if (!product || typeof product !== "object") return false;
   const value = product as Partial<Product>;
-  return Boolean(
-    value.id &&
-      value.slug &&
-      value.name &&
-      value.category &&
-      value.sku &&
-      typeof value.price === "number" &&
-      typeof value.stock === "number" &&
-      Array.isArray(value.images) &&
-      Array.isArray(value.variants),
-  );
+  return Boolean(value.id && value.slug && value.name && value.category && value.sku && typeof value.price === "number" && typeof value.stock === "number" && Array.isArray(value.images) && Array.isArray(value.variants));
 }
 
-function parsePayload(value: unknown): { config: SiteConfig; catalog: Product[] } | null {
+function parsePayload(value: unknown): { siteId?: string; config: SiteConfig; catalog: Product[] } | null {
   if (!value || typeof value !== "object") return null;
-  const payload = value as { config?: unknown; catalog?: unknown };
+  const payload = value as { siteId?: unknown; config?: unknown; catalog?: unknown };
   if (!payload.config || typeof payload.config !== "object" || !Array.isArray(payload.catalog)) return null;
   const config = payload.config as SiteConfig;
   if (!config.brand?.name || !config.brand?.mark || !config.theme?.colors?.ink || !config.seo?.title) return null;
   if (!payload.catalog.every(isValidProduct)) return null;
   const slugs = payload.catalog.map((product) => product.slug);
   if (new Set(slugs).size !== slugs.length) return null;
-  return { config, catalog: payload.catalog };
+  return { siteId: typeof payload.siteId === "string" ? payload.siteId : undefined, config, catalog: payload.catalog };
 }
 
-export async function GET() {
+export async function GET(request: Request) {
   try {
-    const snapshot = await readCmsSnapshot();
+    const url = new URL(request.url);
+    const mode = url.searchParams.get("mode") === "draft" ? "draft" : "published";
+    const siteId = getSiteId(request);
+    const access = mode === "draft" ? await requireMember(siteId, "viewer") : null;
+    const snapshot = await readSnapshot(siteId, mode, access ? { userId: access.user.userId, email: access.user.email } : undefined);
     return Response.json(snapshot, { headers: { "Cache-Control": "no-store" } });
   } catch (error) {
-    const message = error instanceof Error ? error.message : "CMS is unavailable";
-    return jsonError(message, 503, "CMS_UNAVAILABLE");
+    return errorResponse(error);
   }
 }
 
 export async function PUT(request: Request) {
-  const user = await getChatGPTUser();
-  if (!user) return jsonError("Sign in with ChatGPT to manage this storefront.", 401, "AUTH_REQUIRED");
-
-  let payload: unknown;
   try {
-    payload = await request.json();
-  } catch {
-    return jsonError("The CMS payload must be valid JSON.", 400, "INVALID_JSON");
-  }
-
-  const parsed = parsePayload(payload);
-  if (!parsed) return jsonError("The CMS payload is missing required brand or product fields.", 400, "INVALID_PAYLOAD");
-
-  try {
-    const result = await writeCmsSnapshot(parsed.config, parsed.catalog, user.userId);
+    const payload = parsePayload(await request.json());
+    if (!payload) return Response.json({ error: "The CMS payload is missing required brand or product fields.", code: "INVALID_PAYLOAD" }, { status: 400 });
+    const siteId = getSiteId(request, payload.siteId);
+    const access = await requireMember(siteId, "editor");
+    const result = await writeDraft(siteId, payload.config, payload.catalog, access.user.userId, access.user.email);
     return Response.json({ ok: true, ...result }, { headers: { "Cache-Control": "no-store" } });
   } catch (error) {
-    const message = error instanceof Error ? error.message : "CMS save failed";
-    return jsonError(message, 500, "CMS_WRITE_FAILED");
+    return errorResponse(error);
   }
 }
