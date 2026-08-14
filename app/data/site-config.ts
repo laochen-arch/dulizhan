@@ -72,6 +72,12 @@ export const siteConfig = {
       lead: "Northline is a small, independent gear company for people who know the best part of a journey is rarely the part you planned.",
       valuesLabel: "What we keep close",
     },
+    faq: {
+      label: "Good questions",
+      titleLead: "We'll keep",
+      titleAccent: "it simple.",
+      intro: "The useful answers, without the fine-print fog.",
+    },
     contact: {
       email: "hello@northlinesupply.com",
       tradeEmail: "trade@northlinesupply.com",
@@ -79,11 +85,23 @@ export const siteConfig = {
       pinterest: "https://pinterest.com",
       youtube: "https://youtube.com",
     },
+    policies: {
+      shippingLead: "Orders leave our studio within 1-2 business days.",
+      deliveryLead: "Standard delivery typically takes 3-5 business days after dispatch.",
+      returnsLead: "Returns are accepted within 30 days of delivery when items are unused and in original condition.",
+      shippingThreshold: "$100",
+    },
+  },
+  seo: {
+    title: "Considered gear for the space between here and there.",
+    description: "Premium travel and outdoor essentials made for early starts, open roads, and the long way around.",
+    keywords: "travel gear, outdoor essentials, packing cubes, backpacks, hydration",
   },
   b2b: {
     templateRole: "White-label independent ecommerce storefront",
     replacementMode: "Replace config, catalog, media, and legal copy per client",
     handoffRule: "New client materials should map to the replacement list before implementation.",
+    localPreviewStorage: "Browser-local demo storage; connect a CMS or database for production editing.",
   },
 } as const;
 

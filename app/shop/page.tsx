@@ -2,9 +2,9 @@
 
 import { useEffect, useMemo, useState } from "react";
 import { ProductCard } from "../components/product-card";
-import { products } from "../data/products";
+import { activeProducts, productCategories } from "../data/products";
 
-const categories = ["All gear", "Carry", "Organize", "Hydration"];
+const categories = ["All gear", ...productCategories];
 
 export default function ShopPage() {
   const [category, setCategory] = useState("All gear");
@@ -13,13 +13,17 @@ export default function ShopPage() {
 
   useEffect(() => {
     const urlCategory = new URLSearchParams(window.location.search).get("category");
-    if (urlCategory && categories.includes(urlCategory)) setCategory(urlCategory);
+    if (urlCategory && categories.includes(urlCategory)) {
+      // Read the initial filter from the URL once on mount.
+      // eslint-disable-next-line react-hooks/set-state-in-effect
+      setCategory(urlCategory);
+    }
   }, []);
 
   const filteredProducts = useMemo(() => {
-    const list = products.filter((product) => {
+    const list = activeProducts.filter((product) => {
       const categoryMatch = category === "All gear" || product.category === category;
-      const searchMatch = `${product.name} ${product.description}`.toLowerCase().includes(query.toLowerCase());
+      const searchMatch = `${product.name} ${product.description} ${product.sku} ${product.tags.join(" ")}`.toLowerCase().includes(query.toLowerCase());
       return categoryMatch && searchMatch;
     });
     if (sort === "Price: low to high") return [...list].sort((a, b) => a.price - b.price);
@@ -34,4 +38,3 @@ export default function ShopPage() {
     {filteredProducts.length ? <div className="product-grid shop-product-grid">{filteredProducts.map((product) => <ProductCard key={product.id} product={product} />)}</div> : <div className="empty-state"><span className="empty-mark">×</span><h2>Nothing found.</h2><p>Try another search or browse all of our gear.</p><button className="button button-dark" onClick={() => { setQuery(""); setCategory("All gear"); }}>Reset filters</button></div>}
   </div>;
 }
-

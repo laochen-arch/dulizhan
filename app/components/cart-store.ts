@@ -26,7 +26,14 @@ function persist() {
 }
 
 function defaultVariant(product: Product): ProductVariant {
-  return product.variants[0] ?? { id: `${product.id}-default`, label: "Standard", swatch: "#20211e" };
+  return product.variants[0] ?? {
+    id: `${product.id}-default`,
+    label: "Standard",
+    swatch: "#20211e",
+    sku: `${product.sku}-01`,
+    optionType: "Option",
+    available: true,
+  };
 }
 
 function normalizeCart(items: Array<Partial<CartLine> & Product & { quantity: number }>): CartLine[] {

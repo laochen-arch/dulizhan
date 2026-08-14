@@ -1,7 +1,7 @@
 import Link from "next/link";
 import { ProductCard } from "./components/product-card";
 import { NewsletterForm } from "./components/newsletter-form";
-import { products } from "./data/products";
+import { activeProducts } from "./data/products";
 import { siteConfig } from "./data/site-config";
 
 export default function Home() {
@@ -25,7 +25,7 @@ export default function Home() {
     </section>
 
     <section className="product-section section-pad">
-      <div className="container"><div className="section-heading"><div><p className="eyebrow">The essentials</p><h2>Take only<br /><em>what matters.</em></h2></div><Link href="/shop" className="text-link">Shop all gear <span>↗</span></Link></div><div className="product-grid home-product-grid">{products.slice(0, 3).map((product) => <ProductCard key={product.id} product={product} />)}</div></div>
+      <div className="container"><div className="section-heading"><div><p className="eyebrow">The essentials</p><h2>Take only<br /><em>what matters.</em></h2></div><Link href="/shop" className="text-link">Shop all gear <span>↗</span></Link></div><div className="product-grid home-product-grid">{activeProducts.filter((product) => product.featured).slice(0, 3).map((product) => <ProductCard key={product.id} product={product} />)}</div></div>
     </section>
 
     <section className="split-story container section-pad">

@@ -1,19 +1,8 @@
-export type Product = {
-  id: string;
-  slug: string;
+export type ProductStatus = "active" | "draft";
+
+export type ProductOption = {
   name: string;
-  shortName: string;
-  category: "Carry" | "Hydration" | "Organize";
-  price: number;
-  compareAt?: number;
-  description: string;
-  details: string;
-  image: string;
-  alt: string;
-  badge?: string;
-  colors: string[];
-  variants: ProductVariant[];
-  specs: string[];
+  values: string[];
 };
 
 export type ProductVariant = {
@@ -21,9 +10,52 @@ export type ProductVariant = {
   label: string;
   swatch: string;
   price?: number;
+  sku: string;
+  optionType: string;
+  size?: string;
+  available: boolean;
 };
 
-const catalog: Omit<Product, "variants">[] = [
+export type Product = {
+  id: string;
+  slug: string;
+  name: string;
+  shortName: string;
+  category: string;
+  sku: string;
+  status: ProductStatus;
+  featured: boolean;
+  price: number;
+  compareAt?: number;
+  description: string;
+  details: string;
+  image: string;
+  images: string[];
+  alt: string;
+  badge?: string;
+  colors: string[];
+  options: ProductOption[];
+  variants: ProductVariant[];
+  specs: string[];
+  tags: string[];
+  stock: number;
+  relatedSlugs: string[];
+};
+
+type CatalogItem = Omit<
+  Product,
+  | "sku"
+  | "status"
+  | "featured"
+  | "images"
+  | "options"
+  | "variants"
+  | "tags"
+  | "stock"
+  | "relatedSlugs"
+>;
+
+const catalog: CatalogItem[] = [
   {
     id: "northline-01",
     slug: "field-pack-28l",
@@ -128,13 +160,33 @@ const catalog: Omit<Product, "variants">[] = [
 
 const swatches = ["#20211e", "#b7aa8f", "#687261", "#a7644e"];
 
-export const products: Product[] = catalog.map((product) => ({
-  ...product,
-  variants: product.colors.map((label, index) => ({
+export const products: Product[] = catalog.map((product, index) => {
+  const sku = `NLS-${String(index + 1).padStart(3, "0")}`;
+  const variants = product.colors.map((label, variantIndex) => ({
     id: `${product.id}-${label.toLowerCase().replace(/[^a-z0-9]+/g, "-")}`,
     label,
-    swatch: swatches[index % swatches.length],
-  })),
-}));
+    swatch: swatches[variantIndex % swatches.length],
+    sku: `${sku}-${String(variantIndex + 1).padStart(2, "0")}`,
+    optionType: "Color",
+    available: true,
+  }));
+
+  return {
+    ...product,
+    sku,
+    status: "active" as const,
+    featured: index < 3,
+    images: [product.image],
+    options: [{ name: "Color", values: product.colors }],
+    variants,
+    tags: [product.category.toLowerCase(), "travel", "everyday"],
+    stock: 18 + index * 7,
+    relatedSlugs: [],
+  };
+});
+
+export const activeProducts = products.filter((product) => product.status === "active");
+export const productCategories = Array.from(new Set(products.map((product) => product.category)));
 
 export const getProduct = (slug: string) => products.find((product) => product.slug === slug);
+export const getActiveProduct = (slug: string) => activeProducts.find((product) => product.slug === slug);

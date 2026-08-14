@@ -32,7 +32,7 @@ test("server-renders the Northline storefront shell", async () => {
 });
 
 test("renders the core white-label storefront routes", async () => {
-  for (const pathname of ["/shop", "/products/field-pack-28l", "/cart", "/checkout", "/about", "/faq", "/shipping"]) {
+  for (const pathname of ["/shop", "/products/field-pack-28l", "/cart", "/checkout", "/about", "/faq", "/shipping", "/admin", "/preview"]) {
     const response = await render(pathname);
     assert.equal(response.status, 200, pathname);
   }
@@ -46,9 +46,14 @@ test("keeps client replacement content centralized", async () => {
   assert.match(config, /theme:/);
   assert.match(config, /b2b:/);
   assert.match(config, /navigation:/);
+  assert.match(config, /seo:/);
+  assert.match(config, /policies:/);
   assert.match(products, /export const products/);
   assert.match(products, /Field Pack 28L/);
   assert.match(products, /ProductVariant/);
+  assert.match(products, /status: "active"/);
+  assert.match(products, /stock:/);
+  assert.match(products, /relatedSlugs:/);
   assert.match(products, /variants:/);
   assert.match(guide, /B 端客户首次提供资料后/);
   await assert.rejects(access(new URL("../app/_sites-preview/SkeletonPreview.tsx", import.meta.url)));
