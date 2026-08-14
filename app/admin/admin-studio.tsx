@@ -62,9 +62,9 @@ function parseOptions(value: string) {
 }
 
 export function AdminStudio() {
-  const { config, catalog, hydrated, updateConfig, updateCatalog, resetConfig, resetCatalog } = useSiteRuntime();
+  const { config, catalog, hydrated, cmsStatus, cmsError, refreshCms, updateConfig, updateCatalog, resetConfig, resetCatalog } = useSiteRuntime();
   const [tab, setTab] = useState<AdminTab>("brand");
-  const [statusMessage, setStatusMessage] = useState("Changes are saved in this browser.");
+  const [statusMessage, setStatusMessage] = useState("Changes are autosaved to the CMS.");
   const [editing, setEditing] = useState<Product | null>(null);
   const [catalogQuery, setCatalogQuery] = useState("");
   const [catalogStatus, setCatalogStatus] = useState("All status");
@@ -89,6 +89,15 @@ export function AdminStudio() {
     { label: "Active products have SKU and image", ok: catalog.filter((product) => product.status === "active").every((product) => Boolean(product.sku && (product.images[0] || product.image))) },
   ], [catalog, config]);
   const completedChecks = checks.filter((check) => check.ok).length;
+  const cmsLabel = {
+    connecting: "Connecting to CMS...",
+    synced: "CMS connected",
+    saving: "Saving to CMS...",
+    saved: "CMS saved",
+    offline: "CMS unavailable; local fallback",
+    "auth-required": "Sign in required to save",
+    error: "CMS error",
+  }[cmsStatus];
 
   const categories = Array.from(new Set([...productCategories, ...catalog.map((product) => product.category).filter(Boolean)]));
   const filteredCatalog = catalog.filter((product) => {
@@ -171,9 +180,9 @@ export function AdminStudio() {
   return <div className="admin-page container section-pad">
     <div className="admin-hero"><div><p className="eyebrow">B2B / White-label studio</p><h1>Shape the next<br /><em>client storefront.</em></h1><p>Manage brand identity, content, themes, products, and launch readiness from one reusable handoff surface.</p></div><div className="admin-hero-actions"><Link href="/preview" className="button button-dark">Preview storefront -&gt;</Link><button type="button" className="button button-outline" onClick={exportData}>Export handoff JSON</button></div></div>
 
-    <div className="admin-toolbar"><div className="admin-tabs" role="tablist" aria-label="Studio sections"><button type="button" className={tab === "brand" ? "is-active" : ""} onClick={() => setTab("brand")}>Brand & content</button><button type="button" className={tab === "catalog" ? "is-active" : ""} onClick={() => setTab("catalog")}>Product management</button></div><div className="admin-save-state"><span className="status-dot" />{statusMessage}</div></div>
+    <div className="admin-toolbar"><div className="admin-tabs" role="tablist" aria-label="Studio sections"><button type="button" className={tab === "brand" ? "is-active" : ""} onClick={() => setTab("brand")}>Brand & content</button><button type="button" className={tab === "catalog" ? "is-active" : ""} onClick={() => setTab("catalog")}>Product management</button></div><div className="admin-save-state" title={cmsError || undefined}><span className="status-dot" />{statusMessage}<span className={`cms-status cms-status-${cmsStatus}`}>CMS: {cmsLabel}</span><button type="button" className="text-button" onClick={() => void refreshCms()}>Refresh</button>{cmsStatus === "auth-required" && <a className="text-button" href="/signin-with-chatgpt?return_to=%2Fadmin">Sign in</a>}</div></div>
 
-    {tab === "brand" ? <div className="admin-brand-layout"><aside className="admin-checklist"><div className="admin-score"><span>{completedChecks}/{checks.length}</span><strong>Launch checks</strong></div>{checks.map((check) => <div className={`check-row ${check.ok ? "is-done" : ""}`} key={check.label}><span>{check.ok ? "OK" : "!"}</span>{check.label}</div>)}<div className="admin-note"><strong>Delivery model</strong><p>These edits are browser-local demo data. Export the handoff JSON or replace the source config and catalog before a production client launch.</p></div><button type="button" className="text-button" onClick={() => { resetConfig(); setStatusMessage("Brand config reset to the Northline demo."); }}>Reset brand config</button></aside><div className="admin-form-stack">
+    {tab === "brand" ? <div className="admin-brand-layout"><aside className="admin-checklist"><div className="admin-score"><span>{completedChecks}/{checks.length}</span><strong>Launch checks</strong></div>{checks.map((check) => <div className={`check-row ${check.ok ? "is-done" : ""}`} key={check.label}><span>{check.ok ? "OK" : "!"}</span>{check.label}</div>)}<div className="admin-note"><strong>Delivery model</strong><p>Published edits are stored in the Sites CMS. Local browser storage only keeps a temporary fallback while the CMS is unavailable.</p></div><button type="button" className="text-button" onClick={() => { resetConfig(); setStatusMessage("Brand config reset to the Northline demo."); }}>Reset brand config</button></aside><div className="admin-form-stack">
       <section className="admin-panel"><div className="admin-panel-heading"><div><p className="eyebrow">01 / Identity</p><h2>Brand foundation</h2></div><span>Required for every client</span></div><div className="admin-form-grid two"><Field label="Brand name"><input value={config.brand.name} onChange={(event) => patchBrand("name", event.target.value)} /></Field><Field label="Logo mark"><input value={config.brand.mark} maxLength={3} onChange={(event) => patchBrand("mark", event.target.value)} /></Field><Field label="Tagline"><input value={config.brand.tagline} onChange={(event) => patchBrand("tagline", event.target.value)} /></Field><Field label="Descriptor"><input value={config.brand.descriptor} onChange={(event) => patchBrand("descriptor", event.target.value)} /></Field><Field label="Footer line"><input value={config.brand.footerLine} onChange={(event) => patchBrand("footerLine", event.target.value)} /></Field><Field label="Origin line"><input value={config.brand.originLine} onChange={(event) => patchBrand("originLine", event.target.value)} /></Field></div></section>
       <section className="admin-panel"><div className="admin-panel-heading"><div><p className="eyebrow">02 / Theme</p><h2>Make it unmistakably theirs.</h2></div><span>Live CSS variables</span></div><div className="theme-swatch-grid">{colorFields.map((field) => <label className="theme-input" key={field.key}><span>{field.label}</span><div><input type="color" value={config.theme.colors[field.key]} onChange={(event) => patchColor(field.key, event.target.value)} /><input value={config.theme.colors[field.key]} onChange={(event) => patchColor(field.key, event.target.value)} aria-label={`${field.label} hex value`} /></div></label>)}</div></section>
       <section className="admin-panel"><div className="admin-panel-heading"><div><p className="eyebrow">03 / Media</p><h2>Set the visual world.</h2></div><span>Use hosted URLs for this demo</span></div><div className="admin-form-grid two"><Field label="Hero image URL"><input value={config.assets.hero} onChange={(event) => patchAsset("hero", event.target.value)} /></Field><Field label="Story image URL"><input value={config.assets.story} onChange={(event) => patchAsset("story", event.target.value)} /></Field><Field label="About image URL"><input value={config.assets.aboutHero} onChange={(event) => patchAsset("aboutHero", event.target.value)} /></Field><Field label="Journal image URL"><input value={config.assets.journalHero} onChange={(event) => patchAsset("journalHero", event.target.value)} /></Field></div></section>
