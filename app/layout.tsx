@@ -4,6 +4,7 @@ import "./globals.css";
 import { SiteFooter } from "./components/site-footer";
 import { SiteHeader } from "./components/site-header";
 import { SiteRuntimeProvider } from "./components/site-runtime";
+import { ToastViewport } from "./components/toast";
 import { siteConfig } from "./data/site-config";
 
 const geistSans = Geist({ variable: "--font-geist-sans", subsets: ["latin"] });
@@ -36,6 +37,7 @@ export default function RootLayout({ children }: Readonly<{ children: React.Reac
           <SiteHeader />
           <main>{children}</main>
           <SiteFooter />
+          <ToastViewport />
         </SiteRuntimeProvider>
       </body>
     </html>

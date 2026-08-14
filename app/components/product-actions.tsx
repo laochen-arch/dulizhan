@@ -4,6 +4,7 @@ import Link from "next/link";
 import { useState } from "react";
 import type { Product } from "../data/products";
 import { useStore } from "./cart-store";
+import { showToast } from "./toast";
 
 export function AddToCartButton({ product, compact = false, variantId, quantity = 1 }: { product: Product; compact?: boolean; variantId?: string; quantity?: number }) {
   const { addToCart } = useStore();
@@ -20,6 +21,7 @@ export function AddToCartButton({ product, compact = false, variantId, quantity 
       onClick={() => {
         addToCart(product, { variantId, quantity });
         setAdded(true);
+        showToast(`${product.name} added to your bag.`);
         window.setTimeout(() => setAdded(false), 1800);
       }}
     >
@@ -32,12 +34,13 @@ export function BuyNowButton({ product, variantId, quantity = 1 }: { product: Pr
   const { addToCart } = useStore();
   const selected = product.variants.find((variant) => variant.id === variantId) ?? product.variants[0];
   const unavailable = product.status !== "active" || product.stock <= 0 || selected?.available === false;
-  return <Link href={unavailable ? "#" : "/checkout"} aria-disabled={unavailable} className="button button-outline button-wide" onClick={(event) => { if (unavailable) { event.preventDefault(); return; } addToCart(product, { variantId, quantity }); }}>Buy now</Link>;
+  if (unavailable) return <button type="button" disabled className="button button-outline button-wide">Currently unavailable</button>;
+  return <Link href="/checkout" className="button button-outline button-wide" onClick={() => addToCart(product, { variantId, quantity })}>Buy now</Link>;
 }
 
 export function QuantityControl({ id, quantity }: { id: string; quantity: number }) {
   const { updateQuantity } = useStore();
-  return <div className="quantity-control" aria-label="Quantity"><button type="button" onClick={() => updateQuantity(id, quantity - 1)} aria-label="Decrease quantity">-</button><span>{quantity}</span><button type="button" onClick={() => updateQuantity(id, quantity + 1)} aria-label="Increase quantity">+</button></div>;
+  return <div className="quantity-control" aria-label="Quantity"><button type="button" disabled={quantity <= 1} onClick={() => updateQuantity(id, quantity - 1)} aria-label="Decrease quantity">-</button><span>{quantity}</span><button type="button" onClick={() => updateQuantity(id, quantity + 1)} aria-label="Increase quantity">+</button></div>;
 }
 
 export function ProductPurchase({ product }: { product: Product }) {

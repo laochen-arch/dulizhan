@@ -42,6 +42,7 @@ function normalizeCart(items: Array<Partial<CartLine> & Product & { quantity: nu
     const variantId = item.variantId ?? variant.id;
     return {
       ...item,
+      images: item.images?.length ? item.images : item.image ? [item.image] : [],
       lineId: item.lineId ?? `${item.id}:${variantId}`,
       variantId,
       variantLabel: item.variantLabel ?? variant.label,
