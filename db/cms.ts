@@ -1,5 +1,5 @@
 import { env } from "cloudflare:workers";
-import { products as defaultProducts, type Product } from "../app/data/products";
+import { getCatalogValidationErrors, products as defaultProducts, type Product } from "../app/data/products";
 import { siteConfig, type SiteConfig } from "../app/data/site-config";
 
 export type CmsMode = "draft" | "published";
@@ -736,7 +736,7 @@ export async function readSnapshot(siteId: string, mode: CmsMode, user?: { userI
 }
 
 function validateSnapshot(config: SiteConfig, catalog: Product[]) {
-  const checks = [
+  const checks: Array<[string, boolean]> = [
     ["Brand name", Boolean(config.brand.name.trim())],
     ["Logo mark", Boolean(config.brand.mark.trim())],
     ["Primary colors", Boolean(config.theme.colors.ink && config.theme.colors.paper)],
@@ -744,9 +744,12 @@ function validateSnapshot(config: SiteConfig, catalog: Product[]) {
     ["SEO title and description", Boolean(config.seo.title.trim() && config.seo.description.trim())],
     ["Contact email", Boolean(config.content.contact.email.trim())],
     ["Active catalog item", catalog.some((product) => product.status === "active")],
-    ["Active products have SKU and image", catalog.filter((product) => product.status === "active").every((product) => Boolean(product.sku && (product.images[0] || product.image)))],
+    ["Active products have valid commerce fields", getCatalogValidationErrors(catalog).length === 0],
   ];
-  return checks.filter(([, ok]) => !ok).map(([label]) => label);
+  return [
+    ...checks.filter(([, ok]) => !ok).map(([label]) => label),
+    ...getCatalogValidationErrors(catalog),
+  ].filter((value, index, values) => values.indexOf(value) === index);
 }
 
 export function getLaunchFailures(config: SiteConfig, catalog: Product[]) {

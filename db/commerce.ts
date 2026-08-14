@@ -261,6 +261,34 @@ export async function createCheckout(siteId: string, payload: CheckoutPayload, o
   }
 }
 
+export async function attachLiveInventoryToCatalog(siteId: string, catalog: Product[]) {
+  const database = getCmsDatabase();
+  await ensureCmsSchema(database);
+  const activeCatalog = catalog.filter((product) => product.status === "active");
+  await ensureInventoryRows(database, siteId, activeCatalog);
+  const rows = await database.prepare(`SELECT product_id AS productId, variant_id AS variantId, quantity, reserved_quantity AS reservedQuantity
+    FROM cms_inventory WHERE site_id = ?1`).bind(siteId).all<{ productId: string; variantId: string; quantity: number; reservedQuantity: number }>();
+  const inventory = new Map(rows.results.map((row) => [`${row.productId}:${row.variantId}`, row]));
+  return catalog.map((product) => {
+    const variants = product.variants.map((variant) => {
+      const row = inventory.get(`${product.id}:${variant.id}`);
+      if (!row) return variant;
+      return { ...variant, stock: Math.max(0, row.quantity - row.reservedQuantity) };
+    });
+    const hasLiveRows = variants.some((variant) => inventory.has(`${product.id}:${variant.id}`));
+    if (!hasLiveRows) return product;
+    return { ...product, variants, stock: variants.reduce((sum, variant) => sum + (variant.stock ?? 0), 0) };
+  });
+}
+
+export async function getCheckoutStatus(siteId: string, orderId: string, sessionId: string) {
+  const database = getCmsDatabase();
+  await ensureCmsSchema(database);
+  const row = await database.prepare(`SELECT order_number AS orderNumber, status, payment_status AS paymentStatus, fulfillment_status AS fulfillmentStatus
+    FROM cms_orders WHERE id = ?1 AND site_id = ?2 AND stripe_session_id = ?3`).bind(orderId, siteId, sessionId).first<{ orderNumber: string; status: string; paymentStatus: string; fulfillmentStatus: string }>();
+  return row;
+}
+
 export async function listInventory(siteId: string, userId: string, email: string): Promise<CmsInventoryRow[]> {
   void userId;
   void email;

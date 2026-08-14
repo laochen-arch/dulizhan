@@ -1,4 +1,5 @@
 import { readSnapshot, resolveSiteByHost, writeDraft } from "../../../db/cms";
+import { attachLiveInventoryToCatalog } from "../../../db/commerce";
 import type { Product } from "../../data/products";
 import type { SiteConfig } from "../../data/site-config";
 import { errorResponse, getSiteId, requireMember } from "./helpers";
@@ -32,7 +33,8 @@ export async function GET(request: Request) {
       ? explicitSiteId
       : mode === "published" ? (await resolveSiteByHost(request.headers.get("host"))).id : getSiteId(request);
     const access = mode === "draft" ? await requireMember(siteId, "viewer") : null;
-    const snapshot = await readSnapshot(siteId, mode, access ? { userId: access.user.userId, email: access.user.email } : undefined);
+    let snapshot = await readSnapshot(siteId, mode, access ? { userId: access.user.userId, email: access.user.email } : undefined);
+    if (mode === "published") snapshot = { ...snapshot, catalog: await attachLiveInventoryToCatalog(siteId, snapshot.catalog) };
     return Response.json(snapshot, { headers: { "Cache-Control": "no-store" } });
   } catch (error) {
     return errorResponse(error);

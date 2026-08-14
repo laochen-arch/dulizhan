@@ -3,7 +3,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import type { CmsAsset, CmsAuditLog, CmsDomain, CmsInvitation, CmsMember, CmsRevision, CmsSchedule, CmsSite, CmsRole, CmsSnapshotDiff } from "../../db/cms";
 import type { CmsInventoryRow, CmsOrder } from "../../db/commerce";
-import { products as templateProducts, type Product } from "../data/products";
+import { getCatalogValidationErrors, getProductValidationErrors, products as templateProducts, type Product, type ProductVariant, variantOptionValues } from "../data/products";
 import { type EditableSiteConfig, useSiteRuntime } from "../components/site-runtime";
 
 type AdminTab = "overview" | "brand" | "content" | "products" | "media" | "access" | "team" | "domains" | "activity" | "release" | "commerce" | "versions";
@@ -108,6 +108,7 @@ function productFromRow(headers: string[], values: string[], current: Product[])
 }
 
 function launchChecks(config: EditableSiteConfig, catalog: Product[]) {
+  const commerceErrors = getCatalogValidationErrors(catalog);
   return [
     { label: "Brand name and mark", done: Boolean(config.brand.name && config.brand.mark) },
     { label: "Hero image", done: Boolean(config.assets.hero) },
@@ -115,6 +116,7 @@ function launchChecks(config: EditableSiteConfig, catalog: Product[]) {
     { label: "Homepage copy", done: Boolean(config.content.home.heroTitleLead && config.content.home.heroBody) },
     { label: "At least one product", done: catalog.length > 0 },
     { label: "Every product has an image", done: catalog.length > 0 && catalog.every((product) => product.image && product.images.length > 0) },
+    { label: "Active products have valid variants and SKUs", done: commerceErrors.length === 0 },
     { label: "At least one active product", done: catalog.some((product) => product.status === "active") },
     { label: "Shipping and returns copy", done: Boolean(config.content.policies.shippingLead && config.content.policies.returnsLead) },
   ];
@@ -202,6 +204,7 @@ export function AdminStudioV6() {
   const [productSearch, setProductSearch] = useState("");
   const [productFilter, setProductFilter] = useState("all");
   const [editingProduct, setEditingProduct] = useState<Product | null>(null);
+  const [productValidation, setProductValidation] = useState<string[]>([]);
   const csvInput = useRef<HTMLInputElement>(null);
   const mediaInput = useRef<HTMLInputElement>(null);
 
@@ -330,7 +333,7 @@ export function AdminStudioV6() {
 
   const publish = async () => {
     setBusy(true);
-    const result = await publishCms("V6 storefront release");
+    const result = await publishCms("V10 P0 storefront release");
     setBusy(false);
     if (!result.ok) setNotice({ tone: "error", text: result.checks?.length ? `${result.error || "Publish checks failed"} ${result.checks.join(" · ")}` : result.error || "Publish failed." });
     else {
@@ -532,6 +535,12 @@ export function AdminStudioV6() {
 
   const saveProduct = () => {
     if (!editingProduct) return;
+    const errors = getProductValidationErrors(editingProduct, catalog);
+    if (errors.length) {
+      setProductValidation(errors);
+      setNotice({ tone: "error", text: "Complete the product fields before saving." });
+      return;
+    }
     updateCatalog((current) => {
       const index = current.findIndex((product) => product.id === editingProduct.id);
       if (index < 0) return [...current, editingProduct];
@@ -540,6 +549,7 @@ export function AdminStudioV6() {
       return next;
     });
     setEditingProduct(null);
+    setProductValidation([]);
     setNotice({ tone: "success", text: "Product saved to the draft." });
   };
 
@@ -563,7 +573,7 @@ export function AdminStudioV6() {
       <div className="container">
         <header className="admin-hero v6-hero">
           <div>
-            <p className="eyebrow">White-label CMS / V6</p>
+            <p className="eyebrow">White-label CMS / V10 P0</p>
             <h1>Client sites,<br /><em>ready to ship.</em></h1>
             <p>Manage each client storefront from one workspace. Changes stay in draft until the launch checks pass and you publish a version.</p>
           </div>
@@ -591,7 +601,7 @@ export function AdminStudioV6() {
         {tab === "overview" && <section className="v6-grid v6-overview">
           <div className="v6-card v6-card-large"><p className="eyebrow">Launch readiness</p><h2>{checks.filter((check) => check.done).length}/{checks.length} checks ready.</h2><p className="v6-muted">Publish creates a revision that can be rolled back from the Versions tab.</p><div className="v6-checks">{checks.map((check) => <div className={check.done ? "done" : ""} key={check.label}><span>{check.done ? "✓" : "·"}</span>{check.label}</div>)}</div><button className="button button-dark" onClick={() => void publish()} disabled={busy || checks.some((check) => !check.done)}>Publish when ready <span>↗</span></button></div>
           <div className="v6-card"><p className="eyebrow">Client onboarding</p><h2>Start a new site.</h2><p className="v6-muted">Create an isolated D1 workspace for a new B2B client. Add brand, media and products in draft.</p><form className="v6-form" onSubmit={createClientSite}><Field label="Client name" value={siteForm.name} onChange={(value) => setSiteForm((current) => ({ ...current, name: value, slug: current.slug || slugify(value) }))} placeholder="Acme Outdoor" /><Field label="URL slug" value={siteForm.slug} onChange={(value) => setSiteForm((current) => ({ ...current, slug: slugify(value) }))} placeholder="acme-outdoor" /><button className="button button-outline" disabled={busy || !siteForm.name || !siteForm.slug}>Create client site <span>+</span></button></form></div>
-          <div className="v6-card"><p className="eyebrow">V6 handoff</p><h2>One replacement list.</h2><p className="v6-muted">Use the B2B content list to collect the logo, palette, product CSV, legal copy, domain and launch owner before handoff.</p><a className="text-link" href="/about">View storefront example <span>↗</span></a></div>
+          <div className="v6-card"><p className="eyebrow">V10 handoff</p><h2>One replacement list.</h2><p className="v6-muted">Use the B2B content list to collect the logo, palette, product CSV, legal copy, domain and launch owner before handoff.</p><a className="text-link" href="/about">View storefront example <span>↗</span></a></div>
         </section>}
 
         {tab === "brand" && <section className="v6-card"><div className="v6-card-heading"><div><p className="eyebrow">Brand system</p><h2>Replace the client story.</h2></div><span>Autosaved draft</span></div><div className="v6-form-grid"><Field label="Brand name" value={config.brand.name} onChange={(value) => setBrand("name", value)} /><Field label="Logo mark" value={config.brand.mark} onChange={(value) => setBrand("mark", value)} /><Field label="Tagline" value={config.brand.tagline} onChange={(value) => setBrand("tagline", value)} /><Field label="Descriptor" value={config.brand.descriptor} onChange={(value) => setBrand("descriptor", value)} /><Field label="Origin line" value={config.brand.originLine} onChange={(value) => setBrand("originLine", value)} /><Field label="Footer line" value={config.brand.footerLine} onChange={(value) => setBrand("footerLine", value)} /><Field label="Hero label" value={config.content.home.heroLabel} onChange={(value) => setHome("heroLabel", value)} /><Field label="Hero CTA" value={config.content.home.heroCta} onChange={(value) => setHome("heroCta", value)} /><Field label="Hero lead" value={config.content.home.heroTitleLead} onChange={(value) => setHome("heroTitleLead", value)} /><Field label="Hero accent" value={config.content.home.heroTitleAccent} onChange={(value) => setHome("heroTitleAccent", value)} /><Field label="Hero body" value={config.content.home.heroBody} onChange={(value) => setHome("heroBody", value)} multiline /><Field label="Intro body" value={config.content.home.introBody} onChange={(value) => setHome("introBody", value)} multiline /><Field label="Story body" value={config.content.home.storyBody} onChange={(value) => setHome("storyBody", value)} multiline /><Field label="Newsletter body" value={config.content.home.newsletterBody} onChange={(value) => setHome("newsletterBody", value)} multiline /></div><div className="v6-divider"><p className="eyebrow">Theme palette</p><div className="v6-palette">{Object.entries(config.theme.colors).map(([key, value]) => <label key={key}><span>{key}</span><input type="color" value={value.startsWith("#") ? value : "#1d1f1c"} onChange={(event) => updateConfig((current) => { current.theme.colors[key as keyof typeof current.theme.colors] = event.target.value; return current; })} /><input value={value} onChange={(event) => updateConfig((current) => { current.theme.colors[key as keyof typeof current.theme.colors] = event.target.value; return current; })} /></label>)}</div></div></section>}
@@ -605,7 +615,53 @@ export function AdminStudioV6() {
         {tab === "versions" && <section className="v6-card"><div className="v6-card-heading"><div><p className="eyebrow">Release history</p><h2>Drafts you can trust.</h2></div><button className="text-button" onClick={() => void fetchRevisions().then(setRevisions)}>Refresh versions</button></div><div className="v6-version-list">{revisions.map((revision) => <article key={revision.id}><div><strong>{revision.label}</strong><span>{revision.kind} · {new Date(revision.createdAt).toLocaleString()}</span></div><button className="button button-outline" onClick={() => void rollback(revision)} disabled={busy || (cmsRole !== "owner" && cmsRole !== "editor")}>Restore to draft</button></article>)}{revisions.length === 0 && <div className="v6-empty">Published revisions will appear here after the first release.</div>}</div></section>}
       </div>
 
-      {editingProduct && <div className="v6-editor-backdrop"><section className="v6-editor" role="dialog" aria-modal="true" aria-labelledby="product-editor-title"><div className="v6-card-heading"><div><p className="eyebrow">Product editor</p><h2 id="product-editor-title">{editingProduct.name}</h2></div><button className="close-button" onClick={() => setEditingProduct(null)} aria-label="Close editor">×</button></div><div className="v6-form-grid"><Field label="Name" value={editingProduct.name} onChange={(value) => setEditingProduct((current) => current && ({ ...current, name: value, shortName: value, slug: current.slug === slugify(current.name) ? slugify(value) : current.slug }))} /><Field label="Slug" value={editingProduct.slug} onChange={(value) => setEditingProduct((current) => current && ({ ...current, slug: slugify(value) }))} /><Field label="SKU" value={editingProduct.sku} onChange={(value) => setEditingProduct((current) => current && ({ ...current, sku: value }))} /><Field label="Category" value={editingProduct.category} onChange={(value) => setEditingProduct((current) => current && ({ ...current, category: value }))} /><Field label="Price" value={String(editingProduct.price)} onChange={(value) => setEditingProduct((current) => current && ({ ...current, price: Number(value) || 0 }))} /><Field label="Stock" value={String(editingProduct.stock)} onChange={(value) => setEditingProduct((current) => current && ({ ...current, stock: Number(value) || 0 }))} /><Field label="Image URL" value={editingProduct.image} onChange={(value) => setEditingProduct((current) => current && ({ ...current, image: value, images: [value] }))} /><Field label="Tags" value={editingProduct.tags.join("|")} onChange={(value) => setEditingProduct((current) => current && ({ ...current, tags: value.split("|").map((item) => item.trim()).filter(Boolean) }))} /><Field label="Description" value={editingProduct.description} onChange={(value) => setEditingProduct((current) => current && ({ ...current, description: value }))} multiline /><Field label="Details" value={editingProduct.details} onChange={(value) => setEditingProduct((current) => current && ({ ...current, details: value }))} multiline /></div><div className="v6-editor-options"><label className="v6-field"><span>Status</span><select value={editingProduct.status} onChange={(event) => setEditingProduct((current) => current && ({ ...current, status: event.target.value as Product["status"] }))}><option value="active">Active</option><option value="draft">Draft</option></select></label><label className="v6-check-field"><input type="checkbox" checked={editingProduct.featured} onChange={(event) => setEditingProduct((current) => current && ({ ...current, featured: event.target.checked }))} /> Featured product</label></div><div className="editor-actions"><button className="button button-outline" onClick={() => setEditingProduct(null)}>Cancel</button><button className="button button-dark" onClick={saveProduct}>Save product <span>↗</span></button></div></section></div>}
+      {editingProduct && <V6ProductEditor product={editingProduct} assets={assets} errors={productValidation} onChange={setEditingProduct} onSave={saveProduct} onCancel={() => { setEditingProduct(null); setProductValidation([]); }} />}
     </main>
   );
+}
+
+function parseVariantOptions(value: string) {
+  return Object.fromEntries(value.split(";").map((item) => item.trim()).filter(Boolean).map((item) => {
+    const [name, option] = item.split("=");
+    return [name?.trim() || "Option", option?.trim() || ""];
+  }).filter(([, option]) => Boolean(option)));
+}
+
+function variantOptionsText(variant: ProductVariant) {
+  return Object.entries(variantOptionValues(variant)).map(([name, value]) => `${name}=${value}`).join("; ");
+}
+
+function V6ProductEditor({ product, assets, errors, onChange, onSave, onCancel }: { product: Product; assets: CmsAsset[]; errors: string[]; onChange: (product: Product) => void; onSave: () => void; onCancel: () => void }) {
+  function patchProduct(patch: Partial<Product>) {
+    onChange({ ...product, ...patch });
+  }
+
+  function patchImages(value: string) {
+    const images = value.split("\n").map((item) => item.trim()).filter(Boolean);
+    patchProduct({ images, image: images[0] || "" });
+  }
+
+  function addAsset(asset: CmsAsset) {
+    const images = product.images.includes(asset.url) ? product.images : [...product.images, asset.url];
+    patchProduct({ images, image: images[0] || asset.url, alt: product.alt || asset.alt });
+  }
+
+  function patchVariant(index: number, patch: Partial<ProductVariant>) {
+    const variants = product.variants.map((variant, variantIndex) => variantIndex === index ? { ...variant, ...patch } : variant);
+    const colors = variants.filter((variant) => variant.optionType.toLowerCase() === "color").map((variant) => variant.label).filter(Boolean);
+    onChange({ ...product, variants, colors: colors.length ? colors : product.colors });
+  }
+
+  function addVariant() {
+    const number = product.variants.length + 1;
+    const variant: ProductVariant = { id: `${product.id}-variant-${number}`, label: `Option ${number}`, swatch: "#b7aa8f", sku: `${product.sku}-${String(number).padStart(2, "0")}`, optionType: "Option", optionValues: { Option: `Option ${number}` }, stock: 0, available: true };
+    onChange({ ...product, variants: [...product.variants, variant] });
+  }
+
+  return <div className="v6-editor-backdrop"><section className="v6-editor" role="dialog" aria-modal="true" aria-labelledby="product-editor-title"><div className="v6-card-heading"><div><p className="eyebrow">Product editor / V10</p><h2 id="product-editor-title">{product.name}</h2></div><button type="button" className="close-button" onClick={onCancel} aria-label="Close editor">×</button></div>
+    {errors.length > 0 && <div className="v6-validation" role="alert"><strong>Before saving</strong><ul>{errors.map((error) => <li key={error}>{error}</li>)}</ul></div>}
+    <div className="v6-form-grid"><Field label="Name" value={product.name} onChange={(value) => patchProduct({ name: value, shortName: value })} /><Field label="Slug" value={product.slug} onChange={(value) => patchProduct({ slug: slugify(value) })} /><Field label="SKU" value={product.sku} onChange={(value) => patchProduct({ sku: value })} /><Field label="Category" value={product.category} onChange={(value) => patchProduct({ category: value })} /><Field label="Price" value={String(product.price)} onChange={(value) => patchProduct({ price: value === "" ? 0 : Number(value) })} /><Field label="Compare-at price" value={product.compareAt === undefined ? "" : String(product.compareAt)} onChange={(value) => patchProduct({ compareAt: value === "" ? undefined : Number(value) })} /><Field label="Product stock fallback" value={String(product.stock)} onChange={(value) => patchProduct({ stock: value === "" ? 0 : Number(value) })} /><Field label="Tags (use |)" value={product.tags.join("|")} onChange={(value) => patchProduct({ tags: value.split("|").map((item) => item.trim()).filter(Boolean) })} /><Field label="Short description" value={product.description} onChange={(value) => patchProduct({ description: value })} multiline /><Field label="Product story" value={product.details} onChange={(value) => patchProduct({ details: value })} multiline /><Field label="Image alt text" value={product.alt} onChange={(value) => patchProduct({ alt: value })} /><Field label="Related product slugs (use |)" value={product.relatedSlugs.join("|")} onChange={(value) => patchProduct({ relatedSlugs: value.split("|").map((item) => item.trim()).filter(Boolean) })} multiline /><Field label="Option groups (Color: Black | Sand)" value={product.options.map((option) => `${option.name}: ${option.values.join(" | ")}`).join("\n")} onChange={(value) => patchProduct({ options: value.split("\n").map((line) => line.trim()).filter(Boolean).map((line) => { const [name, values] = line.split(":"); return { name: name?.trim() || "Option", values: (values || "").split("|").map((item) => item.trim()).filter(Boolean) }; }).filter((option) => option.values.length) })} multiline /></div>
+    <div className="v6-editor-section"><p className="eyebrow">Product media</p><h3>Use uploaded client assets or external URLs.</h3><Field label="Images (one URL per line)" value={product.images.join("\n")} onChange={patchImages} multiline />{assets.length > 0 && <div className="v6-asset-picker" aria-label="Choose media assets">{assets.filter((asset) => asset.kind === "product" || asset.kind === "general").map((asset) => <button type="button" key={asset.id} className={product.images.includes(asset.url) ? "is-selected" : ""} onClick={() => addAsset(asset)} aria-label={`Add ${asset.assetKey}`}><img src={asset.url} alt={asset.alt} /><span>{asset.assetKey}</span></button>)}</div>}{assets.length === 0 && <p className="v6-help">Upload product images in the Media library first, then return here to bind them.</p>}</div>
+    <div className="v6-editor-section"><div className="v6-card-heading"><div><p className="eyebrow">Variants / SKU matrix</p><h3>Each option can carry its own price and stock.</h3></div><button type="button" className="text-button" onClick={addVariant}>Add variant +</button></div><div className="v6-variant-list">{product.variants.map((variant, index) => <div className="v6-variant-row" key={variant.id}><Field label="Option type" value={variant.optionType} onChange={(value) => patchVariant(index, { optionType: value, optionValues: { [value || "Option"]: variant.label } })} /><Field label="Label" value={variant.label} onChange={(value) => patchVariant(index, { label: value, optionValues: { ...variantOptionValues(variant), [variant.optionType || "Option"]: value } })} /><Field label="SKU" value={variant.sku} onChange={(value) => patchVariant(index, { sku: value })} /><Field label="Price override" value={variant.price === undefined ? "" : String(variant.price)} onChange={(value) => patchVariant(index, { price: value === "" ? undefined : Number(value) })} /><Field label="Stock" value={variant.stock === undefined ? "" : String(variant.stock)} onChange={(value) => patchVariant(index, { stock: value === "" ? undefined : Number(value) })} /><Field label="Option values (Color=Black; Size=M)" value={variantOptionsText(variant)} onChange={(value) => patchVariant(index, { optionValues: parseVariantOptions(value) })} /><label className="v6-check-field"><input type="checkbox" checked={variant.available} onChange={(event) => patchVariant(index, { available: event.target.checked })} /> Available</label><button type="button" className="text-button danger" disabled={product.variants.length === 1} onClick={() => onChange({ ...product, variants: product.variants.filter((_, variantIndex) => variantIndex !== index) })}>Remove</button></div>)}</div></div>
+    <div className="v6-editor-options"><label className="v6-field"><span>Status</span><select value={product.status} onChange={(event) => patchProduct({ status: event.target.value as Product["status"] })}><option value="active">Active</option><option value="draft">Draft</option></select></label><label className="v6-check-field"><input type="checkbox" checked={product.featured} onChange={(event) => patchProduct({ featured: event.target.checked })} /> Featured product</label></div><div className="editor-actions"><button type="button" className="button button-outline" onClick={onCancel}>Cancel</button><button type="button" className="button button-dark" onClick={onSave}>Save product <span>↗</span></button></div></section></div>;
 }

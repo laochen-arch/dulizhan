@@ -10,9 +10,11 @@ export type ProductVariant = {
   label: string;
   swatch: string;
   price?: number;
+  stock?: number;
   sku: string;
   optionType: string;
   size?: string;
+  optionValues?: Record<string, string>;
   available: boolean;
 };
 
@@ -41,6 +43,60 @@ export type Product = {
   stock: number;
   relatedSlugs: string[];
 };
+
+export function variantOptionValues(variant: ProductVariant): Record<string, string> {
+  if (variant.optionValues && Object.keys(variant.optionValues).length) return variant.optionValues;
+  return { [variant.optionType || "Option"]: variant.label };
+}
+
+export function getProductValidationErrors(product: Product, catalog: Product[] = []): string[] {
+  const errors: string[] = [];
+  const name = typeof product.name === "string" ? product.name : "";
+  const category = typeof product.category === "string" ? product.category : "";
+  const sku = typeof product.sku === "string" ? product.sku : "";
+  const details = typeof product.details === "string" ? product.details : "";
+  const images = Array.isArray(product.images) ? product.images : [];
+  const variants = Array.isArray(product.variants) ? product.variants : [];
+  if (!product.id) errors.push("Product ID is required");
+  if (!product.slug || !/^[a-z0-9]+(?:-[a-z0-9]+)*$/.test(product.slug)) errors.push("Slug must use lowercase letters, numbers, and hyphens");
+  if (catalog.some((item) => item.id !== product.id && item.slug === product.slug)) errors.push("Slug must be unique");
+  if (!name.trim()) errors.push("Product name is required");
+  if (!category.trim()) errors.push("Category is required");
+  if (!sku.trim()) errors.push("Product SKU is required");
+  if (!Number.isFinite(product.price) || product.price < 0) errors.push("Price must be zero or greater");
+  if (!Number.isInteger(product.stock) || product.stock < 0) errors.push("Product stock must be a whole number of zero or more");
+  if (!images.length && !product.image) errors.push("At least one product image is required");
+  if (!details.trim()) errors.push("Product details are required");
+  if (!variants.length) errors.push("At least one sellable variant is required");
+
+  const variantIds = new Set<string>();
+  const variantSkus = new Set<string>();
+  variants.forEach((variant) => {
+    const variantId = typeof variant.id === "string" ? variant.id : "";
+    const variantSku = typeof variant.sku === "string" ? variant.sku : "";
+    const variantLabel = typeof variant.label === "string" ? variant.label : "";
+    if (!variantId || variantIds.has(variantId)) errors.push("Variant IDs must be unique");
+    if (variantId) variantIds.add(variantId);
+    if (!variantSku || variantSkus.has(variantSku)) errors.push("Variant SKUs must be unique");
+    if (variantSku) variantSkus.add(variantSku);
+    if (variant.stock !== undefined && (!Number.isInteger(variant.stock) || variant.stock < 0)) errors.push("Variant stock must be a whole number of zero or more");
+    if (!variantLabel.trim()) errors.push("Every variant needs an option label");
+  });
+  return Array.from(new Set(errors));
+}
+
+export function getCatalogValidationErrors(catalog: Product[]): string[] {
+  const errors: string[] = [];
+  const slugs = new Set<string>();
+  catalog.forEach((product) => {
+    if (slugs.has(product.slug)) errors.push(`Duplicate product slug: ${product.slug}`);
+    slugs.add(product.slug);
+    if (product.status === "active") {
+      getProductValidationErrors(product, catalog).forEach((error) => errors.push(`${product.name || product.slug}: ${error}`));
+    }
+  });
+  return Array.from(new Set(errors));
+}
 
 type CatalogItem = Omit<
   Product,
@@ -168,6 +224,7 @@ export const products: Product[] = catalog.map((product, index) => {
     swatch: swatches[variantIndex % swatches.length],
     sku: `${sku}-${String(variantIndex + 1).padStart(2, "0")}`,
     optionType: "Color",
+    optionValues: { Color: label },
     available: true,
   }));
 

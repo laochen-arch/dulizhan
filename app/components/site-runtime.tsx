@@ -90,6 +90,8 @@ function normalizeProduct(input: Partial<Product>): Product | null {
       sku: variant.sku || `${input.sku || fallback.sku}-${String(index + 1).padStart(2, "0")}`,
       optionType: variant.optionType || "Option",
       swatch: variant.swatch || "#20211e",
+      stock: typeof variant.stock === "number" ? Math.max(0, Math.floor(variant.stock)) : undefined,
+      optionValues: variant.optionValues && typeof variant.optionValues === "object" ? variant.optionValues : { [variant.optionType || "Option"]: variant.label || `Option ${index + 1}` },
       available: variant.available ?? true,
     })),
     tags: input.tags?.length ? input.tags : fallback.tags,
