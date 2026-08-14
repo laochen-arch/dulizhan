@@ -12,10 +12,18 @@ export type Product = {
   alt: string;
   badge?: string;
   colors: string[];
+  variants: ProductVariant[];
   specs: string[];
 };
 
-export const products: Product[] = [
+export type ProductVariant = {
+  id: string;
+  label: string;
+  swatch: string;
+  price?: number;
+};
+
+const catalog: Omit<Product, "variants">[] = [
   {
     id: "northline-01",
     slug: "field-pack-28l",
@@ -118,5 +126,15 @@ export const products: Product[] = [
   },
 ];
 
-export const getProduct = (slug: string) => products.find((product) => product.slug === slug);
+const swatches = ["#20211e", "#b7aa8f", "#687261", "#a7644e"];
 
+export const products: Product[] = catalog.map((product) => ({
+  ...product,
+  variants: product.colors.map((label, index) => ({
+    id: `${product.id}-${label.toLowerCase().replace(/[^a-z0-9]+/g, "-")}`,
+    label,
+    swatch: swatches[index % swatches.length],
+  })),
+}));
+
+export const getProduct = (slug: string) => products.find((product) => product.slug === slug);

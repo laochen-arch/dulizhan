@@ -48,7 +48,8 @@ test("keeps client replacement content centralized", async () => {
   assert.match(config, /navigation:/);
   assert.match(products, /export const products/);
   assert.match(products, /Field Pack 28L/);
+  assert.match(products, /ProductVariant/);
+  assert.match(products, /variants:/);
   assert.match(guide, /B 端客户首次提供资料后/);
   await assert.rejects(access(new URL("../app/_sites-preview/SkeletonPreview.tsx", import.meta.url)));
 });
-
