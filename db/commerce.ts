@@ -119,6 +119,18 @@ export type CmsOrderDetail = {
   refunds: CmsRefund[];
 };
 
+export type CommerceProvider = "stripe" | "resend";
+
+export type CommerceProbe = {
+  provider: CommerceProvider;
+  configured: boolean;
+  reachable: boolean;
+  status: "ready" | "missing" | "error";
+  detail: string;
+  checkedAt: string;
+  mode?: "test" | "live" | "unknown";
+};
+
 type WorkerEnv = {
   STRIPE_SECRET_KEY?: string;
   STRIPE_WEBHOOK_SECRET?: string;
@@ -394,16 +406,55 @@ export async function getCheckoutStatus(siteId: string, orderId: string, session
 
 export function getCommerceConfiguration() {
   const values = workerEnv();
+  const stripeKey = values.STRIPE_SECRET_KEY?.trim() || "";
+  const resendFrom = values.RESEND_FROM_EMAIL?.trim() || "";
   return {
     stripe: {
-      secretKey: Boolean(values.STRIPE_SECRET_KEY?.trim()),
+      secretKey: Boolean(stripeKey),
       webhookSecret: Boolean(values.STRIPE_WEBHOOK_SECRET?.trim()),
+      mode: stripeKey.startsWith("sk_live_") ? "live" : stripeKey.startsWith("sk_test_") ? "test" : stripeKey ? "unknown" : "unknown",
     },
     resend: {
       apiKey: Boolean(values.RESEND_API_KEY?.trim()),
       fromEmail: Boolean(values.RESEND_FROM_EMAIL?.trim()),
+      fromDomain: resendFrom.includes("@") ? resendFrom.split("@").pop() || null : null,
     },
   };
+}
+
+export async function probeCommerceProvider(provider: CommerceProvider): Promise<CommerceProbe> {
+  const values = workerEnv();
+  const checkedAt = now();
+  if (provider === "stripe") {
+    const secret = values.STRIPE_SECRET_KEY?.trim() || "";
+    const webhook = Boolean(values.STRIPE_WEBHOOK_SECRET?.trim());
+    const mode = secret.startsWith("sk_live_") ? "live" : secret.startsWith("sk_test_") ? "test" : secret ? "unknown" : "unknown";
+    if (!secret || !webhook) return { provider, configured: false, reachable: false, status: "missing", detail: "STRIPE_SECRET_KEY and STRIPE_WEBHOOK_SECRET are both required.", checkedAt, mode };
+    try {
+      const response = await fetch("https://api.stripe.com/v1/account", { headers: { Authorization: `Bearer ${secret}` } });
+      const payload = await response.json().catch(() => ({})) as { id?: string; error?: { message?: string } };
+      if (!response.ok) throw new Error(payload.error?.message || "Stripe rejected the credentials.");
+      return { provider, configured: true, reachable: true, status: "ready", detail: `Stripe account ${payload.id || "connected"} responded successfully.`, checkedAt, mode };
+    } catch (error) {
+      return { provider, configured: true, reachable: false, status: "error", detail: error instanceof Error ? error.message : "Stripe connection failed.", checkedAt, mode };
+    }
+  }
+
+  const apiKey = values.RESEND_API_KEY?.trim() || "";
+  const fromEmail = values.RESEND_FROM_EMAIL?.trim() || "";
+  if (!apiKey || !fromEmail) return { provider, configured: false, reachable: false, status: "missing", detail: "RESEND_API_KEY and RESEND_FROM_EMAIL are both required.", checkedAt };
+  try {
+    const response = await fetch("https://api.resend.com/domains", { headers: { Authorization: `Bearer ${apiKey}` } });
+    const payload = await response.json().catch(() => ({})) as { data?: Array<{ name?: string; status?: string }>; message?: string };
+    if (!response.ok) throw new Error(payload.message || "Resend rejected the credentials.");
+    const domain = fromEmail.split("@").pop() || "sender domain";
+    const matched = payload.data?.find((item) => item.name?.toLowerCase() === domain.toLowerCase());
+    if (!matched) return { provider, configured: true, reachable: true, status: "error", detail: `Resend is connected, but ${domain} is not present in the verified domain list.`, checkedAt };
+    if (matched.status && matched.status !== "verified") return { provider, configured: true, reachable: true, status: "error", detail: `${domain} is currently ${matched.status}. Verify it before sending production mail.`, checkedAt };
+    return { provider, configured: true, reachable: true, status: "ready", detail: `${fromEmail} is ready to send through Resend.`, checkedAt };
+  } catch (error) {
+    return { provider, configured: true, reachable: false, status: "error", detail: error instanceof Error ? error.message : "Resend connection failed.", checkedAt };
+  }
 }
 
 export async function listInventory(siteId: string, userId: string, email: string): Promise<CmsInventoryRow[]> {

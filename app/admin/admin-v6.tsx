@@ -5,14 +5,17 @@ import type { CmsAsset, CmsAuditLog, CmsDomain, CmsInvitation, CmsLaunchCheck, C
 import type { CmsInventoryRow, CmsOrder, CmsOrderDetail, CmsPaymentEvent } from "../../db/commerce";
 import { getCatalogValidationErrors, getProductValidationErrors, products as templateProducts, type Product, type ProductVariant, variantOptionValues } from "../data/products";
 import { type EditableSiteConfig, useSiteRuntime } from "../components/site-runtime";
+import { DeliveryPanel, LaunchSetupPanel } from "./launch-panels";
 
-type AdminTab = "overview" | "brand" | "content" | "products" | "media" | "access" | "team" | "domains" | "activity" | "release" | "commerce" | "versions";
+type AdminTab = "overview" | "setup" | "delivery" | "brand" | "content" | "products" | "media" | "access" | "team" | "domains" | "activity" | "release" | "commerce" | "versions";
 type Notice = { tone: "success" | "error" | "info"; text: string } | null;
-type CommerceConfiguration = { stripe: { secretKey: boolean; webhookSecret: boolean }; resend: { apiKey: boolean; fromEmail: boolean } };
+type CommerceConfiguration = { stripe: { secretKey: boolean; webhookSecret: boolean; mode?: string }; resend: { apiKey: boolean; fromEmail: boolean; fromDomain?: string | null }; webhookEndpoint?: string; environmentKeys?: string[] };
 type OnboardingState = { domain?: { hostname: string; status: string } | null; checks: CmsLaunchCheck[]; replacements: CmsReplacementItem[]; progress: { done: number; total: number } };
 
 const tabs: Array<{ id: AdminTab; label: string }> = [
   { id: "overview", label: "Overview" },
+  { id: "setup", label: "Launch setup" },
+  { id: "delivery", label: "Client delivery" },
   { id: "brand", label: "Brand & content" },
   { id: "content", label: "Content modules" },
   { id: "products", label: "Products" },
@@ -279,7 +282,7 @@ export function AdminStudioV6() {
   const [notice, setNotice] = useState<Notice>(null);
   const [authRequired, setAuthRequired] = useState(false);
   const [busy, setBusy] = useState(false);
-  const [siteForm, setSiteForm] = useState({ name: "", slug: "" });
+  const [siteForm, setSiteForm] = useState({ name: "", slug: "", templateSiteId: "default" });
   const [memberForm, setMemberForm] = useState({ email: "", role: "editor" as CmsRole });
   const [domainForm, setDomainForm] = useState({ name: "", slug: "", domain: "" });
   const [scheduleForm, setScheduleForm] = useState({ label: "Scheduled storefront release", scheduledAt: "" });
@@ -358,12 +361,12 @@ export function AdminStudioV6() {
     const [ordersPayload, inventoryPayload, configurationPayload, eventsPayload] = await Promise.all([
       ordersResponse.json().catch(() => ({})) as Promise<{ orders?: CmsOrder[] }>,
       inventoryResponse.json().catch(() => ({})) as Promise<{ inventory?: CmsInventoryRow[] }>,
-      configurationResponse.json().catch(() => ({})) as Promise<{ configuration?: CommerceConfiguration }>,
+      configurationResponse.json().catch(() => ({})) as Promise<{ configuration?: CommerceConfiguration; webhookEndpoint?: string; environmentKeys?: string[] }>,
       eventsResponse.json().catch(() => ({})) as Promise<{ events?: CmsPaymentEvent[] }>,
     ]);
     if (ordersResponse.ok) setOrders(ordersPayload.orders ?? []);
     if (inventoryResponse.ok) setInventory(inventoryPayload.inventory ?? []);
-    if (configurationResponse.ok) setCommerceConfiguration(configurationPayload.configuration ?? null);
+    if (configurationResponse.ok) setCommerceConfiguration(configurationPayload.configuration ? { ...configurationPayload.configuration, webhookEndpoint: configurationPayload.webhookEndpoint, environmentKeys: configurationPayload.environmentKeys } : null);
     if (eventsResponse.ok) setPaymentEvents(eventsPayload.events ?? []);
   }, [activeSiteId]);
 
@@ -428,7 +431,7 @@ export function AdminStudioV6() {
       const payload = await response.json().catch(() => ({})) as { site?: CmsSite; error?: string };
       if (!response.ok || !payload.site) throw new Error(payload.error || "Unable to create client site.");
       setSites((current) => [...current, payload.site as CmsSite]);
-      setSiteForm({ name: "", slug: "" });
+      setSiteForm({ name: "", slug: "", templateSiteId: "default" });
       setActiveSiteId(payload.site.id);
       setNotice({ tone: "success", text: "Client site created. Add content, then publish when the launch checks pass." });
     } catch (error) {
@@ -759,6 +762,9 @@ export function AdminStudioV6() {
         </nav>
 
         <P0Panels tab={tab} config={config} updateConfig={updateConfig} setHome={setHome} toggleModule={toggleModule} moveModule={moveModule} domainForm={domainForm} setDomainForm={setDomainForm} saveDomain={saveDomain} site={site} activeSiteId={activeSiteId} cmsRole={cmsRole} diff={diff} scheduleForm={scheduleForm} setScheduleForm={setScheduleForm} saveSchedule={saveSchedule} schedules={schedules} cancelScheduledPublish={cancelScheduledPublish} busy={busy} publish={publish} members={members} invitations={invitations} changeMemberRole={changeMemberRole} removeAccess={removeAccess} revokeAccessInvite={revokeAccessInvite} auditLogs={auditLogs} loadWorkspaceData={loadWorkspaceData} orders={orders} inventory={inventory} loadCommerceData={loadCommerceData} updateOrder={updateOrder} updateStock={updateStock} loadOrderDetail={loadOrderDetail} orderDetail={orderDetail} orderLoading={orderLoading} commerceConfiguration={commerceConfiguration} domains={domains} onboarding={onboarding} paymentEvents={paymentEvents} retryPaymentEvent={retryPaymentEvent} retryNotification={retryNotification} refundOrder={refundOrder} />
+
+        {tab === "setup" && <LaunchSetupPanel activeSiteId={activeSiteId} commerceConfiguration={commerceConfiguration} domains={domains} onboarding={onboarding} busy={busy} onRefresh={async () => { await loadCommerceData(); await loadWorkspaceData(); }} onNotice={(next) => setNotice(next)} />}
+        {tab === "delivery" && <DeliveryPanel sites={sites} site={site} activeSiteId={activeSiteId} setActiveSiteId={setActiveSiteId} siteForm={siteForm} setSiteForm={setSiteForm} createClientSite={createClientSite} onboarding={onboarding} busy={busy} onRefresh={async () => { await refreshCms(); await loadWorkspaceData(); }} onNotice={(next) => setNotice(next)} />}
 
         {tab === "overview" && onboarding && <section className="v6-card v6-onboarding-card"><div className="v6-card-heading"><div><p className="eyebrow">V12 delivery center</p><h2>{onboarding.progress.done}/{onboarding.progress.total} launch checks ready.</h2></div><span>{onboarding.domain?.hostname || "Custom domain pending"}</span></div><div className="v6-checks">{onboarding.checks.map((check) => <div className={check.done ? "done" : ""} key={check.key}><span>{check.done ? "OK" : "—"}</span>{check.label}<small>{check.detail}</small></div>)}</div><div className="v6-divider"><p className="eyebrow">Replacement checklist</p><div className="v6-version-list">{onboarding.replacements.map((item) => <article key={item.key}><div><strong>{item.label}</strong><span>{item.source}</span></div><span className={item.done ? "v6-status-chip is-ready" : "v6-status-chip is-missing"}>{item.done ? "Replaced" : item.required ? "Required" : "Optional"}</span></article>)}</div></div><div className="v6-divider"><p className="eyebrow">Batch import</p><p className="v6-muted">Upload a client JSON package or product CSV into this tenant draft.</p><button className="button button-outline" onClick={() => clientImportInput.current?.click()} disabled={busy}>Import client JSON / CSV <span>+</span></button><input ref={clientImportInput} type="file" accept=".csv,.json,text/csv,application/json" className="sr-only" onChange={(event) => void importClientFile(event)} /></div></section>}
 

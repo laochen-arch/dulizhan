@@ -702,7 +702,9 @@ function importedProduct(row: Record<string, string>, current: Product[]) {
   return { ...base, id: text(row.id) || existing?.id || `product_${crypto.randomUUID()}`, slug: text(row.slug, base.slug), name: text(row.name, base.name), shortName: text(row.shortName || row.shortname, text(row.name, base.shortName)), category: text(row.category, base.category), sku: text(row.sku, base.sku), status: row.status === "draft" ? "draft" : "active", featured: row.featured === "true" || row.featured === "1" || incoming.featured === true, price: Number.isFinite(parsedPrice) ? parsedPrice : base.price, stock: Number.isInteger(parsedStock) && parsedStock >= 0 ? parsedStock : base.stock, description: text(row.description, base.description), details: text(row.details, base.details), image: imageList[0] || base.image, images: imageList, alt: text(row.alt, base.alt), colors, options: Array.isArray(incoming.options) ? incoming.options : [{ name: "Color", values: colors }], variants: Array.isArray(incoming.variants) && incoming.variants.length ? incoming.variants : base.variants, specs: Array.isArray(incoming.specs) ? incoming.specs : base.specs, tags: text(row.tags, base.tags.join("|")).split("|").map((item) => item.trim()).filter(Boolean), relatedSlugs: text(row.relatedSlugs || row.relatedslugs, base.relatedSlugs.join("|")).split("|").map((item) => item.trim()).filter(Boolean) } as Product;
 }
 
-export async function importClientData(siteId: string, payload: { config?: unknown; products?: unknown; productCsv?: string; assetBindings?: Record<string, string> }, userId: string, email: string) {
+type ClientImportPayload = { config?: unknown; products?: unknown; productCsv?: string; assetBindings?: Record<string, string> };
+
+async function prepareClientImport(siteId: string, payload: ClientImportPayload, userId: string, email: string) {
   const database = getD1();
   await ensureCmsSchema(database);
   const access = await ensureMember(siteId, userId, email, database);
@@ -723,6 +725,35 @@ export async function importClientData(siteId: string, payload: { config?: unkno
   }
   config = replaceAssetUrls(config, bindings);
   catalog = replaceAssetUrls(catalog, bindings);
+  return { database, config, catalog, bindings, draft };
+}
+
+export async function previewClientImport(siteId: string, payload: ClientImportPayload, userId: string, email: string) {
+  const prepared = await prepareClientImport(siteId, payload, userId, email);
+  const errors = getCatalogValidationErrors(prepared.catalog);
+  const warnings: string[] = [];
+  if (!payload.config) warnings.push("No brand/content config was included; existing draft content will be preserved.");
+  if (!payload.products && !payload.productCsv) warnings.push("No product data was included; existing draft products will be preserved.");
+  if (!Object.keys(payload.assetBindings || {}).length) warnings.push("No media bindings were included; existing asset URLs will be preserved.");
+  return {
+    valid: errors.length === 0,
+    errors,
+    warnings,
+    summary: {
+      configChanged: JSON.stringify(prepared.config) !== JSON.stringify(prepared.draft.config),
+      totalProducts: prepared.catalog.length,
+      activeProducts: prepared.catalog.filter((product) => product.status === "active").length,
+      importedProducts: Array.isArray(payload.products) ? payload.products.length : typeof payload.productCsv === "string" ? Math.max(0, parseCsv(payload.productCsv).length - 1) : 0,
+      assetBindings: prepared.bindings.size,
+    },
+  };
+}
+
+export async function importClientData(siteId: string, payload: ClientImportPayload, userId: string, email: string) {
+  const prepared = await prepareClientImport(siteId, payload, userId, email);
+  const errors = getCatalogValidationErrors(prepared.catalog);
+  if (errors.length) throw new Error(`INVALID_IMPORT:${JSON.stringify(errors)}`);
+  const { database, config, catalog, bindings } = prepared;
   await writeDraft(siteId, config, catalog, userId, email);
   await recordAudit(database, siteId, { userId, email }, "client.imported", "import", siteId, { products: catalog.length, hasConfig: Boolean(payload.config), bindings: bindings.size });
   return { config, catalog, importedProducts: catalog.length, assetBindings: bindings.size };

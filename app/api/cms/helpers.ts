@@ -45,6 +45,14 @@ export function errorResponse(error: unknown) {
   if (["INVALID_INVITATION", "INVITATION_NOT_ACTIVE", "INVITATION_EMAIL_MISMATCH"].includes(message)) return Response.json({ error: "This invitation cannot be accepted by the current account.", code: message }, { status: 400, headers: { "Cache-Control": "no-store" } });
   if (["LAST_OWNER", "CANNOT_REMOVE_SELF", "DOMAIN_IN_USE"].includes(message)) return Response.json({ error: "This access or domain change is not allowed.", code: message }, { status: 400, headers: { "Cache-Control": "no-store" } });
   if (["INVALID_SITE", "INVALID_MEMBER", "INVALID_SCHEDULE"].includes(message)) return Response.json({ error: "The submitted CMS fields are invalid.", code: message }, { status: 400, headers: { "Cache-Control": "no-store" } });
+  if (message === "INVALID_IMPORT") return Response.json({ error: "The import file must include a header row and at least one product row.", code: message }, { status: 400, headers: { "Cache-Control": "no-store" } });
+  if (message.startsWith("INVALID_IMPORT:")) {
+    try {
+      return Response.json({ error: "The import contains invalid active products.", code: "INVALID_IMPORT", errors: JSON.parse(message.slice("INVALID_IMPORT:".length)) }, { status: 400, headers: { "Cache-Control": "no-store" } });
+    } catch {
+      return Response.json({ error: "The import contains invalid products.", code: "INVALID_IMPORT" }, { status: 400, headers: { "Cache-Control": "no-store" } });
+    }
+  }
   if (["INVALID_INVENTORY", "INVENTORY_BELOW_RESERVED", "INVALID_ORDER_STATUS", "ORDER_NOT_PAID", "ORDER_NOT_REFUNDABLE", "INVALID_REFUND_AMOUNT", "INVALID_REFUND_RESTOCK", "REFUND_PAYMENT_NOT_FOUND"].includes(message)) return Response.json({ error: message === "ORDER_NOT_PAID" ? "Paid orders must be confirmed before fulfillment can advance." : "The submitted commerce fields are invalid.", code: message }, { status: 400, headers: { "Cache-Control": "no-store" } });
   if (message === "SITE_NOT_FOUND") return Response.json({ error: "The requested client site was not found.", code: message }, { status: 404, headers: { "Cache-Control": "no-store" } });
   if (message.startsWith("PUBLISH_CHECKS:")) {

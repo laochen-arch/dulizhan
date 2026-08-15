@@ -38,6 +38,21 @@ test("renders the core white-label storefront routes", async () => {
   }
 });
 
+test("keeps the storefront conversion and delivery controls rendered", async () => {
+  const shop = await render("/shop");
+  const shopHtml = await shop.text();
+  assert.match(shopHtml, /href="\/products\/field-pack-28l"/);
+  assert.match(shopHtml, /href="\/cart"/);
+
+  const admin = await render("/admin");
+  const adminHtml = await admin.text();
+  assert.match(adminHtml, /Launch setup/);
+  assert.match(adminHtml, /Client delivery/);
+  const launchPanels = await readFile(new URL("../app/admin/launch-panels.tsx", import.meta.url), "utf8");
+  assert.match(launchPanels, /Production launch setup/);
+  assert.match(launchPanels, /Client delivery center/);
+});
+
 test("keeps client replacement content centralized", async () => {
   const config = await readFile(new URL("../app/data/site-config.ts", import.meta.url), "utf8");
   const products = await readFile(new URL("../app/data/products.ts", import.meta.url), "utf8");
