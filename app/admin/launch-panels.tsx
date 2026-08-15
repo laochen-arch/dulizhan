@@ -14,6 +14,7 @@ type OnboardingState = { domain?: { hostname: string; status: string } | null; c
 type SiteForm = { name: string; slug: string; templateSiteId: string };
 type Probe = { provider: "paypal" | "resend"; configured: boolean; reachable: boolean; status: "ready" | "missing" | "error"; detail: string; checkedAt: string; mode?: string };
 type ImportPreview = { valid: boolean; errors: string[]; warnings: string[]; summary: { configChanged: boolean; totalProducts: number; activeProducts: number; importedProducts: number; assetBindings: number } };
+const productionTests = ["Sandbox PayPal order created", "Return URL capture completed", "PayPal webhook event is processed", "Full or partial refund completed", "Refund inventory rule verified", "Resend payment and shipping mail delivered", "Live credentials and domain checked"];
 
 function StatusPill({ status }: { status: string }) {
   return <span className={`v13-status-pill ${status}`}>{status === "ready" ? "Ready" : status === "missing" ? "Needs setup" : status === "error" ? "Needs attention" : status}</span>;
@@ -40,6 +41,7 @@ export function LaunchSetupPanel({ activeSiteId, commerceConfiguration, domains,
   const [probes, setProbes] = useState<Record<string, Probe>>({});
   const [checking, setChecking] = useState<string | null>(null);
   const [checkingDomain, setCheckingDomain] = useState<string | null>(null);
+  const [testChecklist, setTestChecklist] = useState<Record<string, boolean>>({});
   const endpoint = commerceConfiguration?.webhookEndpoint || `${typeof window === "undefined" ? "" : window.location.origin}/api/paypal/webhook`;
   const environmentKeys = commerceConfiguration?.environmentKeys || ["PAYPAL_CLIENT_ID", "PAYPAL_CLIENT_SECRET", "PAYPAL_WEBHOOK_ID", "PAYPAL_ENVIRONMENT", "RESEND_API_KEY", "RESEND_FROM_EMAIL"];
 
@@ -73,6 +75,30 @@ export function LaunchSetupPanel({ activeSiteId, commerceConfiguration, domains,
     }
   }
 
+  async function releaseExpired() {
+    try {
+      const response = await fetch("/api/cms/commerce/expire", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ siteId: activeSiteId }) });
+      const result = await response.json().catch(() => ({})) as { released?: number; error?: string };
+      if (!response.ok) throw new Error(result.error || "Unable to release expired reservations.");
+      onNotice({ tone: "success", text: `${result.released || 0} expired order reservation(s) released.` });
+      await onRefresh();
+    } catch (error) {
+      onNotice({ tone: "error", text: error instanceof Error ? error.message : "Unable to release expired reservations." });
+    }
+  }
+
+  async function retryDueEmails() {
+    try {
+      const response = await fetch("/api/cms/commerce/notifications", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ siteId: activeSiteId }) });
+      const result = await response.json().catch(() => ({})) as { retried?: number; error?: string };
+      if (!response.ok) throw new Error(result.error || "Unable to retry email notifications.");
+      onNotice({ tone: "success", text: `${result.retried || 0} due email notification(s) retried.` });
+      await onRefresh();
+    } catch (error) {
+      onNotice({ tone: "error", text: error instanceof Error ? error.message : "Unable to retry email notifications." });
+    }
+  }
+
   const paypalProbe = probes.paypal;
   const resendProbe = probes.resend;
   const paypalReady = paypalProbe?.status === "ready" || Boolean(commerceConfiguration?.paypal.clientId && commerceConfiguration?.paypal.clientSecret && commerceConfiguration?.paypal.webhookId);
@@ -89,6 +115,7 @@ export function LaunchSetupPanel({ activeSiteId, commerceConfiguration, domains,
       <article className="v6-card"><div className="v6-card-heading"><div><p className="eyebrow">Webhook endpoint</p><h3>PayPal event delivery</h3></div><StatusPill status={commerceConfiguration?.paypal.webhookId ? "ready" : "missing"} /></div><p className="v6-muted">Copy this URL into PayPal Developer Dashboard → Webhooks. The handler records duplicate events and supports retries.</p><code className="v13-copy-field">{endpoint}</code><button className="text-button" onClick={() => copyText(endpoint, onNotice)}>Copy webhook URL</button></article>
       <article className="v6-card"><div className="v6-card-heading"><div><p className="eyebrow">Custom domain</p><h3>Client routing</h3></div><StatusPill status={domainReady ? "ready" : "missing"} /></div><p className="v6-muted">Map the hostname in the Domains tab, add the DNS record in the client provider, then verify the Sites custom-domain binding.</p>{domains.length ? domains.map((domain) => <div className="v13-domain-row" key={domain.id}><span><strong>{domain.hostname}</strong><small>{domain.status} {domain.lastCheckedAt ? `· checked ${new Date(domain.lastCheckedAt).toLocaleString()}` : "· not checked"}</small></span><span className="v13-domain-actions"><button className="text-button" onClick={() => void checkDomain(domain.id)} disabled={checkingDomain !== null}>{checkingDomain === domain.id ? "Checking..." : "Check routing"}</button><button className="text-button" onClick={() => copyText(domain.verificationToken || "", onNotice)} disabled={!domain.verificationToken}>Copy token</button></span></div>) : <p className="v6-empty">No custom domain mapping has been added.</p>}</article>
     </div>
+    <div className="v13-provider-grid"><article className="v6-card"><div className="v6-card-heading"><div><p className="eyebrow">Operations recovery</p><h3>Release and retry queue</h3></div><span>Manual safety controls</span></div><p className="v6-muted">Expired pending orders release reserved inventory. Failed Resend messages retry when their backoff window is due.</p><div className="v6-actions"><button className="button button-outline" onClick={() => void releaseExpired()} disabled={busy}>Release expired inventory</button><button className="button button-outline" onClick={() => void retryDueEmails()} disabled={busy}>Retry due emails</button></div></article><article className="v6-card"><div className="v6-card-heading"><div><p className="eyebrow">Production test checklist</p><h3>Record the go-live evidence.</h3></div><span>{Object.values(testChecklist).filter(Boolean).length}/{productionTests.length}</span></div><div className="v13-checklist">{productionTests.map((label) => <label className={testChecklist[label] ? "done" : ""} key={label}><input type="checkbox" checked={Boolean(testChecklist[label])} onChange={(event) => setTestChecklist((current) => ({ ...current, [label]: event.target.checked }))} /><span>{testChecklist[label] ? "OK" : "!"}</span><div><strong>{label}</strong><small>Complete this step after the matching provider or storefront action.</small></div></label>)}</div></article></div>
     <div className="v6-card v13-env-card"><div className="v6-card-heading"><div><p className="eyebrow">Runtime variables</p><h3>Configure these in the Sites environment</h3></div><button className="text-button" onClick={() => copyText(environmentKeys.join("\n"), onNotice)}>Copy names</button></div><div className="v13-env-list">{environmentKeys.map((key) => <code key={key}>{key}</code>)}</div><p className="v6-help">Values are intentionally never shown in the client CMS. After updating them, return here and run the provider checks again.</p><button className="text-button" onClick={() => void onRefresh()}>Refresh configuration status</button></div>
   </section>;
 }
@@ -111,6 +138,9 @@ export function DeliveryPanel({ sites, site, activeSiteId, setActiveSiteId, site
   const [assetBindingsText, setAssetBindingsText] = useState("{}");
   const [importing, setImporting] = useState(false);
   const [bindingError, setBindingError] = useState("");
+  const [lastImportRevisionId, setLastImportRevisionId] = useState("");
+  const [batchText, setBatchText] = useState("[]");
+  const [batching, setBatching] = useState(false);
 
   function readBindings() {
     try {
@@ -156,9 +186,10 @@ export function DeliveryPanel({ sites, site, activeSiteId, setActiveSiteId, site
     setImporting(true);
     try {
       const response = await fetch("/api/cms/import", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ siteId: activeSiteId, ...pendingImport.payload }) });
-      const result = await response.json().catch(() => ({})) as { error?: string };
+      const result = await response.json().catch(() => ({})) as { error?: string; revisionId?: string };
       if (!response.ok) throw new Error(result.error || "Unable to apply the import.");
       const filename = pendingImport.filename;
+      setLastImportRevisionId(result.revisionId || "");
       setPendingImport(null);
       setPreview(null);
       await onRefresh();
@@ -170,8 +201,45 @@ export function DeliveryPanel({ sites, site, activeSiteId, setActiveSiteId, site
     }
   }
 
+  async function rollbackImport() {
+    if (!lastImportRevisionId || !window.confirm("Restore the draft from before the last client import?")) return;
+    setImporting(true);
+    try {
+      const response = await fetch("/api/cms/revisions", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ siteId: activeSiteId, revisionId: lastImportRevisionId }) });
+      const result = await response.json().catch(() => ({})) as { error?: string };
+      if (!response.ok) throw new Error(result.error || "Unable to roll back the import.");
+      setLastImportRevisionId("");
+      await onRefresh();
+      onNotice({ tone: "success", text: "The draft was restored to the pre-import version." });
+    } catch (error) {
+      onNotice({ tone: "error", text: error instanceof Error ? error.message : "Unable to roll back the import." });
+    } finally {
+      setImporting(false);
+    }
+  }
+
+  async function createBatch() {
+    try {
+      const clients = JSON.parse(batchText) as unknown;
+      if (!Array.isArray(clients)) throw new Error("Batch input must be a JSON array.");
+      setBatching(true);
+      const response = await fetch("/api/cms/sites", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ clients }) });
+      const result = await response.json().catch(() => ({})) as { results?: Array<{ name?: string }>; errors?: Array<{ name?: string; error?: string }>; error?: string };
+      if (!response.ok) throw new Error(result.error || "Unable to create client sites.");
+      const created = result.results?.length || 0;
+      const failed = result.errors?.length || 0;
+      setBatchText("[]");
+      await onRefresh();
+      onNotice({ tone: failed ? "info" : "success", text: `Batch delivery created ${created} site(s)${failed ? `; ${failed} failed and remain in the report.` : "."}` });
+    } catch (error) {
+      onNotice({ tone: "error", text: error instanceof Error ? error.message : "Unable to create client sites." });
+    } finally {
+      setBatching(false);
+    }
+  }
+
   function exportReport() {
-    const report = { generatedAt: new Date().toISOString(), site, onboarding, importPreview: preview, status: onboarding?.progress || null };
+    const report = { generatedAt: new Date().toISOString(), site, onboarding, importPreview: preview, lastImportRevisionId: lastImportRevisionId || null, status: onboarding?.progress || null };
     const link = document.createElement("a");
     link.href = URL.createObjectURL(new Blob([JSON.stringify(report, null, 2)], { type: "application/json" }));
     link.download = `${site?.slug || "client-site"}-delivery-report.json`;
@@ -182,6 +250,9 @@ export function DeliveryPanel({ sites, site, activeSiteId, setActiveSiteId, site
 
   const previewUrl = `/preview?siteId=${encodeURIComponent(activeSiteId)}`;
   return <section className="v13-delivery-stack">
+    {lastImportRevisionId ? <article className="v6-card"><div className="v6-card-heading"><div><p className="eyebrow">Import recovery</p><h3>Pre-import backup is ready.</h3></div><span>{lastImportRevisionId}</span></div><p className="v6-muted">The last client import created a rollback point. Restore it before publishing if the package needs correction.</p><button className="button button-outline" onClick={() => void rollbackImport()} disabled={importing}>Undo last import</button></article> : null}
+    {preview && pendingImport?.payload.assetBindings ? <article className="v6-card"><div className="v6-card-heading"><div><p className="eyebrow">Asset binding preview</p><h3>{Object.keys(pendingImport.payload.assetBindings as Record<string, string>).length} media replacement(s)</h3></div><span>Review before apply</span></div><div className="v13-replacement-list">{Object.entries(pendingImport.payload.assetBindings as Record<string, string>).map(([from, to]) => <div key={from}><span><strong>{from}</strong><small>{String(to)}</small></span><StatusPill status="ready" /></div>)}</div></article> : null}
+    <article className="v6-card"><p className="eyebrow">01B / Batch delivery</p><h3>Create several client sites from one manifest.</h3><p className="v6-muted">Use a JSON array with name, slug, and optional templateSiteId.</p><textarea value={batchText} onChange={(event) => setBatchText(event.target.value)} aria-label="Batch client sites JSON" /><button className="button button-outline" type="button" onClick={() => void createBatch()} disabled={batching}>{batching ? "Creating batch..." : "Create client batch"}</button></article>
     <div className="v6-card v13-setup-hero"><div><p className="eyebrow">V15 / Client delivery center</p><h2>Turn client materials into a ready storefront.</h2><p className="v6-muted">Create an isolated tenant, validate the handoff package, bind media, preview the result, and export the launch report.</p></div><div className="v6-actions"><a className="button button-outline" href={previewUrl} target="_blank" rel="noreferrer">Open preview -&gt;</a><button className="button button-dark" onClick={exportReport} disabled={!onboarding}>Export handoff report</button></div></div>
     <div className="v13-delivery-grid">
       <article className="v6-card"><div className="v6-card-heading"><div><p className="eyebrow">01 / Create</p><h3>One-click client site</h3></div><span>Isolated tenant</span></div><form className="v6-form" onSubmit={createClientSite}><label className="v6-field"><span>Template source</span><select value={siteForm.templateSiteId} onChange={(event) => setSiteForm((current) => ({ ...current, templateSiteId: event.target.value }))}>{sites.map((item) => <option value={item.id} key={item.id}>{item.name} · {item.slug}</option>)}</select></label><label className="v6-field"><span>Client name</span><input value={siteForm.name} onChange={(event) => setSiteForm((current) => ({ ...current, name: event.target.value, slug: current.slug || event.target.value.toLowerCase().replace(/[^a-z0-9]+/g, "-") }))} placeholder="Acme Outdoor" /></label><label className="v6-field"><span>URL slug</span><input value={siteForm.slug} onChange={(event) => setSiteForm((current) => ({ ...current, slug: event.target.value }))} placeholder="acme-outdoor" /></label><button className="button button-dark" disabled={busy || !siteForm.name || !siteForm.slug}>Create from template +</button></form><p className="v6-help">The new site receives its own brand draft, catalog, media references, orders, inventory and permissions.</p></article>

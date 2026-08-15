@@ -53,7 +53,7 @@ export function errorResponse(error: unknown) {
       return Response.json({ error: "The import contains invalid products.", code: "INVALID_IMPORT" }, { status: 400, headers: { "Cache-Control": "no-store" } });
     }
   }
-  if (["INVALID_INVENTORY", "INVENTORY_BELOW_RESERVED", "INVALID_ORDER_STATUS", "ORDER_NOT_PAID", "ORDER_NOT_REFUNDABLE", "INVALID_REFUND_AMOUNT", "INVALID_REFUND_RESTOCK", "REFUND_PAYMENT_NOT_FOUND"].includes(message)) return Response.json({ error: message === "ORDER_NOT_PAID" ? "Paid orders must be confirmed before fulfillment can advance." : "The submitted commerce fields are invalid.", code: message }, { status: 400, headers: { "Cache-Control": "no-store" } });
+  if (["INVALID_INVENTORY", "INVENTORY_BELOW_RESERVED", "INVALID_ORDER_STATUS", "ORDER_NOT_PAID", "ORDER_NOT_REFUNDABLE", "INVALID_REFUND_AMOUNT", "INVALID_REFUND_RESTOCK", "REFUND_PAYMENT_NOT_FOUND", "PAYMENT_NOT_CONFIGURED", "REFUND_PROVIDER_ERROR"].includes(message)) return Response.json({ error: message === "ORDER_NOT_PAID" ? "Paid orders must be confirmed before fulfillment can advance." : message === "PAYMENT_NOT_CONFIGURED" ? "PayPal is not configured in the production runtime." : message === "REFUND_PROVIDER_ERROR" ? "PayPal could not complete the refund. Review the refund record and retry from the provider if needed." : "The submitted commerce fields are invalid.", code: message }, { status: message === "REFUND_PROVIDER_ERROR" ? 502 : 400, headers: { "Cache-Control": "no-store" } });
   if (message === "SITE_NOT_FOUND") return Response.json({ error: "The requested client site was not found.", code: message }, { status: 404, headers: { "Cache-Control": "no-store" } });
   if (message.startsWith("PUBLISH_CHECKS:")) {
     try {

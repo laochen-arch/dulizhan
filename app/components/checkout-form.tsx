@@ -1,7 +1,7 @@
 "use client";
 
 import type { FormEvent } from "react";
-import { useState } from "react";
+import { useRef, useState } from "react";
 import { useStore } from "./cart-store";
 import { showToast } from "./toast";
 
@@ -27,6 +27,7 @@ export function CheckoutForm({ onComplete }: { onComplete: () => void }) {
   const [errors, setErrors] = useState<CheckoutErrors>({});
   const [submitting, setSubmitting] = useState(false);
   const [serverError, setServerError] = useState("");
+  const idempotencyKey = useRef<string | null>(null);
 
   function update(field: keyof CheckoutValues, value: string) {
     setValues((current) => ({ ...current, [field]: value }));
@@ -51,8 +52,9 @@ export function CheckoutForm({ onComplete }: { onComplete: () => void }) {
     }
     setSubmitting(true);
     setServerError("");
+    idempotencyKey.current ||= crypto.randomUUID();
     showToast("Preparing secure checkout...", "info");
-    void fetch("/api/checkout", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ ...values, items: cart.map((item) => ({ productId: item.id, variantId: item.variantId, quantity: item.quantity })) }) }).then(async (response) => {
+    void fetch("/api/checkout", { method: "POST", headers: { "Content-Type": "application/json", "x-idempotency-key": idempotencyKey.current || "" }, body: JSON.stringify({ ...values, items: cart.map((item) => ({ productId: item.id, variantId: item.variantId, quantity: item.quantity })) }) }).then(async (response) => {
       const payload = await response.json().catch(() => ({})) as { checkoutUrl?: string; error?: string; code?: string };
       if (!response.ok || !payload.checkoutUrl) throw new Error(payload.error || "Unable to start payment.");
       onComplete();

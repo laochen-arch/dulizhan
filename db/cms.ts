@@ -374,7 +374,9 @@ export async function ensureCmsSchema(database: D1DatabaseLike) {
       payment_status TEXT NOT NULL DEFAULT 'pending',
       fulfillment_status TEXT NOT NULL DEFAULT 'unfulfilled',
       paypal_order_id TEXT UNIQUE,
+      paypal_approval_url TEXT,
       paypal_capture_id TEXT,
+      checkout_idempotency_key TEXT UNIQUE,
       shipping_address TEXT NOT NULL,
       tracking_number TEXT,
       created_at TEXT NOT NULL,
@@ -461,7 +463,9 @@ export async function ensureCmsSchema(database: D1DatabaseLike) {
   ]);
   await ensureColumn(database, "cms_orders", "admin_note", "TEXT");
   await ensureColumn(database, "cms_orders", "paypal_order_id", "TEXT");
+  await ensureColumn(database, "cms_orders", "paypal_approval_url", "TEXT");
   await ensureColumn(database, "cms_orders", "paypal_capture_id", "TEXT");
+  await ensureColumn(database, "cms_orders", "checkout_idempotency_key", "TEXT");
   await ensureColumn(database, "cms_orders", "refund_total", "REAL NOT NULL DEFAULT 0");
   await ensureColumn(database, "cms_orders", "refunded_at", "TEXT");
   await ensureColumn(database, "cms_payment_events", "attempts", "INTEGER NOT NULL DEFAULT 0");
@@ -675,6 +679,19 @@ export async function createSiteFromTemplate(name: string, slug: string, templat
   return { ...site, role: "owner" as const, templateSiteId: normalizedTemplate, copiedProducts: catalog.length, copiedAssets: copiedAssets.copied.length };
 }
 
+export async function createSitesFromTemplateBatch(entries: Array<{ name: string; slug: string; templateSiteId?: string }>, userId: string, email: string) {
+  const results: Array<Record<string, unknown>> = [];
+  const errors: Array<{ name: string; slug: string; error: string }> = [];
+  for (const entry of entries.slice(0, 20)) {
+    try {
+      results.push(await createSiteFromTemplate(entry.name, entry.slug, entry.templateSiteId || DEFAULT_SITE_ID, userId, email));
+    } catch (error) {
+      errors.push({ name: entry.name, slug: entry.slug, error: error instanceof Error ? error.message : "SITE_CREATE_FAILED" });
+    }
+  }
+  return { results, errors };
+}
+
 function parseCsv(text: string) {
   const rows: string[][] = [];
   let row: string[] = [];
@@ -756,10 +773,13 @@ export async function importClientData(siteId: string, payload: ClientImportPayl
   const prepared = await prepareClientImport(siteId, payload, userId, email);
   const errors = getCatalogValidationErrors(prepared.catalog);
   if (errors.length) throw new Error(`INVALID_IMPORT:${JSON.stringify(errors)}`);
-  const { database, config, catalog, bindings } = prepared;
+  const { database, config, catalog, bindings, draft } = prepared;
+  const revisionId = `rev_${crypto.randomUUID()}`;
+  const revisionTimestamp = now();
+  await database.prepare("INSERT INTO cms_revisions (id, site_id, kind, label, snapshot, created_at, created_by) VALUES (?1, ?2, 'import-backup', ?3, ?4, ?5, ?6)").bind(revisionId, siteId, "Before client import", JSON.stringify({ config: draft.config, catalog: draft.catalog }), revisionTimestamp, userId).run();
   await writeDraft(siteId, config, catalog, userId, email);
-  await recordAudit(database, siteId, { userId, email }, "client.imported", "import", siteId, { products: catalog.length, hasConfig: Boolean(payload.config), bindings: bindings.size });
-  return { config, catalog, importedProducts: catalog.length, assetBindings: bindings.size };
+  await recordAudit(database, siteId, { userId, email }, "client.imported", "import", siteId, { products: catalog.length, hasConfig: Boolean(payload.config), bindings: bindings.size, revisionId });
+  return { config, catalog, importedProducts: catalog.length, assetBindings: bindings.size, revisionId };
 }
 
 export async function getSiteLaunchChecks(siteId: string, userId: string, email: string) {

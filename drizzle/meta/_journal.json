@@ -43,6 +43,13 @@
       "when": 1786815000000,
       "tag": "0005_paypal_checkout",
       "breakpoints": true
+    },
+    {
+      "idx": 6,
+      "version": "7",
+      "when": 1786818600000,
+      "tag": "0006_checkout_idempotency",
+      "breakpoints": true
     }
   ]
 }

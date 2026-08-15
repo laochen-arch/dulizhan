@@ -174,7 +174,9 @@ export const cmsOrders = sqliteTable("cms_orders", {
   paymentStatus: text("payment_status").notNull().default("pending"),
   fulfillmentStatus: text("fulfillment_status").notNull().default("unfulfilled"),
   paypalOrderId: text("paypal_order_id"),
+  paypalApprovalUrl: text("paypal_approval_url"),
   paypalCaptureId: text("paypal_capture_id"),
+  checkoutIdempotencyKey: text("checkout_idempotency_key"),
   shippingAddress: text("shipping_address").notNull(),
   trackingNumber: text("tracking_number"),
   createdAt: text("created_at").notNull(),
@@ -184,7 +186,7 @@ export const cmsOrders = sqliteTable("cms_orders", {
   adminNote: text("admin_note"),
   refundTotal: real("refund_total").notNull().default(0),
   refundedAt: text("refunded_at"),
-}, (table) => [uniqueIndex("cms_orders_number_unique").on(table.orderNumber), uniqueIndex("cms_orders_paypal_order_unique").on(table.paypalOrderId), index("cms_orders_site_status_idx").on(table.siteId, table.status, table.createdAt), index("cms_orders_site_email_idx").on(table.siteId, table.email)]);
+}, (table) => [uniqueIndex("cms_orders_number_unique").on(table.orderNumber), uniqueIndex("cms_orders_paypal_order_unique").on(table.paypalOrderId), uniqueIndex("cms_orders_checkout_idempotency_unique").on(table.checkoutIdempotencyKey), index("cms_orders_site_status_idx").on(table.siteId, table.status, table.createdAt), index("cms_orders_site_email_idx").on(table.siteId, table.email)]);
 
 export const cmsOrderItems = sqliteTable("cms_order_items", {
   id: text("id").primaryKey(),

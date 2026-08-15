@@ -58,7 +58,16 @@ test("keeps the storefront conversion and delivery controls rendered", async () 
   assert.match(checkoutForm, /PayPal secure checkout/);
   assert.match(commerce, /createPayPalOrder/);
   assert.match(commerce, /processPayPalEvent/);
+  assert.match(commerce, /checkout_idempotency_key/);
+  assert.match(commerce, /completeRefundRecord/);
+  assert.match(commerce, /releaseExpiredOrderReservations/);
   assert.doesNotMatch(commerce, /STRIPE_/);
+  const checkoutFormSource = await readFile(new URL("../app/components/checkout-form.tsx", import.meta.url), "utf8");
+  assert.match(checkoutFormSource, /x-idempotency-key/);
+  const expireRoute = await readFile(new URL("../app/api/cms/commerce/expire/route.ts", import.meta.url), "utf8");
+  assert.match(expireRoute, /releaseExpiredOrderReservations/);
+  const sitesRoute = await readFile(new URL("../app/api/cms/sites/route.ts", import.meta.url), "utf8");
+  assert.match(sitesRoute, /createSitesFromTemplateBatch/);
 });
 
 test("keeps client replacement content centralized", async () => {
