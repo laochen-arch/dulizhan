@@ -104,7 +104,7 @@ test("keeps V20 tenant boundaries and release gates in source", async () => {
   assert.match(cms, /publish\.blocked/);
   assert.match(integrations, /PAYPAL_CLIENT_ID/);
   assert.match(cms, /manualChecks/);
-  assert.match(commerce, /SET_FROM_PROVIDER/);
+  assert.match(commerce, /SET_PROVIDED_ADDRESS/);
   assert.match(commerce, /getStoreCommerceProfile/);
   assert.doesNotMatch(commerce, /brand_name: "Northline Supply"/);
   assert.match(cart, /northline-cart-v20/);

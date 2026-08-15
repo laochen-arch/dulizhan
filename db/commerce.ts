@@ -395,7 +395,7 @@ function paypalOrderBody(order: CmsOrder, items: CmsOrderItem[], origin: string,
         experience_context: {
           brand_name: brandName.slice(0, 127),
           user_action: "PAY_NOW",
-          shipping_preference: "SET_FROM_PROVIDER",
+          shipping_preference: "SET_PROVIDED_ADDRESS",
           return_url: `${origin}/checkout?order_id=${encodeURIComponent(order.id)}&paypal_return=1`,
           cancel_url: `${origin}/checkout?order_id=${encodeURIComponent(order.id)}&cancelled=1`,
         },
