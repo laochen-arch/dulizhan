@@ -9,8 +9,8 @@ export async function POST(request: Request) {
     const siteId = getSiteId(request, payload.siteId);
     await requireMember(siteId, "editor");
     const provider = payload.provider || "all";
-    if (provider !== "all" && provider !== "stripe" && provider !== "resend") return Response.json({ error: "provider must be stripe, resend, or all.", code: "INVALID_PROVIDER" }, { status: 400 });
-    const providers: CommerceProvider[] = provider === "all" ? ["stripe", "resend"] : [provider];
+    if (provider !== "all" && provider !== "paypal" && provider !== "resend") return Response.json({ error: "provider must be paypal, resend, or all.", code: "INVALID_PROVIDER" }, { status: 400 });
+    const providers: CommerceProvider[] = provider === "all" ? ["paypal", "resend"] : [provider];
     const probes = await Promise.all(providers.map((item) => probeCommerceProvider(item)));
     return Response.json({ siteId, probes }, { headers: { "Cache-Control": "no-store" } });
   } catch (error) {

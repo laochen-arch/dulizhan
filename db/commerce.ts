@@ -43,8 +43,8 @@ export type CmsOrder = {
   status: string;
   paymentStatus: string;
   fulfillmentStatus: string;
-  stripeSessionId: string | null;
-  stripePaymentIntentId: string | null;
+  paypalOrderId: string | null;
+  paypalCaptureId: string | null;
   shippingAddress: Record<string, string>;
   trackingNumber: string | null;
   createdAt: string;
@@ -88,7 +88,7 @@ export type CmsRefund = {
   id: string;
   siteId: string;
   orderId: string;
-  stripeRefundId: string | null;
+  paypalRefundId: string | null;
   amount: number;
   currency: string;
   reason: string | null;
@@ -119,7 +119,7 @@ export type CmsOrderDetail = {
   refunds: CmsRefund[];
 };
 
-export type CommerceProvider = "stripe" | "resend";
+export type CommerceProvider = "paypal" | "resend";
 
 export type CommerceProbe = {
   provider: CommerceProvider;
@@ -128,12 +128,14 @@ export type CommerceProbe = {
   status: "ready" | "missing" | "error";
   detail: string;
   checkedAt: string;
-  mode?: "test" | "live" | "unknown";
+  mode?: "sandbox" | "live" | "unknown";
 };
 
 type WorkerEnv = {
-  STRIPE_SECRET_KEY?: string;
-  STRIPE_WEBHOOK_SECRET?: string;
+  PAYPAL_CLIENT_ID?: string;
+  PAYPAL_CLIENT_SECRET?: string;
+  PAYPAL_WEBHOOK_ID?: string;
+  PAYPAL_ENVIRONMENT?: string;
   RESEND_API_KEY?: string;
   RESEND_FROM_EMAIL?: string;
 };
@@ -210,7 +212,7 @@ function notificationToPublic(row: OrderNotificationRow): CmsOrderNotification {
 async function readOrder(database: D1DatabaseLike, orderId: string, siteId: string): Promise<CmsOrderDetail> {
   const row = await database.prepare(`SELECT id, site_id AS siteId, order_number AS orderNumber, email, customer_name AS customerName, currency,
     subtotal, shipping, tax, total, status, payment_status AS paymentStatus, fulfillment_status AS fulfillmentStatus,
-    stripe_session_id AS stripeSessionId, stripe_payment_intent_id AS stripePaymentIntentId, shipping_address, tracking_number AS trackingNumber,
+    paypal_order_id AS paypalOrderId, paypal_capture_id AS paypalCaptureId, shipping_address, tracking_number AS trackingNumber,
     created_at AS createdAt, updated_at AS updatedAt, paid_at AS paidAt, shipped_at AS shippedAt,
     admin_note AS adminNote, refund_total AS refundTotal, refunded_at AS refundedAt
     FROM cms_orders WHERE id = ?1 AND site_id = ?2`).bind(orderId, siteId).first<OrderRow>();
@@ -221,7 +223,7 @@ async function readOrder(database: D1DatabaseLike, orderId: string, siteId: stri
   const notifications = await database.prepare(`SELECT id, site_id AS siteId, order_id AS orderId, type, status,
     provider_id AS providerId, error, created_at AS createdAt, sent_at AS sentAt, attempts, next_retry_at AS nextRetryAt
     FROM cms_order_notifications WHERE order_id = ?1 AND site_id = ?2 ORDER BY created_at ASC`).bind(orderId, siteId).all<OrderNotificationRow>();
-  const refunds = await database.prepare(`SELECT id, site_id AS siteId, order_id AS orderId, stripe_refund_id AS stripeRefundId,
+  const refunds = await database.prepare(`SELECT id, site_id AS siteId, order_id AS orderId, paypal_refund_id AS paypalRefundId,
     amount, currency, reason, status, restock_items AS restockItems, error, created_by AS createdBy, created_at AS createdAt, completed_at AS completedAt
     FROM cms_refunds WHERE order_id = ?1 AND site_id = ?2 ORDER BY created_at DESC`).bind(orderId, siteId).all<RefundRow>();
   return {
@@ -284,41 +286,56 @@ function orderNumber() {
   return `NL-${date}-${crypto.randomUUID().slice(0, 6).toUpperCase()}`;
 }
 
-function stripeBody(order: CmsOrder, items: CmsOrderItem[], origin: string) {
-  const body = new URLSearchParams();
-  body.set("mode", "payment");
-  body.set("client_reference_id", order.id);
-  body.set("expires_at", String(Math.floor(Date.now() / 1000) + 31 * 60));
-  body.set("success_url", `${origin}/checkout?order_id=${encodeURIComponent(order.id)}&session_id={CHECKOUT_SESSION_ID}`);
-  body.set("cancel_url", `${origin}/checkout?order_id=${encodeURIComponent(order.id)}&cancelled=1`);
-  body.set("customer_email", order.email);
-  body.set("metadata[order_id]", order.id);
-  body.set("metadata[site_id]", order.siteId);
-  body.set("payment_intent_data[metadata][order_id]", order.id);
-  body.set("payment_intent_data[metadata][site_id]", order.siteId);
-  items.forEach((item, index) => {
-    body.set(`line_items[${index}][quantity]`, String(item.quantity));
-    body.set(`line_items[${index}][price_data][currency]`, order.currency);
-    body.set(`line_items[${index}][price_data][unit_amount]`, String(Math.round(item.unitPrice * 100)));
-    body.set(`line_items[${index}][price_data][product_data][name]`, `${item.name} / ${item.variantLabel}`);
-    body.set(`line_items[${index}][price_data][product_data][metadata][sku]`, item.sku);
-  });
-  if (order.shipping > 0) {
-    body.set(`shipping_options[0][shipping_rate_data][type]`, "fixed_amount");
-    body.set(`shipping_options[0][shipping_rate_data][display_name]`, "Standard delivery");
-    body.set(`shipping_options[0][shipping_rate_data][fixed_amount][amount]`, String(Math.round(order.shipping * 100)));
-    body.set(`shipping_options[0][shipping_rate_data][fixed_amount][currency]`, order.currency);
-  }
-  return body;
+function paypalBaseUrl() {
+  return workerEnv().PAYPAL_ENVIRONMENT?.trim().toLowerCase() === "live" ? "https://api-m.paypal.com" : "https://api-m.sandbox.paypal.com";
 }
 
-async function createStripeSession(order: CmsOrder, items: CmsOrderItem[], origin: string) {
-  const secret = workerEnv().STRIPE_SECRET_KEY?.trim();
-  if (!secret) throw new Error("PAYMENT_NOT_CONFIGURED");
-  const response = await fetch("https://api.stripe.com/v1/checkout/sessions", { method: "POST", headers: { Authorization: `Basic ${btoa(`${secret}:`)}`, "Content-Type": "application/x-www-form-urlencoded" }, body: stripeBody(order, items, origin) });
-  const payload = await response.json().catch(() => ({})) as { id?: string; url?: string; error?: { message?: string } };
-  if (!response.ok || !payload.id || !payload.url) throw new Error(payload.error?.message || "PAYMENT_PROVIDER_ERROR");
-  return { id: payload.id, url: payload.url };
+async function getPayPalAccessToken() {
+  const clientId = workerEnv().PAYPAL_CLIENT_ID?.trim();
+  const clientSecret = workerEnv().PAYPAL_CLIENT_SECRET?.trim();
+  if (!clientId || !clientSecret) throw new Error("PAYMENT_NOT_CONFIGURED");
+  const response = await fetch(`${paypalBaseUrl()}/v1/oauth2/token`, {
+    method: "POST",
+    headers: { Authorization: `Basic ${btoa(`${clientId}:${clientSecret}`)}`, "Content-Type": "application/x-www-form-urlencoded" },
+    body: "grant_type=client_credentials",
+  });
+  const payload = await response.json().catch(() => ({})) as { access_token?: string; error_description?: string };
+  if (!response.ok || !payload.access_token) throw new Error(payload.error_description || "PAYMENT_PROVIDER_ERROR");
+  return payload.access_token;
+}
+
+function paypalOrderBody(order: CmsOrder, items: CmsOrderItem[], origin: string) {
+  const currency = order.currency.toUpperCase();
+  return {
+    intent: "CAPTURE",
+    purchase_units: [{
+      reference_id: order.id,
+      custom_id: `${order.siteId}:${order.id}`,
+      description: `Northline order ${order.orderNumber}`,
+      amount: {
+        currency_code: currency,
+        value: order.total.toFixed(2),
+        breakdown: { item_total: { currency_code: currency, value: order.subtotal.toFixed(2) }, shipping: { currency_code: currency, value: order.shipping.toFixed(2) } },
+      },
+      items: items.map((item) => ({ name: `${item.name} / ${item.variantLabel}`.slice(0, 127), sku: item.sku.slice(0, 127), quantity: String(item.quantity), category: "PHYSICAL_GOODS", unit_amount: { currency_code: currency, value: item.unitPrice.toFixed(2) } })),
+    }],
+    application_context: {
+      brand_name: "Northline Supply",
+      user_action: "PAY_NOW",
+      shipping_preference: "NO_SHIPPING",
+      return_url: `${origin}/checkout?order_id=${encodeURIComponent(order.id)}&paypal_return=1`,
+      cancel_url: `${origin}/checkout?order_id=${encodeURIComponent(order.id)}&cancelled=1`,
+    },
+  };
+}
+
+async function createPayPalOrder(order: CmsOrder, items: CmsOrderItem[], origin: string) {
+  const token = await getPayPalAccessToken();
+  const response = await fetch(`${paypalBaseUrl()}/v2/checkout/orders`, { method: "POST", headers: { Authorization: `Bearer ${token}`, "Content-Type": "application/json", Prefer: "return=representation" }, body: JSON.stringify(paypalOrderBody(order, items, origin)) });
+  const payload = await response.json().catch(() => ({})) as { id?: string; links?: Array<{ rel?: string; href?: string }>; name?: string; message?: string; details?: Array<{ description?: string }> };
+  const approval = payload.links?.find((link) => link.rel === "approve")?.href;
+  if (!response.ok || !payload.id || !approval) throw new Error(payload.details?.[0]?.description || payload.message || payload.name || "PAYMENT_PROVIDER_ERROR");
+  return { id: payload.id, url: approval };
 }
 
 export async function createCheckout(siteId: string, payload: CheckoutPayload, origin: string) {
@@ -353,10 +370,10 @@ export async function createCheckout(siteId: string, payload: CheckoutPayload, o
   const subtotal = lineItems.reduce((sum, item) => sum + item.unitPrice * item.quantity, 0);
   const shipping = payload.deliveryMethod.toLowerCase().includes("express") ? 18 : subtotal >= 100 ? 0 : 8;
   const timestamp = now();
-  const order: CmsOrder = { id: `order_${crypto.randomUUID()}`, siteId, orderNumber: orderNumber(), email, customerName: `${payload.firstName.trim()} ${payload.lastName.trim()}`.trim(), currency: "usd", subtotal, shipping, tax: 0, total: subtotal + shipping, status: "pending", paymentStatus: "pending", fulfillmentStatus: "unfulfilled", stripeSessionId: null, stripePaymentIntentId: null, shippingAddress: { address: payload.address.trim(), city: payload.city.trim(), region: payload.region.trim(), zip: payload.zip.trim(), country: payload.country.trim() }, trackingNumber: null, createdAt: timestamp, updatedAt: timestamp, paidAt: null, shippedAt: null, adminNote: null, refundTotal: 0, refundedAt: null };
+  const order: CmsOrder = { id: `order_${crypto.randomUUID()}`, siteId, orderNumber: orderNumber(), email, customerName: `${payload.firstName.trim()} ${payload.lastName.trim()}`.trim(), currency: "usd", subtotal, shipping, tax: 0, total: subtotal + shipping, status: "pending", paymentStatus: "pending", fulfillmentStatus: "unfulfilled", paypalOrderId: null, paypalCaptureId: null, shippingAddress: { address: payload.address.trim(), city: payload.city.trim(), region: payload.region.trim(), zip: payload.zip.trim(), country: payload.country.trim() }, trackingNumber: null, createdAt: timestamp, updatedAt: timestamp, paidAt: null, shippedAt: null, adminNote: null, refundTotal: 0, refundedAt: null };
   lineItems.forEach((item) => { item.orderId = order.id; });
   await database.batch([
-    database.prepare(`INSERT INTO cms_orders (id, site_id, order_number, email, customer_name, currency, subtotal, shipping, tax, total, status, payment_status, fulfillment_status, stripe_session_id, stripe_payment_intent_id, shipping_address, tracking_number, created_at, updated_at, paid_at, shipped_at)
+    database.prepare(`INSERT INTO cms_orders (id, site_id, order_number, email, customer_name, currency, subtotal, shipping, tax, total, status, payment_status, fulfillment_status, paypal_order_id, paypal_capture_id, shipping_address, tracking_number, created_at, updated_at, paid_at, shipped_at)
       VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, NULL, NULL, ?14, NULL, ?15, ?15, NULL, NULL)`).bind(order.id, order.siteId, order.orderNumber, order.email, order.customerName, order.currency, order.subtotal, order.shipping, order.tax, order.total, order.status, order.paymentStatus, order.fulfillmentStatus, JSON.stringify(order.shippingAddress), timestamp),
     ...lineItems.map((item) => database.prepare(`INSERT INTO cms_order_items (id, order_id, site_id, product_id, variant_id, sku, name, variant_label, unit_price, quantity, payload)
       VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11)`).bind(item.id, item.orderId, item.siteId, item.productId, item.variantId, item.sku, item.name, item.variantLabel, item.unitPrice, item.quantity, JSON.stringify(item.payload))),
@@ -365,9 +382,9 @@ export async function createCheckout(siteId: string, payload: CheckoutPayload, o
   try {
     await reserveItems(database, siteId, lineItems.map((item) => ({ productId: item.productId, variantId: item.variantId, quantity: item.quantity })));
     reserved = true;
-    const session = await createStripeSession(order, lineItems, origin);
-    await database.prepare("UPDATE cms_orders SET stripe_session_id = ?1, updated_at = ?2 WHERE id = ?3 AND site_id = ?4").bind(session.id, now(), order.id, siteId).run();
-    return { order: { ...order, stripeSessionId: session.id }, items: lineItems, checkoutUrl: session.url };
+    const paypalOrder = await createPayPalOrder(order, lineItems, origin);
+    await database.prepare("UPDATE cms_orders SET paypal_order_id = ?1, updated_at = ?2 WHERE id = ?3 AND site_id = ?4").bind(paypalOrder.id, now(), order.id, siteId).run();
+    return { order: { ...order, paypalOrderId: paypalOrder.id }, items: lineItems, checkoutUrl: paypalOrder.url };
   } catch (error) {
     if (reserved) await releaseReservations(database, siteId, order.id);
     await database.prepare("UPDATE cms_orders SET status = 'cancelled', payment_status = 'cancelled', updated_at = ?1 WHERE id = ?2 AND site_id = ?3 AND payment_status = 'pending'").bind(now(), order.id, siteId).run();
@@ -396,23 +413,48 @@ export async function attachLiveInventoryToCatalog(siteId: string, catalog: Prod
   });
 }
 
-export async function getCheckoutStatus(siteId: string, orderId: string, sessionId: string) {
+export async function getCheckoutStatus(siteId: string, orderId: string, paypalOrderId: string) {
   const database = getCmsDatabase();
   await ensureCmsSchema(database);
   const row = await database.prepare(`SELECT order_number AS orderNumber, status, payment_status AS paymentStatus, fulfillment_status AS fulfillmentStatus
-    FROM cms_orders WHERE id = ?1 AND site_id = ?2 AND stripe_session_id = ?3`).bind(orderId, siteId, sessionId).first<{ orderNumber: string; status: string; paymentStatus: string; fulfillmentStatus: string }>();
+    FROM cms_orders WHERE id = ?1 AND site_id = ?2 AND paypal_order_id = ?3`).bind(orderId, siteId, paypalOrderId).first<{ orderNumber: string; status: string; paymentStatus: string; fulfillmentStatus: string }>();
   return row;
+}
+
+function captureIdFromPayPalOrder(payload: { purchase_units?: Array<{ payments?: { captures?: Array<{ id?: string }> } }> }) {
+  return payload.purchase_units?.[0]?.payments?.captures?.[0]?.id || null;
+}
+
+export async function capturePayPalOrder(siteId: string, orderId: string, paypalOrderId: string) {
+  const database = getCmsDatabase();
+  await ensureCmsSchema(database);
+  const existing = await database.prepare("SELECT paypal_order_id AS paypalOrderId, payment_status AS paymentStatus FROM cms_orders WHERE id = ?1 AND site_id = ?2").bind(orderId, siteId).first<{ paypalOrderId: string | null; paymentStatus: string }>();
+  if (!existing || existing.paypalOrderId !== paypalOrderId) throw new Error("ORDER_NOT_FOUND");
+  if (existing.paymentStatus === "paid") return getCheckoutStatus(siteId, orderId, paypalOrderId);
+  const token = await getPayPalAccessToken();
+  const response = await fetch(`${paypalBaseUrl()}/v2/checkout/orders/${encodeURIComponent(paypalOrderId)}/capture`, { method: "POST", headers: { Authorization: `Bearer ${token}`, "Content-Type": "application/json", Prefer: "return=representation" }, body: "{}" });
+  const payload = await response.json().catch(() => ({})) as { status?: string; name?: string; message?: string; details?: Array<{ description?: string }>; purchase_units?: Array<{ payments?: { captures?: Array<{ id?: string; status?: string }> } }> };
+  if (!response.ok) {
+    if (payload.name === "ORDER_ALREADY_CAPTURED") return getCheckoutStatus(siteId, orderId, paypalOrderId);
+    throw new Error(payload.details?.[0]?.description || payload.message || payload.name || "PAYMENT_PROVIDER_ERROR");
+  }
+  const captureId = captureIdFromPayPalOrder(payload);
+  if (payload.status === "COMPLETED") await finalizePaidOrder(database, orderId, siteId, captureId);
+  if (["VOIDED", "DECLINED"].includes(payload.status || "")) await transitionPendingOrder(database, siteId, orderId, "payment_failed", "failed");
+  return getCheckoutStatus(siteId, orderId, paypalOrderId);
 }
 
 export function getCommerceConfiguration() {
   const values = workerEnv();
-  const stripeKey = values.STRIPE_SECRET_KEY?.trim() || "";
+  const clientId = values.PAYPAL_CLIENT_ID?.trim() || "";
+  const clientSecret = values.PAYPAL_CLIENT_SECRET?.trim() || "";
   const resendFrom = values.RESEND_FROM_EMAIL?.trim() || "";
   return {
-    stripe: {
-      secretKey: Boolean(stripeKey),
-      webhookSecret: Boolean(values.STRIPE_WEBHOOK_SECRET?.trim()),
-      mode: stripeKey.startsWith("sk_live_") ? "live" : stripeKey.startsWith("sk_test_") ? "test" : stripeKey ? "unknown" : "unknown",
+    paypal: {
+      clientId: Boolean(clientId),
+      clientSecret: Boolean(clientSecret),
+      webhookId: Boolean(values.PAYPAL_WEBHOOK_ID?.trim()),
+      mode: values.PAYPAL_ENVIRONMENT?.trim().toLowerCase() === "live" ? "live" : clientId || clientSecret ? "sandbox" : "unknown",
     },
     resend: {
       apiKey: Boolean(values.RESEND_API_KEY?.trim()),
@@ -425,18 +467,20 @@ export function getCommerceConfiguration() {
 export async function probeCommerceProvider(provider: CommerceProvider): Promise<CommerceProbe> {
   const values = workerEnv();
   const checkedAt = now();
-  if (provider === "stripe") {
-    const secret = values.STRIPE_SECRET_KEY?.trim() || "";
-    const webhook = Boolean(values.STRIPE_WEBHOOK_SECRET?.trim());
-    const mode = secret.startsWith("sk_live_") ? "live" : secret.startsWith("sk_test_") ? "test" : secret ? "unknown" : "unknown";
-    if (!secret || !webhook) return { provider, configured: false, reachable: false, status: "missing", detail: "STRIPE_SECRET_KEY and STRIPE_WEBHOOK_SECRET are both required.", checkedAt, mode };
+  if (provider === "paypal") {
+    const clientId = values.PAYPAL_CLIENT_ID?.trim() || "";
+    const clientSecret = values.PAYPAL_CLIENT_SECRET?.trim() || "";
+    const webhook = Boolean(values.PAYPAL_WEBHOOK_ID?.trim());
+    const mode = values.PAYPAL_ENVIRONMENT?.trim().toLowerCase() === "live" ? "live" : clientId || clientSecret ? "sandbox" : "unknown";
+    if (!clientId || !clientSecret || !webhook) return { provider, configured: false, reachable: false, status: "missing", detail: "PAYPAL_CLIENT_ID, PAYPAL_CLIENT_SECRET, and PAYPAL_WEBHOOK_ID are required.", checkedAt, mode };
     try {
-      const response = await fetch("https://api.stripe.com/v1/account", { headers: { Authorization: `Bearer ${secret}` } });
-      const payload = await response.json().catch(() => ({})) as { id?: string; error?: { message?: string } };
-      if (!response.ok) throw new Error(payload.error?.message || "Stripe rejected the credentials.");
-      return { provider, configured: true, reachable: true, status: "ready", detail: `Stripe account ${payload.id || "connected"} responded successfully.`, checkedAt, mode };
+      const token = await getPayPalAccessToken();
+      const response = await fetch(`${paypalBaseUrl()}/v1/identity/oauth2/userinfo?schema=paypalv1.1`, { headers: { Authorization: `Bearer ${token}` } });
+      const payload = await response.json().catch(() => ({})) as { user_id?: string; message?: string; error_description?: string };
+      if (!response.ok) throw new Error(payload.message || payload.error_description || "PayPal rejected the credentials.");
+      return { provider, configured: true, reachable: true, status: "ready", detail: `PayPal ${mode} account ${payload.user_id || "connected"} responded successfully.`, checkedAt, mode };
     } catch (error) {
-      return { provider, configured: true, reachable: false, status: "error", detail: error instanceof Error ? error.message : "Stripe connection failed.", checkedAt, mode };
+      return { provider, configured: true, reachable: false, status: "error", detail: error instanceof Error ? error.message : "PayPal connection failed.", checkedAt, mode };
     }
   }
 
@@ -502,7 +546,7 @@ export async function listOrders(siteId: string, userId: string, email: string, 
   const query = status ? ` AND status = ?2` : "";
   const statement = database.prepare(`SELECT id, site_id AS siteId, order_number AS orderNumber, email, customer_name AS customerName, currency,
     subtotal, shipping, tax, total, status, payment_status AS paymentStatus, fulfillment_status AS fulfillmentStatus,
-    stripe_session_id AS stripeSessionId, stripe_payment_intent_id AS stripePaymentIntentId, shipping_address, tracking_number AS trackingNumber,
+    paypal_order_id AS paypalOrderId, paypal_capture_id AS paypalCaptureId, shipping_address, tracking_number AS trackingNumber,
     created_at AS createdAt, updated_at AS updatedAt, paid_at AS paidAt, shipped_at AS shippedAt,
     admin_note AS adminNote, refund_total AS refundTotal, refunded_at AS refundedAt FROM cms_orders WHERE site_id = ?1${query} ORDER BY created_at DESC LIMIT 100`);
   const rows = status ? await statement.bind(siteId, status).all<OrderRow>() : await statement.bind(siteId).all<OrderRow>();
@@ -603,7 +647,7 @@ export async function retryOrderNotification(siteId: string, notificationId: str
   return readOrder(database, notification.orderId, siteId);
 }
 
-async function finalizePaidOrder(database: D1DatabaseLike, orderId: string, siteId: string, paymentIntentId: string | null) {
+async function finalizePaidOrder(database: D1DatabaseLike, orderId: string, siteId: string, paypalCaptureId: string | null) {
   const existing = await readOrder(database, orderId, siteId);
   if (existing.order.paymentStatus === "paid") return existing;
   if (existing.order.paymentStatus !== "pending") return existing;
@@ -616,8 +660,8 @@ async function finalizePaidOrder(database: D1DatabaseLike, orderId: string, site
     ...existing.items.map((item) => database.prepare(`UPDATE cms_inventory SET quantity = quantity - ?1, reserved_quantity = MAX(0, reserved_quantity - ?1), updated_at = ?2
       WHERE site_id = ?3 AND product_id = ?4 AND variant_id = ?5 AND reserved_quantity >= ?1`).bind(item.quantity, timestamp, siteId, item.productId, item.variantId)),
     ...existing.items.map((item) => database.prepare(`INSERT INTO cms_inventory_transactions (id, site_id, product_id, variant_id, sku, delta, reason, reference_id, created_by, created_at)
-      VALUES (?1, ?2, ?3, ?4, ?5, ?6, 'sale', ?7, 'stripe', ?8)`).bind(`invtx_${crypto.randomUUID()}`, siteId, item.productId, item.variantId, item.sku, -item.quantity, orderId, timestamp)),
-    database.prepare(`UPDATE cms_orders SET status = 'paid', payment_status = 'paid', stripe_payment_intent_id = ?1, paid_at = ?2, updated_at = ?2 WHERE id = ?3 AND site_id = ?4 AND payment_status <> 'paid'`).bind(paymentIntentId, timestamp, orderId, siteId),
+      VALUES (?1, ?2, ?3, ?4, ?5, ?6, 'sale', ?7, 'paypal', ?8)`).bind(`invtx_${crypto.randomUUID()}`, siteId, item.productId, item.variantId, item.sku, -item.quantity, orderId, timestamp)),
+    database.prepare(`UPDATE cms_orders SET status = 'paid', payment_status = 'paid', paypal_capture_id = ?1, paid_at = ?2, updated_at = ?2 WHERE id = ?3 AND site_id = ?4 AND payment_status <> 'paid'`).bind(paypalCaptureId, timestamp, orderId, siteId),
   ]);
   const paid = await readOrder(database, orderId, siteId);
   await sendOrderNotification(database, paid.order, paid.items, "paid");
@@ -625,51 +669,67 @@ async function finalizePaidOrder(database: D1DatabaseLike, orderId: string, site
   return paid;
 }
 
-export async function verifyStripeSignature(payload: string, signature: string | null) {
-  const secret = workerEnv().STRIPE_WEBHOOK_SECRET?.trim();
-  if (!secret || !signature) return false;
-  const parts = signature.split(",");
-  const timestamp = parts.find((part) => part.startsWith("t="))?.slice(2);
-  const expected = parts.filter((part) => part.startsWith("v1=")).map((part) => part.slice(3)).filter(Boolean);
-  const timestampNumber = Number(timestamp);
-  if (!timestamp || !expected.length || !Number.isFinite(timestampNumber) || Math.abs(Date.now() / 1000 - timestampNumber) > 300) return false;
-  const key = await crypto.subtle.importKey("raw", new TextEncoder().encode(secret), { name: "HMAC", hash: "SHA-256" }, false, ["sign"]);
-  const digest = await crypto.subtle.sign("HMAC", key, new TextEncoder().encode(`${timestamp}.${payload}`));
-  const actual = Array.from(new Uint8Array(digest)).map((value) => value.toString(16).padStart(2, "0")).join("");
-  return expected.some((candidate) => {
-    if (actual.length !== candidate.length) return false;
-    let mismatch = 0;
-    for (let index = 0; index < actual.length; index += 1) mismatch |= actual.charCodeAt(index) ^ candidate.charCodeAt(index);
-    return mismatch === 0;
-  });
+export async function verifyPayPalWebhook(payload: string, headers: Headers) {
+  if (!workerEnv().PAYPAL_WEBHOOK_ID?.trim()) return false;
+  const transmissionId = headers.get("paypal-transmission-id");
+  const transmissionTime = headers.get("paypal-transmission-time");
+  const transmissionSig = headers.get("paypal-transmission-sig");
+  const certUrl = headers.get("paypal-cert-url");
+  const authAlgo = headers.get("paypal-auth-algo");
+  if (!transmissionId || !transmissionTime || !transmissionSig || !certUrl || !authAlgo) return false;
+  try {
+    const token = await getPayPalAccessToken();
+    const response = await fetch(`${paypalBaseUrl()}/v1/notifications/verify-webhook-signature`, { method: "POST", headers: { Authorization: `Bearer ${token}`, "Content-Type": "application/json" }, body: JSON.stringify({ auth_algo: authAlgo, cert_url: certUrl, transmission_id: transmissionId, transmission_sig: transmissionSig, transmission_time: transmissionTime, webhook_id: workerEnv().PAYPAL_WEBHOOK_ID, webhook_event: JSON.parse(payload) }) });
+    const result = await response.json().catch(() => ({})) as { verification_status?: string };
+    return response.ok && result.verification_status === "SUCCESS";
+  } catch {
+    return false;
+  }
 }
 
-export async function processStripeEvent(event: { id: string; type: string; data?: { object?: Record<string, unknown> } }) {
+type PayPalEvent = { id: string; event_type: string; resource?: Record<string, unknown> };
+
+function paypalEventReference(event: PayPalEvent) {
+  const resource = event.resource || {};
+  const purchaseUnit = Array.isArray(resource.purchase_units) ? resource.purchase_units[0] as Record<string, unknown> | undefined : undefined;
+  const customId = typeof resource.custom_id === "string" ? resource.custom_id : typeof purchaseUnit?.custom_id === "string" ? purchaseUnit.custom_id : "";
+  const [siteId, orderId] = customId.split(":");
+  const supplementary = resource.supplementary_data as { related_ids?: { order_id?: string } } | undefined;
+  const relatedOrderId = supplementary?.related_ids?.order_id;
+  const captureId = event.event_type.startsWith("PAYMENT.CAPTURE.") && typeof resource.id === "string" ? resource.id : typeof purchaseUnit?.payments === "object" && purchaseUnit.payments && Array.isArray((purchaseUnit.payments as { captures?: unknown[] }).captures) ? (((purchaseUnit.payments as { captures: Array<{ id?: string }> }).captures[0]?.id) || null) : null;
+  const paypalOrderId = relatedOrderId || (event.event_type.startsWith("CHECKOUT.ORDER.") && typeof resource.id === "string" ? resource.id : null);
+  return { siteId: siteId || "", orderId: orderId || "", paypalOrderId, captureId };
+}
+
+export async function processPayPalEvent(event: PayPalEvent) {
   const database = getCmsDatabase();
   await ensureCmsSchema(database);
-  const object = event.data?.object || {};
-  const metadata = (object.metadata || {}) as Record<string, string>;
-  const siteId = metadata.site_id || "default";
+  const reference = paypalEventReference(event);
+  let siteId = reference.siteId || "default";
+  let orderId = reference.orderId || "";
+  if ((!orderId || !reference.siteId) && reference.paypalOrderId) {
+    const row = await database.prepare("SELECT id, site_id AS siteId FROM cms_orders WHERE paypal_order_id = ?1").bind(reference.paypalOrderId).first<{ id: string; siteId: string }>();
+    if (row) { orderId = row.id; siteId = row.siteId; }
+  }
   const inserted = await database.prepare(`INSERT INTO cms_payment_events (id, site_id, provider_event_id, event_type, payload, created_at, processed_at)
-    VALUES (?1, ?2, ?3, ?4, ?5, ?6, NULL) ON CONFLICT(provider_event_id) DO NOTHING`).bind(`payment_${crypto.randomUUID()}`, siteId, event.id, event.type, JSON.stringify(event), now()).run();
+    VALUES (?1, ?2, ?3, ?4, ?5, ?6, NULL) ON CONFLICT(provider_event_id) DO NOTHING`).bind(`payment_${crypto.randomUUID()}`, siteId, event.id, event.event_type, JSON.stringify(event), now()).run();
   if (changed(inserted) === 0) {
     const previous = await database.prepare("SELECT processed_at AS processedAt FROM cms_payment_events WHERE provider_event_id = ?1").bind(event.id).first<{ processedAt: string | null }>();
     if (previous?.processedAt) return { duplicate: true };
   }
   await database.prepare("UPDATE cms_payment_events SET attempts = attempts + 1, last_error = NULL, next_retry_at = NULL WHERE provider_event_id = ?1").bind(event.id).run();
-  const orderId = metadata.order_id;
-  const paymentIntentId = typeof object.payment_intent === "string" ? object.payment_intent : typeof object.id === "string" && event.type.startsWith("payment_intent.") ? object.id : null;
-  const paidEvent = event.type === "checkout.session.async_payment_succeeded" || event.type === "payment_intent.succeeded" || (event.type === "checkout.session.completed" && object.payment_status !== "unpaid");
-  const failedEvent = event.type === "checkout.session.async_payment_failed" || event.type === "payment_intent.payment_failed" || event.type === "payment_intent.canceled";
+  const paidEvent = event.event_type === "PAYMENT.CAPTURE.COMPLETED" || event.event_type === "CHECKOUT.ORDER.COMPLETED";
+  const failedEvent = event.event_type === "PAYMENT.CAPTURE.DENIED" || event.event_type === "PAYMENT.CAPTURE.REVERSED";
+  const cancelledEvent = event.event_type === "CHECKOUT.ORDER.VOIDED";
   try {
-    if (paidEvent && orderId) await finalizePaidOrder(database, orderId, siteId, paymentIntentId);
-    if (event.type === "checkout.session.expired" && orderId) await transitionPendingOrder(database, siteId, orderId, "cancelled", "cancelled");
+    if (paidEvent && orderId) await finalizePaidOrder(database, orderId, siteId, reference.captureId);
+    if (cancelledEvent && orderId) await transitionPendingOrder(database, siteId, orderId, "cancelled", "cancelled");
     if (failedEvent && orderId) await transitionPendingOrder(database, siteId, orderId, "payment_failed", "failed");
     await database.prepare("UPDATE cms_payment_events SET processed_at = ?1, last_error = NULL, next_retry_at = NULL WHERE provider_event_id = ?2").bind(now(), event.id).run();
     return { duplicate: false };
   } catch (error) {
     const retryAt = new Date(Date.now() + 5 * 60 * 1000).toISOString();
-    await database.prepare("UPDATE cms_payment_events SET last_error = ?1, next_retry_at = ?2 WHERE provider_event_id = ?3").bind(error instanceof Error ? error.message : "Stripe event processing failed.", retryAt, event.id).run();
+    await database.prepare("UPDATE cms_payment_events SET last_error = ?1, next_retry_at = ?2 WHERE provider_event_id = ?3").bind(error instanceof Error ? error.message : "PayPal event processing failed.", retryAt, event.id).run();
     throw error;
   }
 }
@@ -691,7 +751,7 @@ export async function retryPaymentEvent(siteId: string, eventId: string, userId:
   const row = await database.prepare("SELECT payload FROM cms_payment_events WHERE id = ?1 AND site_id = ?2").bind(eventId, siteId).first<{ payload: string }>();
   if (!row) throw new Error("PAYMENT_EVENT_NOT_FOUND");
   await database.prepare("UPDATE cms_payment_events SET next_retry_at = NULL WHERE id = ?1 AND site_id = ?2").bind(eventId, siteId).run();
-  const result = await processStripeEvent(JSON.parse(row.payload) as { id: string; type: string; data?: { object?: Record<string, unknown> } });
+  const result = await processPayPalEvent(JSON.parse(row.payload) as PayPalEvent);
   await recordAudit(database, siteId, { userId, email }, "payment.event_retried", "payment_event", eventId);
   return result;
 }
@@ -701,7 +761,7 @@ export async function listRefunds(siteId: string, orderId: string, userId: strin
   void email;
   const database = getCmsDatabase();
   await ensureCmsSchema(database);
-  const rows = await database.prepare(`SELECT id, site_id AS siteId, order_id AS orderId, stripe_refund_id AS stripeRefundId,
+  const rows = await database.prepare(`SELECT id, site_id AS siteId, order_id AS orderId, paypal_refund_id AS paypalRefundId,
     amount, currency, reason, status, restock_items AS restockItems, error, created_by AS createdBy, created_at AS createdAt, completed_at AS completedAt
     FROM cms_refunds WHERE site_id = ?1 AND order_id = ?2 ORDER BY created_at DESC`).bind(siteId, orderId).all<RefundRow>();
   return rows.results.map((refund) => ({ ...refund, restockItems: refund.restockItems ? JSON.parse(refund.restockItems) as CmsRefund["restockItems"] : [] }));
@@ -711,7 +771,7 @@ export async function createRefund(siteId: string, orderId: string, amountInput:
   const database = getCmsDatabase();
   await ensureCmsSchema(database);
   const detail = await readOrder(database, orderId, siteId);
-  if (!detail.order.stripePaymentIntentId) throw new Error("REFUND_PAYMENT_NOT_FOUND");
+  if (!detail.order.paypalCaptureId) throw new Error("REFUND_PAYMENT_NOT_FOUND");
   if (![
     "paid",
     "partially_refunded",
@@ -729,24 +789,22 @@ export async function createRefund(siteId: string, orderId: string, amountInput:
   }
   const refundId = `refund_${crypto.randomUUID()}`;
   const timestamp = now();
-  await database.prepare(`INSERT INTO cms_refunds (id, site_id, order_id, stripe_refund_id, amount, currency, reason, status, restock_items, error, created_by, created_at, completed_at)
+  await database.prepare(`INSERT INTO cms_refunds (id, site_id, order_id, paypal_refund_id, amount, currency, reason, status, restock_items, error, created_by, created_at, completed_at)
     VALUES (?1, ?2, ?3, NULL, ?4, ?5, ?6, 'pending', ?7, NULL, ?8, ?9, NULL)`).bind(refundId, siteId, orderId, amount, detail.order.currency, reason.trim() || null, JSON.stringify(restockItems), userId, timestamp).run();
-  const secret = workerEnv().STRIPE_SECRET_KEY?.trim();
-  if (!secret) {
-    await database.prepare("UPDATE cms_refunds SET status = 'failed', error = ?1 WHERE id = ?2").bind("STRIPE_SECRET_KEY is not configured.", refundId).run();
+  if (!workerEnv().PAYPAL_CLIENT_ID?.trim() || !workerEnv().PAYPAL_CLIENT_SECRET?.trim()) {
+    await database.prepare("UPDATE cms_refunds SET status = 'failed', error = ?1 WHERE id = ?2").bind("PAYPAL_CLIENT_ID and PAYPAL_CLIENT_SECRET are not configured.", refundId).run();
     throw new Error("PAYMENT_NOT_CONFIGURED");
   }
   try {
-    const body = new URLSearchParams({ payment_intent: detail.order.stripePaymentIntentId, amount: String(Math.round(amount * 100)) });
-    if (reason.trim()) body.set("reason", reason.trim());
-    const response = await fetch("https://api.stripe.com/v1/refunds", { method: "POST", headers: { Authorization: `Basic ${btoa(`${secret}:`)}`, "Content-Type": "application/x-www-form-urlencoded" }, body });
-    const payload = await response.json().catch(() => ({})) as { id?: string; status?: string; error?: { message?: string } };
-    if (!response.ok || !payload.id) throw new Error(payload.error?.message || "Stripe refund failed.");
+    const token = await getPayPalAccessToken();
+    const response = await fetch(`${paypalBaseUrl()}/v2/payments/captures/${encodeURIComponent(detail.order.paypalCaptureId)}/refund`, { method: "POST", headers: { Authorization: `Bearer ${token}`, "Content-Type": "application/json", Prefer: "return=representation" }, body: JSON.stringify({ amount: { value: amount.toFixed(2), currency_code: detail.order.currency.toUpperCase() }, note_to_payer: reason.trim() || undefined }) });
+    const payload = await response.json().catch(() => ({})) as { id?: string; status?: string; name?: string; message?: string; details?: Array<{ description?: string }> };
+    if (!response.ok || !payload.id) throw new Error(payload.details?.[0]?.description || payload.message || payload.name || "PayPal refund failed.");
     const completedAt = now();
     const nextRefundTotal = Number((detail.order.refundTotal + amount).toFixed(2));
     const fullRefund = nextRefundTotal >= detail.order.total - 0.001;
     await database.batch([
-      database.prepare("UPDATE cms_refunds SET stripe_refund_id = ?1, status = ?2, completed_at = ?3, error = NULL WHERE id = ?4").bind(payload.id, payload.status === "pending" ? "pending" : "succeeded", completedAt, refundId),
+      database.prepare("UPDATE cms_refunds SET paypal_refund_id = ?1, status = ?2, completed_at = ?3, error = NULL WHERE id = ?4").bind(payload.id, payload.status === "PENDING" ? "pending" : "succeeded", completedAt, refundId),
       database.prepare("UPDATE cms_orders SET refund_total = ?1, payment_status = ?2, status = ?2, refunded_at = ?3, updated_at = ?4 WHERE id = ?5 AND site_id = ?6").bind(nextRefundTotal, fullRefund ? "refunded" : "partially_refunded", fullRefund ? completedAt : detail.order.refundedAt, completedAt, orderId, siteId),
       ...restockItems.map((item) => database.prepare(`UPDATE cms_inventory SET quantity = quantity + ?1, updated_at = ?2 WHERE site_id = ?3 AND product_id = ?4 AND variant_id = ?5`).bind(item.quantity, completedAt, siteId, item.productId, item.variantId)),
       ...restockItems.map((item) => { const orderItem = detail.items.find((candidate) => candidate.productId === item.productId && candidate.variantId === item.variantId)!; return database.prepare(`INSERT INTO cms_inventory_transactions (id, site_id, product_id, variant_id, sku, delta, reason, reference_id, created_by, created_at)
@@ -755,7 +813,7 @@ export async function createRefund(siteId: string, orderId: string, amountInput:
     await recordAudit(database, siteId, { userId, email }, "order.refunded", "refund", refundId, { orderId, amount, fullRefund, restocked: restockItems });
     return (await readOrder(database, orderId, siteId));
   } catch (error) {
-    await database.prepare("UPDATE cms_refunds SET status = 'failed', error = ?1 WHERE id = ?2").bind(error instanceof Error ? error.message : "Stripe refund failed.", refundId).run();
+    await database.prepare("UPDATE cms_refunds SET status = 'failed', error = ?1 WHERE id = ?2").bind(error instanceof Error ? error.message : "PayPal refund failed.", refundId).run();
     throw new Error("REFUND_PROVIDER_ERROR");
   }
 }
@@ -767,7 +825,7 @@ export async function getPublicOrderByNumber(siteId: string, orderNumberValue: s
   if (!row) throw new Error("ORDER_NOT_FOUND");
   const detail = await readOrder(database, row.id, siteId);
   return {
-    order: { ...detail.order, shippingAddress: undefined, stripeSessionId: undefined, stripePaymentIntentId: undefined, adminNote: undefined },
+    order: { ...detail.order, shippingAddress: undefined, paypalOrderId: undefined, paypalCaptureId: undefined, adminNote: undefined },
     items: detail.items.map((item) => ({ id: item.id, name: item.name, variantLabel: item.variantLabel, quantity: item.quantity, unitPrice: item.unitPrice })),
   };
 }

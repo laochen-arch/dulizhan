@@ -5,14 +5,14 @@ import type { CmsDomain, CmsLaunchCheck, CmsReplacementItem, CmsSite } from "../
 
 type NoticeSetter = (notice: { tone: "success" | "error" | "info"; text: string }) => void;
 type CommerceConfiguration = {
-  stripe: { secretKey: boolean; webhookSecret: boolean; mode?: string };
+  paypal: { clientId: boolean; clientSecret: boolean; webhookId: boolean; mode?: string };
   resend: { apiKey: boolean; fromEmail: boolean; fromDomain?: string | null };
   webhookEndpoint?: string;
   environmentKeys?: string[];
 };
 type OnboardingState = { domain?: { hostname: string; status: string } | null; checks: CmsLaunchCheck[]; replacements: CmsReplacementItem[]; progress: { done: number; total: number } };
 type SiteForm = { name: string; slug: string; templateSiteId: string };
-type Probe = { provider: "stripe" | "resend"; configured: boolean; reachable: boolean; status: "ready" | "missing" | "error"; detail: string; checkedAt: string; mode?: string };
+type Probe = { provider: "paypal" | "resend"; configured: boolean; reachable: boolean; status: "ready" | "missing" | "error"; detail: string; checkedAt: string; mode?: string };
 type ImportPreview = { valid: boolean; errors: string[]; warnings: string[]; summary: { configChanged: boolean; totalProducts: number; activeProducts: number; importedProducts: number; assetBindings: number } };
 
 function StatusPill({ status }: { status: string }) {
@@ -40,10 +40,10 @@ export function LaunchSetupPanel({ activeSiteId, commerceConfiguration, domains,
   const [probes, setProbes] = useState<Record<string, Probe>>({});
   const [checking, setChecking] = useState<string | null>(null);
   const [checkingDomain, setCheckingDomain] = useState<string | null>(null);
-  const endpoint = commerceConfiguration?.webhookEndpoint || `${typeof window === "undefined" ? "" : window.location.origin}/api/stripe/webhook`;
-  const environmentKeys = commerceConfiguration?.environmentKeys || ["STRIPE_SECRET_KEY", "STRIPE_WEBHOOK_SECRET", "RESEND_API_KEY", "RESEND_FROM_EMAIL"];
+  const endpoint = commerceConfiguration?.webhookEndpoint || `${typeof window === "undefined" ? "" : window.location.origin}/api/paypal/webhook`;
+  const environmentKeys = commerceConfiguration?.environmentKeys || ["PAYPAL_CLIENT_ID", "PAYPAL_CLIENT_SECRET", "PAYPAL_WEBHOOK_ID", "PAYPAL_ENVIRONMENT", "RESEND_API_KEY", "RESEND_FROM_EMAIL"];
 
-  async function check(provider: "stripe" | "resend" | "all") {
+  async function check(provider: "paypal" | "resend" | "all") {
     setChecking(provider);
     try {
       const response = await fetch("/api/cms/commerce/check", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ siteId: activeSiteId, provider }) });
@@ -73,20 +73,20 @@ export function LaunchSetupPanel({ activeSiteId, commerceConfiguration, domains,
     }
   }
 
-  const stripeProbe = probes.stripe;
+  const paypalProbe = probes.paypal;
   const resendProbe = probes.resend;
-  const stripeReady = stripeProbe?.status === "ready" || Boolean(commerceConfiguration?.stripe.secretKey && commerceConfiguration?.stripe.webhookSecret);
+  const paypalReady = paypalProbe?.status === "ready" || Boolean(commerceConfiguration?.paypal.clientId && commerceConfiguration?.paypal.clientSecret && commerceConfiguration?.paypal.webhookId);
   const resendReady = resendProbe?.status === "ready" || Boolean(commerceConfiguration?.resend.apiKey && commerceConfiguration?.resend.fromEmail);
   const domainReady = Boolean(onboarding?.domain?.hostname && ["verified", "active"].includes(onboarding.domain.status));
 
   return <section className="v13-setup-stack">
     <div className="v6-card v13-setup-hero"><div><p className="eyebrow">V14 / Production launch setup</p><h2>Check the systems behind the storefront.</h2><p className="v6-muted">Secrets stay in the Sites runtime. This panel only reports masked readiness and performs safe provider checks.</p></div><button className="button button-dark" onClick={() => void check("all")} disabled={busy || checking !== null}>{checking === "all" ? "Checking..." : "Run all checks ->"}</button></div>
     <div className="v13-provider-grid">
-      <article className="v6-card v13-provider-card"><div className="v6-card-heading"><div><p className="eyebrow">Payments</p><h3>Stripe</h3></div><StatusPill status={stripeProbe?.status || (stripeReady ? "ready" : "missing")} /></div><p className="v6-muted">Accept checkout payments, receive webhook updates, and issue refunds from the commerce panel.</p><div className="v13-check-lines"><span><b>Secret key</b>{commerceConfiguration?.stripe.secretKey ? "Configured" : "Missing"}</span><span><b>Webhook secret</b>{commerceConfiguration?.stripe.webhookSecret ? "Configured" : "Missing"}</span><span><b>Mode</b>{stripeProbe?.mode || commerceConfiguration?.stripe.mode || "Not detected"}</span></div>{stripeProbe && <p className={`v13-probe-detail ${stripeProbe.status}`}>{stripeProbe.detail}</p>}<button className="button button-outline" onClick={() => void check("stripe")} disabled={checking !== null}>{checking === "stripe" ? "Checking..." : "Test Stripe connection"}</button></article>
+      <article className="v6-card v13-provider-card"><div className="v6-card-heading"><div><p className="eyebrow">Payments</p><h3>PayPal</h3></div><StatusPill status={paypalProbe?.status || (paypalReady ? "ready" : "missing")} /></div><p className="v6-muted">Accept PayPal checkout payments, receive webhook updates, and issue full or partial refunds from the commerce panel.</p><div className="v13-check-lines"><span><b>Client ID</b>{commerceConfiguration?.paypal.clientId ? "Configured" : "Missing"}</span><span><b>Client secret</b>{commerceConfiguration?.paypal.clientSecret ? "Configured" : "Missing"}</span><span><b>Mode</b>{paypalProbe?.mode || commerceConfiguration?.paypal.mode || "Not detected"}</span></div>{paypalProbe && <p className={`v13-probe-detail ${paypalProbe.status}`}>{paypalProbe.detail}</p>}<button className="button button-outline" onClick={() => void check("paypal")} disabled={checking !== null}>{checking === "paypal" ? "Checking..." : "Test PayPal connection"}</button></article>
       <article className="v6-card v13-provider-card"><div className="v6-card-heading"><div><p className="eyebrow">Transactional email</p><h3>Resend</h3></div><StatusPill status={resendProbe?.status || (resendReady ? "ready" : "missing")} /></div><p className="v6-muted">Send payment receipts, shipping updates, and operational alerts with retry records.</p><div className="v13-check-lines"><span><b>API key</b>{commerceConfiguration?.resend.apiKey ? "Configured" : "Missing"}</span><span><b>From email</b>{commerceConfiguration?.resend.fromEmail ? "Configured" : "Missing"}</span><span><b>From domain</b>{commerceConfiguration?.resend.fromDomain || "Not detected"}</span></div>{resendProbe && <p className={`v13-probe-detail ${resendProbe.status}`}>{resendProbe.detail}</p>}<button className="button button-outline" onClick={() => void check("resend")} disabled={checking !== null}>{checking === "resend" ? "Checking..." : "Test Resend connection"}</button></article>
     </div>
     <div className="v13-provider-grid">
-      <article className="v6-card"><div className="v6-card-heading"><div><p className="eyebrow">Webhook endpoint</p><h3>Stripe event delivery</h3></div><StatusPill status={commerceConfiguration?.stripe.webhookSecret ? "ready" : "missing"} /></div><p className="v6-muted">Copy this URL into Stripe Dashboard → Developers → Webhooks. The handler records duplicate events and supports retries.</p><code className="v13-copy-field">{endpoint}</code><button className="text-button" onClick={() => copyText(endpoint, onNotice)}>Copy webhook URL</button></article>
+      <article className="v6-card"><div className="v6-card-heading"><div><p className="eyebrow">Webhook endpoint</p><h3>PayPal event delivery</h3></div><StatusPill status={commerceConfiguration?.paypal.webhookId ? "ready" : "missing"} /></div><p className="v6-muted">Copy this URL into PayPal Developer Dashboard → Webhooks. The handler records duplicate events and supports retries.</p><code className="v13-copy-field">{endpoint}</code><button className="text-button" onClick={() => copyText(endpoint, onNotice)}>Copy webhook URL</button></article>
       <article className="v6-card"><div className="v6-card-heading"><div><p className="eyebrow">Custom domain</p><h3>Client routing</h3></div><StatusPill status={domainReady ? "ready" : "missing"} /></div><p className="v6-muted">Map the hostname in the Domains tab, add the DNS record in the client provider, then verify the Sites custom-domain binding.</p>{domains.length ? domains.map((domain) => <div className="v13-domain-row" key={domain.id}><span><strong>{domain.hostname}</strong><small>{domain.status} {domain.lastCheckedAt ? `· checked ${new Date(domain.lastCheckedAt).toLocaleString()}` : "· not checked"}</small></span><span className="v13-domain-actions"><button className="text-button" onClick={() => void checkDomain(domain.id)} disabled={checkingDomain !== null}>{checkingDomain === domain.id ? "Checking..." : "Check routing"}</button><button className="text-button" onClick={() => copyText(domain.verificationToken || "", onNotice)} disabled={!domain.verificationToken}>Copy token</button></span></div>) : <p className="v6-empty">No custom domain mapping has been added.</p>}</article>
     </div>
     <div className="v6-card v13-env-card"><div className="v6-card-heading"><div><p className="eyebrow">Runtime variables</p><h3>Configure these in the Sites environment</h3></div><button className="text-button" onClick={() => copyText(environmentKeys.join("\n"), onNotice)}>Copy names</button></div><div className="v13-env-list">{environmentKeys.map((key) => <code key={key}>{key}</code>)}</div><p className="v6-help">Values are intentionally never shown in the client CMS. After updating them, return here and run the provider checks again.</p><button className="text-button" onClick={() => void onRefresh()}>Refresh configuration status</button></div>

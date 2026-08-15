@@ -373,8 +373,8 @@ export async function ensureCmsSchema(database: D1DatabaseLike) {
       status TEXT NOT NULL DEFAULT 'pending',
       payment_status TEXT NOT NULL DEFAULT 'pending',
       fulfillment_status TEXT NOT NULL DEFAULT 'unfulfilled',
-      stripe_session_id TEXT UNIQUE,
-      stripe_payment_intent_id TEXT,
+      paypal_order_id TEXT UNIQUE,
+      paypal_capture_id TEXT,
       shipping_address TEXT NOT NULL,
       tracking_number TEXT,
       created_at TEXT NOT NULL,
@@ -428,7 +428,7 @@ export async function ensureCmsSchema(database: D1DatabaseLike) {
       id TEXT PRIMARY KEY,
       site_id TEXT NOT NULL,
       order_id TEXT NOT NULL,
-      stripe_refund_id TEXT UNIQUE,
+      paypal_refund_id TEXT UNIQUE,
       amount REAL NOT NULL,
       currency TEXT NOT NULL DEFAULT 'usd',
       reason TEXT,
@@ -460,6 +460,8 @@ export async function ensureCmsSchema(database: D1DatabaseLike) {
     database.prepare("CREATE INDEX IF NOT EXISTS cms_refunds_site_order_idx ON cms_refunds(site_id, order_id, created_at)"),
   ]);
   await ensureColumn(database, "cms_orders", "admin_note", "TEXT");
+  await ensureColumn(database, "cms_orders", "paypal_order_id", "TEXT");
+  await ensureColumn(database, "cms_orders", "paypal_capture_id", "TEXT");
   await ensureColumn(database, "cms_orders", "refund_total", "REAL NOT NULL DEFAULT 0");
   await ensureColumn(database, "cms_orders", "refunded_at", "TEXT");
   await ensureColumn(database, "cms_payment_events", "attempts", "INTEGER NOT NULL DEFAULT 0");
@@ -467,6 +469,7 @@ export async function ensureCmsSchema(database: D1DatabaseLike) {
   await ensureColumn(database, "cms_payment_events", "next_retry_at", "TEXT");
   await ensureColumn(database, "cms_order_notifications", "attempts", "INTEGER NOT NULL DEFAULT 0");
   await ensureColumn(database, "cms_order_notifications", "next_retry_at", "TEXT");
+  await ensureColumn(database, "cms_refunds", "paypal_refund_id", "TEXT");
 }
 
 function parseConfig(value: string): SiteConfig {

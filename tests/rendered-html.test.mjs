@@ -51,6 +51,14 @@ test("keeps the storefront conversion and delivery controls rendered", async () 
   const launchPanels = await readFile(new URL("../app/admin/launch-panels.tsx", import.meta.url), "utf8");
   assert.match(launchPanels, /Production launch setup/);
   assert.match(launchPanels, /Client delivery center/);
+  assert.match(launchPanels, /PayPal/);
+  assert.doesNotMatch(launchPanels, /Stripe/);
+  const checkoutForm = await readFile(new URL("../app/components/checkout-form.tsx", import.meta.url), "utf8");
+  const commerce = await readFile(new URL("../db/commerce.ts", import.meta.url), "utf8");
+  assert.match(checkoutForm, /PayPal secure checkout/);
+  assert.match(commerce, /createPayPalOrder/);
+  assert.match(commerce, /processPayPalEvent/);
+  assert.doesNotMatch(commerce, /STRIPE_/);
 });
 
 test("keeps client replacement content centralized", async () => {

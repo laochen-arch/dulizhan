@@ -18,6 +18,22 @@ npm run build
 
 This starter does not use `wrangler.jsonc`.
 
+## Payment Configuration
+
+The storefront uses PayPal Checkout only. Configure these values in the Sites
+runtime environment (or copy `.env.example` for local work):
+
+- `PAYPAL_CLIENT_ID`
+- `PAYPAL_CLIENT_SECRET`
+- `PAYPAL_WEBHOOK_ID`
+- `PAYPAL_ENVIRONMENT` (`sandbox` or `live`)
+- `RESEND_API_KEY`
+- `RESEND_FROM_EMAIL`
+
+The admin **Launch setup** panel checks PayPal credentials without exposing
+secret values and shows the production webhook endpoint to register in the
+PayPal Developer Dashboard.
+
 ## Included Shape
 
 - edit site code under `app/`

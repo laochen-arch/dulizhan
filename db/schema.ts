@@ -173,8 +173,8 @@ export const cmsOrders = sqliteTable("cms_orders", {
   status: text("status").notNull().default("pending"),
   paymentStatus: text("payment_status").notNull().default("pending"),
   fulfillmentStatus: text("fulfillment_status").notNull().default("unfulfilled"),
-  stripeSessionId: text("stripe_session_id"),
-  stripePaymentIntentId: text("stripe_payment_intent_id"),
+  paypalOrderId: text("paypal_order_id"),
+  paypalCaptureId: text("paypal_capture_id"),
   shippingAddress: text("shipping_address").notNull(),
   trackingNumber: text("tracking_number"),
   createdAt: text("created_at").notNull(),
@@ -184,7 +184,7 @@ export const cmsOrders = sqliteTable("cms_orders", {
   adminNote: text("admin_note"),
   refundTotal: real("refund_total").notNull().default(0),
   refundedAt: text("refunded_at"),
-}, (table) => [uniqueIndex("cms_orders_number_unique").on(table.orderNumber), uniqueIndex("cms_orders_stripe_session_unique").on(table.stripeSessionId), index("cms_orders_site_status_idx").on(table.siteId, table.status, table.createdAt), index("cms_orders_site_email_idx").on(table.siteId, table.email)]);
+}, (table) => [uniqueIndex("cms_orders_number_unique").on(table.orderNumber), uniqueIndex("cms_orders_paypal_order_unique").on(table.paypalOrderId), index("cms_orders_site_status_idx").on(table.siteId, table.status, table.createdAt), index("cms_orders_site_email_idx").on(table.siteId, table.email)]);
 
 export const cmsOrderItems = sqliteTable("cms_order_items", {
   id: text("id").primaryKey(),
@@ -231,7 +231,7 @@ export const cmsRefunds = sqliteTable("cms_refunds", {
   id: text("id").primaryKey(),
   siteId: text("site_id").notNull(),
   orderId: text("order_id").notNull(),
-  stripeRefundId: text("stripe_refund_id"),
+  paypalRefundId: text("paypal_refund_id"),
   amount: real("amount").notNull(),
   currency: text("currency").notNull().default("usd"),
   reason: text("reason"),
@@ -241,4 +241,4 @@ export const cmsRefunds = sqliteTable("cms_refunds", {
   createdBy: text("created_by").notNull(),
   createdAt: text("created_at").notNull(),
   completedAt: text("completed_at"),
-}, (table) => [uniqueIndex("cms_refunds_stripe_unique").on(table.stripeRefundId), index("cms_refunds_site_order_idx").on(table.siteId, table.orderId, table.createdAt)]);
+}, (table) => [uniqueIndex("cms_refunds_paypal_unique").on(table.paypalRefundId), index("cms_refunds_site_order_idx").on(table.siteId, table.orderId, table.createdAt)]);
