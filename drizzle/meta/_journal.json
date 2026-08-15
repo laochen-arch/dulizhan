@@ -64,6 +64,13 @@
       "when": 1786825800000,
       "tag": "0008_v21_operations",
       "breakpoints": true
+    },
+    {
+      "idx": 9,
+      "version": "7",
+      "when": 1786891200000,
+      "tag": "0009_v22_delivery_operations",
+      "breakpoints": true
     }
   ]
 }

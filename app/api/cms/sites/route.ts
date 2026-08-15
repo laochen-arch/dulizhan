@@ -1,4 +1,5 @@
 import { createSiteFromTemplate, createSitesFromTemplateBatch, listSites, updateSiteIdentity } from "../../../../db/cms";
+import { getDeliveryRun } from "../../../../db/v22";
 import { errorResponse, currentUser, getSiteId, requireMember } from "../helpers";
 
 export const dynamic = "force-dynamic";
@@ -22,12 +23,17 @@ export async function POST(request: Request) {
       if (!payload.clients.length || payload.clients.length > 20) return Response.json({ error: "Provide between 1 and 20 client sites.", code: "INVALID_SITE" }, { status: 400 });
       const entries = payload.clients.map((client) => ({ name: client.name?.trim() || "", slug: client.slug?.trim().toLowerCase() || "", templateSiteId: client.templateSiteId }));
       if (entries.some((client) => !client.name || !/^[a-z0-9]+(?:-[a-z0-9]+)*$/.test(client.slug))) return Response.json({ error: "Each client needs a name and lowercase URL slug.", code: "INVALID_SITE" }, { status: 400 });
-      return Response.json(await createSitesFromTemplateBatch(entries, user.userId, user.email), { status: 201, headers: { "Cache-Control": "no-store" } });
+      const result = await createSitesFromTemplateBatch(entries, user.userId, user.email);
+      for (const item of result.results) {
+        if (typeof item.id === "string") await getDeliveryRun(item.id, user.userId, user.email);
+      }
+      return Response.json(result, { status: 201, headers: { "Cache-Control": "no-store" } });
     }
     const name = payload.name?.trim() ?? "";
     const slug = payload.slug?.trim().toLowerCase() ?? "";
     if (!name || !/^[a-z0-9]+(?:-[a-z0-9]+)*$/.test(slug)) return Response.json({ error: "Provide a client name and a lowercase URL slug.", code: "INVALID_SITE" }, { status: 400 });
     const site = await createSiteFromTemplate(name, slug, payload.templateSiteId || "default", user.userId, user.email);
+    await getDeliveryRun(site.id, user.userId, user.email);
     return Response.json({ site }, { status: 201, headers: { "Cache-Control": "no-store" } });
   } catch (error) {
     return errorResponse(error);

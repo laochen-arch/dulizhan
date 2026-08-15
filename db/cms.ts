@@ -212,18 +212,38 @@ export async function recordAudit(
   entityId: string | null = null,
   metadata?: Record<string, unknown>,
 ) {
-  await database.prepare(`INSERT INTO cms_audit_logs (id, site_id, actor_user_id, actor_email, action, entity_type, entity_id, metadata, created_at)
-    VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9)`).bind(
-    `audit_${crypto.randomUUID()}`,
-    siteId,
-    actor.userId,
-    actor.email,
-    action,
-    entityType,
-    entityId,
-    metadata ? JSON.stringify(metadata) : null,
-    now(),
-  ).run();
+  const timestamp = now();
+  const metadataText = metadata ? JSON.stringify(metadata) : null;
+  const status = action.includes("blocked") || action.includes("failed") ? "failed" : "success";
+  const severity = status === "failed" ? "error" : "info";
+  await database.batch([
+    database.prepare(`INSERT INTO cms_audit_logs (id, site_id, actor_user_id, actor_email, action, entity_type, entity_id, metadata, created_at)
+      VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9)`).bind(
+      `audit_${crypto.randomUUID()}`,
+      siteId,
+      actor.userId,
+      actor.email,
+      action,
+      entityType,
+      entityId,
+      metadataText,
+      timestamp,
+    ),
+    database.prepare(`INSERT INTO cms_operation_events (id, site_id, category, action, status, severity, entity_type, entity_id, message, metadata, attempts, created_at, updated_at)
+      VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, 0, ?11, ?11)`).bind(
+      `operation_${crypto.randomUUID()}`,
+      siteId,
+      entityType || "cms",
+      action,
+      status,
+      severity,
+      entityType,
+      entityId,
+      action,
+      metadataText,
+      timestamp,
+    ),
+  ]);
 }
 
 async function hashToken(token: string) {
@@ -329,6 +349,37 @@ export async function ensureCmsSchema(database: D1DatabaseLike) {
       entity_id TEXT,
       metadata TEXT,
       created_at TEXT NOT NULL
+    )`),
+    database.prepare(`CREATE TABLE IF NOT EXISTS cms_operation_events (
+      id TEXT PRIMARY KEY,
+      site_id TEXT NOT NULL,
+      category TEXT NOT NULL,
+      action TEXT NOT NULL,
+      status TEXT NOT NULL DEFAULT 'success',
+      severity TEXT NOT NULL DEFAULT 'info',
+      entity_type TEXT,
+      entity_id TEXT,
+      message TEXT NOT NULL,
+      metadata TEXT,
+      attempts INTEGER NOT NULL DEFAULT 0,
+      last_attempt_at TEXT,
+      next_retry_at TEXT,
+      resolved_at TEXT,
+      created_at TEXT NOT NULL,
+      updated_at TEXT NOT NULL
+    )`),
+    database.prepare(`CREATE TABLE IF NOT EXISTS cms_delivery_runs (
+      site_id TEXT PRIMARY KEY,
+      run_id TEXT NOT NULL,
+      status TEXT NOT NULL DEFAULT 'in_progress',
+      current_step TEXT NOT NULL DEFAULT 'intake',
+      package_name TEXT,
+      package_summary TEXT,
+      import_revision_id TEXT,
+      last_error TEXT,
+      created_by TEXT NOT NULL,
+      created_at TEXT NOT NULL,
+      updated_at TEXT NOT NULL
     )`),
     database.prepare(`CREATE TABLE IF NOT EXISTS cms_scheduled_publishes (
       id TEXT PRIMARY KEY,
@@ -591,6 +642,9 @@ export async function ensureCmsSchema(database: D1DatabaseLike) {
     database.prepare("CREATE INDEX IF NOT EXISTS cms_invitations_site_idx ON cms_invitations(site_id, status, expires_at)"),
     database.prepare("CREATE INDEX IF NOT EXISTS cms_invitations_email_idx ON cms_invitations(site_id, email)"),
     database.prepare("CREATE INDEX IF NOT EXISTS cms_audit_site_idx ON cms_audit_logs(site_id, created_at)"),
+    database.prepare("CREATE INDEX IF NOT EXISTS cms_operations_site_idx ON cms_operation_events(site_id, created_at)"),
+    database.prepare("CREATE INDEX IF NOT EXISTS cms_operations_status_idx ON cms_operation_events(site_id, status, created_at)"),
+    database.prepare("CREATE INDEX IF NOT EXISTS cms_delivery_runs_status_idx ON cms_delivery_runs(status, updated_at)"),
     database.prepare("CREATE INDEX IF NOT EXISTS cms_schedules_site_idx ON cms_scheduled_publishes(site_id, status, scheduled_at)"),
     database.prepare("CREATE INDEX IF NOT EXISTS cms_site_domains_site_idx ON cms_site_domains(site_id)"),
     database.prepare("CREATE INDEX IF NOT EXISTS cms_launch_checks_site_idx ON cms_launch_checks(site_id, updated_at)"),

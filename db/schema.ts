@@ -113,6 +113,39 @@ export const cmsAuditLogs = sqliteTable("cms_audit_logs", {
   createdAt: text("created_at").notNull(),
 }, (table) => [index("cms_audit_site_idx").on(table.siteId, table.createdAt)]);
 
+export const cmsOperationEvents = sqliteTable("cms_operation_events", {
+  id: text("id").primaryKey(),
+  siteId: text("site_id").notNull(),
+  category: text("category").notNull(),
+  action: text("action").notNull(),
+  status: text("status").notNull().default("success"),
+  severity: text("severity").notNull().default("info"),
+  entityType: text("entity_type"),
+  entityId: text("entity_id"),
+  message: text("message").notNull(),
+  metadata: text("metadata"),
+  attempts: integer("attempts").notNull().default(0),
+  lastAttemptAt: text("last_attempt_at"),
+  nextRetryAt: text("next_retry_at"),
+  resolvedAt: text("resolved_at"),
+  createdAt: text("created_at").notNull(),
+  updatedAt: text("updated_at").notNull(),
+}, (table) => [index("cms_operations_site_idx").on(table.siteId, table.createdAt), index("cms_operations_status_idx").on(table.siteId, table.status, table.createdAt)]);
+
+export const cmsDeliveryRuns = sqliteTable("cms_delivery_runs", {
+  siteId: text("site_id").primaryKey(),
+  runId: text("run_id").notNull(),
+  status: text("status").notNull().default("in_progress"),
+  currentStep: text("current_step").notNull().default("intake"),
+  packageName: text("package_name"),
+  packageSummary: text("package_summary"),
+  importRevisionId: text("import_revision_id"),
+  lastError: text("last_error"),
+  createdBy: text("created_by").notNull(),
+  createdAt: text("created_at").notNull(),
+  updatedAt: text("updated_at").notNull(),
+}, (table) => [index("cms_delivery_runs_status_idx").on(table.status, table.updatedAt)]);
+
 export const cmsScheduledPublishes = sqliteTable("cms_scheduled_publishes", {
   id: text("id").primaryKey(),
   siteId: text("site_id").notNull(),

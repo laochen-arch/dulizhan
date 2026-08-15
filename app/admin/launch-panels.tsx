@@ -217,6 +217,7 @@ export function DeliveryPanel({ sites, site, activeSiteId, setActiveSiteId, site
       setLastImportRevisionId(result.revisionId || "");
       setPendingImport(null);
       setPreview(null);
+      await fetch("/api/cms/delivery", { method: "PATCH", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ siteId: activeSiteId, currentStep: "media", packageName: filename, packageSummary: preview.summary, importRevisionId: result.revisionId || null, lastError: null }) });
       await onRefresh();
       onNotice({ tone: "success", text: `${filename} imported into the client draft.` });
     } catch (error) {

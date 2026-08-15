@@ -131,3 +131,24 @@ test("keeps V21 operations and customer recovery paths in source", async () => {
   assert.match(admin, /After-sales queue/);
   assert.match(admin, /Bundle merchandising/);
 });
+
+test("keeps V22 production control and durable delivery wizard in source", async () => {
+  const v22 = await readFile(new URL("../db/v22.ts", import.meta.url), "utf8");
+  const schema = await readFile(new URL("../drizzle/0009_v22_delivery_operations.sql", import.meta.url), "utf8");
+  const wizard = await readFile(new URL("../app/admin/v22-panels.tsx", import.meta.url), "utf8");
+  const admin = await readFile(new URL("../app/admin/admin-v6.tsx", import.meta.url), "utf8");
+  const deliveryRoute = await readFile(new URL("../app/api/cms/delivery/route.ts", import.meta.url), "utf8");
+  const operationsRoute = await readFile(new URL("../app/api/cms/operations/route.ts", import.meta.url), "utf8");
+
+  assert.match(v22, /cms_delivery_runs/);
+  assert.match(v22, /cms_operation_events/);
+  assert.match(v22, /getProductionReadiness/);
+  assert.match(schema, /cms_delivery_runs/);
+  assert.match(schema, /cms_operation_events/);
+  assert.match(wizard, /Client delivery wizard/);
+  assert.match(wizard, /Download package template/);
+  assert.match(wizard, /Run all checks/);
+  assert.match(admin, /V22 control/);
+  assert.match(deliveryRoute, /updateDeliveryRun/);
+  assert.match(operationsRoute, /resolveOperationEvent/);
+});
