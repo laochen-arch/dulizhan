@@ -2,12 +2,13 @@
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import type { CmsAsset, CmsAuditLog, CmsDomain, CmsInvitation, CmsMember, CmsRevision, CmsSchedule, CmsSite, CmsRole, CmsSnapshotDiff } from "../../db/cms";
-import type { CmsInventoryRow, CmsOrder } from "../../db/commerce";
+import type { CmsInventoryRow, CmsOrder, CmsOrderDetail } from "../../db/commerce";
 import { getCatalogValidationErrors, getProductValidationErrors, products as templateProducts, type Product, type ProductVariant, variantOptionValues } from "../data/products";
 import { type EditableSiteConfig, useSiteRuntime } from "../components/site-runtime";
 
 type AdminTab = "overview" | "brand" | "content" | "products" | "media" | "access" | "team" | "domains" | "activity" | "release" | "commerce" | "versions";
 type Notice = { tone: "success" | "error" | "info"; text: string } | null;
+type CommerceConfiguration = { stripe: { secretKey: boolean; webhookSecret: boolean }; resend: { apiKey: boolean; fromEmail: boolean } };
 
 const tabs: Array<{ id: AdminTab; label: string }> = [
   { id: "overview", label: "Overview" },
@@ -164,18 +165,63 @@ type P0PanelsProps = {
   loadCommerceData: () => Promise<void>;
   updateOrder: (order: CmsOrder) => Promise<void>;
   updateStock: (row: CmsInventoryRow, quantity: number) => Promise<void>;
+  loadOrderDetail: (orderId: string) => Promise<void>;
+  orderDetail: CmsOrderDetail | null;
+  orderLoading: boolean;
+  commerceConfiguration: CommerceConfiguration | null;
   domains: CmsDomain[];
 };
 
 function P0Panels(props: P0PanelsProps) {
-  const { tab, config, updateConfig, setHome, toggleModule, moveModule, domainForm, setDomainForm, saveDomain, site, activeSiteId, cmsRole, diff, scheduleForm, setScheduleForm, saveSchedule, schedules, cancelScheduledPublish, busy, publish, members, invitations, changeMemberRole, removeAccess, revokeAccessInvite, auditLogs, loadWorkspaceData, orders, inventory, loadCommerceData, updateOrder, updateStock, domains } = props;
+  const { tab, config, updateConfig, setHome, toggleModule, moveModule, domainForm, setDomainForm, saveDomain, site, activeSiteId, cmsRole, diff, scheduleForm, setScheduleForm, saveSchedule, schedules, cancelScheduledPublish, busy, publish, members, invitations, changeMemberRole, removeAccess, revokeAccessInvite, auditLogs, loadWorkspaceData, orders, inventory, loadCommerceData, updateOrder, updateStock, loadOrderDetail, orderDetail, orderLoading, commerceConfiguration, domains } = props;
   if (tab === "content") return <section className="v6-card"><div className="v6-card-heading"><div><p className="eyebrow">P0 content modules</p><h2>Compose the client storefront.</h2></div><span>Draft autosave</span></div><div className="v6-module-list">{["hero", "intro", "products", "story", "journal", "newsletter"].map((module, index) => <div className="v6-inline-row" key={module}><label className="v6-check-field"><input type="checkbox" checked={config.content.home.modules.includes(module)} onChange={() => toggleModule(module)} /> {module}</label><span><button className="text-button" onClick={() => moveModule(module, -1)} disabled={index === 0}>↑</button><button className="text-button" onClick={() => moveModule(module, 1)} disabled={index === 5}>↓</button></span></div>)}</div><div className="v6-divider"><p className="eyebrow">Announcement and navigation</p><div className="v6-form-grid"><Field label="Announcement" value={config.announcement.text} onChange={(value) => updateConfig((current) => { current.announcement.text = value; return current; })} /><Field label="Announcement accent" value={config.announcement.accent} onChange={(value) => updateConfig((current) => { current.announcement.accent = value; return current; })} />{config.navigation.map((item, index) => <Field key={`${item.href}-${index}`} label={`Nav ${index + 1} label | link`} value={`${item.label} | ${item.href}`} onChange={(value) => updateConfig((current) => { const [label, href] = value.split("|"); current.navigation[index] = { label: label.trim(), href: href?.trim() || current.navigation[index].href }; return current; })} />)}</div></div><div className="v6-divider"><p className="eyebrow">Home, trust, contact and SEO</p><div className="v6-form-grid"><Field label="Products label" value={config.content.home.productsLabel} onChange={(value) => setHome("productsLabel", value)} /><Field label="Products title" value={config.content.home.productsTitleLead} onChange={(value) => setHome("productsTitleLead", value)} /><Field label="Products accent" value={config.content.home.productsTitleAccent} onChange={(value) => setHome("productsTitleAccent", value)} /><Field label="Journal label" value={config.content.home.journalLabel} onChange={(value) => setHome("journalLabel", value)} /><Field label="About title" value={config.content.about.titleLead} onChange={(value) => updateConfig((current) => { current.content.about.titleLead = value; return current; })} /><Field label="About accent" value={config.content.about.titleAccent} onChange={(value) => updateConfig((current) => { current.content.about.titleAccent = value; return current; })} /><Field label="About lead" value={config.content.about.lead} onChange={(value) => updateConfig((current) => { current.content.about.lead = value; return current; })} multiline /><Field label="FAQ intro" value={config.content.faq.intro} onChange={(value) => updateConfig((current) => { current.content.faq.intro = value; return current; })} multiline /><Field label="Shipping copy" value={config.content.policies.shippingLead} onChange={(value) => updateConfig((current) => { current.content.policies.shippingLead = value; return current; })} multiline /><Field label="Returns copy" value={config.content.policies.returnsLead} onChange={(value) => updateConfig((current) => { current.content.policies.returnsLead = value; return current; })} multiline /><Field label="Contact email" value={config.content.contact.email} onChange={(value) => updateConfig((current) => { current.content.contact.email = value; return current; })} /><Field label="Trade email" value={config.content.contact.tradeEmail} onChange={(value) => updateConfig((current) => { current.content.contact.tradeEmail = value; return current; })} /><Field label="SEO title" value={config.seo.title} onChange={(value) => updateConfig((current) => { current.seo.title = value; return current; })} /><Field label="SEO description" value={config.seo.description} onChange={(value) => updateConfig((current) => { current.seo.description = value; return current; })} multiline /><Field label="SEO keywords" value={config.seo.keywords} onChange={(value) => updateConfig((current) => { current.seo.keywords = value; return current; })} /></div></div></section>;
   if (tab === "domains") return <section className="v6-grid"><div className="v6-card"><p className="eyebrow">Public tenant routing</p><h2>One workspace, many storefronts.</h2><p className="v6-muted">Public requests resolve a client site by hostname. Shared Sites URLs continue to use the default site.</p><div className="v6-callout"><strong>{site?.domain || "No custom domain mapped"}</strong><span>{site?.domain ? "Mapped in CMS · verify DNS with Sites" : "Add a domain mapping to route this tenant"}</span></div>{domains.map((domain) => <div className="v6-inline-row" key={domain.id}><span>{domain.hostname}<small>Verification: {domain.status}</small></span></div>)}<a className="text-link" href={`/preview?siteId=${encodeURIComponent(activeSiteId)}`} target="_blank" rel="noreferrer">Open tenant preview <span>↗</span></a></div><div className="v6-card"><p className="eyebrow">Domain mapping</p><h2>Connect the client URL.</h2><form className="v6-form" onSubmit={saveDomain}><Field label="Client site name" value={domainForm.name} onChange={(value) => setDomainForm((current) => ({ ...current, name: value }))} /><Field label="URL slug" value={domainForm.slug} onChange={(value) => setDomainForm((current) => ({ ...current, slug: slugify(value) }))} /><Field label="Custom domain" value={domainForm.domain} onChange={(value) => setDomainForm((current) => ({ ...current, domain: value }))} placeholder="shop.client.com" /><button className="button button-dark" disabled={busy || cmsRole !== "owner"}>Save domain mapping <span>+</span></button></form><p className="v6-help">After saving the mapping, verify the DNS target and activate the Sites custom-domain binding when the client provides the hostname.</p></div></section>;
   if (tab === "release") return <section className="v6-grid"><div className="v6-card"><p className="eyebrow">Publish diff</p><h2>{diff?.totalChanges ?? 0} changes waiting.</h2>{diff?.changes.length ? <div className="v6-checks">{diff.changes.map((change) => <div key={change}><span>+</span>{change}</div>)}</div> : <p className="v6-muted">Draft and published storefronts are aligned.</p>}<button className="button button-dark" onClick={() => void publish()} disabled={busy || !diff?.totalChanges || (cmsRole !== "owner" && cmsRole !== "editor")}>Review and publish <span>-&gt;</span></button></div><div className="v6-card"><p className="eyebrow">Scheduled publish</p><h2>Set the release moment.</h2><form className="v6-form" onSubmit={saveSchedule}><Field label="Release label" value={scheduleForm.label} onChange={(value) => setScheduleForm((current) => ({ ...current, label: value }))} /><label className="v6-field"><span>Publish at</span><input type="datetime-local" value={scheduleForm.scheduledAt} onChange={(event) => setScheduleForm((current) => ({ ...current, scheduledAt: event.target.value }))} /></label><button className="button button-dark" disabled={busy || !scheduleForm.scheduledAt || cmsRole === "viewer"}>Schedule release <span>+</span></button></form>{schedules.filter((schedule) => schedule.status === "pending").map((schedule) => <div className="v6-inline-row" key={schedule.id}><span>{schedule.label}<small>{new Date(schedule.scheduledAt).toLocaleString()}</small></span><button className="text-button danger" onClick={() => void cancelScheduledPublish(schedule.id)}>Cancel</button></div>)}</div></section>;
   if (tab === "team") return <section className="v6-card"><div className="v6-card-heading"><div><p className="eyebrow">Member lifecycle</p><h2>Invite, change, revoke.</h2></div><span>Owner controlled</span></div><div className="v6-member-list">{members.map((member) => <div key={`${member.siteId}-${member.userId}`}><span>{member.email}</span><select value={member.role} disabled={cmsRole !== "owner"} onChange={(event) => void changeMemberRole(member.userId, event.target.value as CmsRole)}><option value="viewer">Viewer</option><option value="editor">Editor</option><option value="owner">Owner</option></select><button className="text-button danger" onClick={() => void removeAccess(member.userId)}>Remove</button></div>)}</div><div className="v6-divider"><p className="eyebrow">Pending invitations</p>{invitations.map((invitation) => <div className="v6-inline-row" key={invitation.id}><span>{invitation.email} · {invitation.role}<small>{invitation.status} · expires {new Date(invitation.expiresAt).toLocaleDateString()}</small></span>{invitation.status === "pending" && <button className="text-button danger" onClick={() => void revokeAccessInvite(invitation.id)}>Revoke</button>}</div>)}{invitations.length === 0 && <p className="v6-muted">No pending invitations.</p>}</div><p className="v6-help">The existing invite form creates a secure seven-day link and copies it to the clipboard. The link can be sent through the client’s preferred email channel.</p></section>;
   if (tab === "activity") return <section className="v6-card"><div className="v6-card-heading"><div><p className="eyebrow">Audit trail</p><h2>Every important change, visible.</h2></div><button className="text-button" onClick={() => void loadWorkspaceData()}>Refresh activity</button></div><div className="v6-version-list">{auditLogs.map((log) => <article key={log.id}><div><strong>{log.action}</strong><span>{log.actorEmail} · {log.entityType}{log.entityId ? ` / ${log.entityId}` : ""}</span></div><time>{new Date(log.createdAt).toLocaleString()}</time></article>)}{auditLogs.length === 0 && <div className="v6-empty">No audited changes yet.</div>}</div></section>;
-  if (tab === "commerce") return <section className="v6-grid"><div className="v6-card v6-card-large"><div className="v6-card-heading"><div><p className="eyebrow">Order operations</p><h2>{orders.length} recent orders.</h2></div><button className="text-button" onClick={() => void loadCommerceData()}>Refresh</button></div><div className="v6-version-list">{orders.map((order) => <article key={order.id}><div><strong>{order.orderNumber} · ${order.total.toFixed(2)}</strong><span>{order.email} · {order.paymentStatus} · {order.fulfillmentStatus}</span></div><div className="v6-actions"><select value={order.fulfillmentStatus} disabled={cmsRole !== "owner" && cmsRole !== "editor"} onChange={(event) => void updateOrder({ ...order, fulfillmentStatus: event.target.value })}><option value="unfulfilled">Unfulfilled</option><option value="processing">Processing</option><option value="shipped">Shipped</option><option value="delivered">Delivered</option><option value="cancelled">Cancelled</option></select><button className="text-button" onClick={() => void updateOrder(order)}>Save</button></div></article>)}{orders.length === 0 && <div className="v6-empty">No orders yet. Orders appear here after Stripe confirms payment.</div>}</div></div><div className="v6-card"><div className="v6-card-heading"><div><p className="eyebrow">Inventory / SKU</p><h2>Live stock.</h2></div></div><div className="v6-version-list">{inventory.map((row) => <article key={`${row.productId}-${row.variantId}`}><div><strong>{row.productName} · {row.variantLabel}</strong><span>{row.sku} · {row.reservedQuantity} reserved</span></div><label className="v6-inline-input"><span className="sr-only">Quantity</span><input type="number" min="0" defaultValue={row.quantity} onBlur={(event) => void updateStock(row, Number(event.target.value))} /></label></article>)}{inventory.length === 0 && <div className="v6-empty">Inventory rows initialize from the published catalog.</div>}</div></div></section>;
+  if (tab === "commerce") return <CommercePanel orders={orders} inventory={inventory} cmsRole={cmsRole} loadCommerceData={loadCommerceData} updateOrder={updateOrder} updateStock={updateStock} loadOrderDetail={loadOrderDetail} orderDetail={orderDetail} orderLoading={orderLoading} commerceConfiguration={commerceConfiguration} />;
   return null;
+}
+
+type CommercePanelProps = {
+  orders: CmsOrder[];
+  inventory: CmsInventoryRow[];
+  cmsRole?: CmsRole;
+  loadCommerceData: () => Promise<void>;
+  updateOrder: (order: CmsOrder) => Promise<void>;
+  updateStock: (row: CmsInventoryRow, quantity: number) => Promise<void>;
+  loadOrderDetail: (orderId: string) => Promise<void>;
+  orderDetail: CmsOrderDetail | null;
+  orderLoading: boolean;
+  commerceConfiguration: CommerceConfiguration | null;
+};
+
+function CommercePanel({ orders, inventory, cmsRole, loadCommerceData, updateOrder, updateStock, loadOrderDetail, orderDetail, orderLoading, commerceConfiguration }: CommercePanelProps) {
+  const [query, setQuery] = useState("");
+  const [status, setStatus] = useState("all");
+  const filteredOrders = orders.filter((order) => {
+    const search = query.trim().toLowerCase();
+    const matchesQuery = !search || [order.orderNumber, order.email, order.customerName].some((value) => value.toLowerCase().includes(search));
+    const matchesStatus = status === "all" || order.paymentStatus === status || order.fulfillmentStatus === status;
+    return matchesQuery && matchesStatus;
+  });
+
+  function exportOrders() {
+    const headers = ["Order", "Created", "Customer", "Email", "Payment", "Fulfillment", "Subtotal", "Shipping", "Total", "Tracking"];
+    const escape = (value: unknown) => `"${String(value ?? "").replaceAll('"', '""')}"`;
+    const lines = [headers, ...filteredOrders.map((order) => [order.orderNumber, order.createdAt, order.customerName, order.email, order.paymentStatus, order.fulfillmentStatus, order.subtotal.toFixed(2), order.shipping.toFixed(2), order.total.toFixed(2), order.trackingNumber || ""])].map((row) => row.map(escape).join(","));
+    const blob = new Blob([`\ufeff${lines.join("\n")}`], { type: "text/csv;charset=utf-8" });
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement("a");
+    link.href = url;
+    link.download = `orders-${new Date().toISOString().slice(0, 10)}.csv`;
+    link.click();
+    URL.revokeObjectURL(url);
+  }
+
+  const paymentReady = Boolean(commerceConfiguration?.stripe.secretKey && commerceConfiguration?.stripe.webhookSecret);
+  const emailReady = Boolean(commerceConfiguration?.resend.apiKey && commerceConfiguration?.resend.fromEmail);
+  return <section className="v6-grid"><div className="v6-card v6-card-large"><div className="v6-card-heading"><div><p className="eyebrow">Order operations</p><h2>{orders.length} recent orders.</h2></div><div className="v6-actions"><button className="text-button" onClick={() => void loadCommerceData()}>Refresh</button><button className="text-button" onClick={exportOrders} disabled={!filteredOrders.length}>Export CSV</button></div></div><div className="v6-commerce-config"><span className={paymentReady ? "is-ready" : "is-missing"}>Stripe {paymentReady ? "ready" : "needs keys"}</span><span className={emailReady ? "is-ready" : "is-missing"}>Resend {emailReady ? "ready" : "needs keys"}</span><small>Configure production secrets before accepting live orders.</small></div><div className="v6-commerce-toolbar"><label className="v6-field"><span>Search orders</span><input value={query} onChange={(event) => setQuery(event.target.value)} placeholder="Order, customer or email" /></label><label className="v6-field"><span>Status</span><select value={status} onChange={(event) => setStatus(event.target.value)}><option value="all">All statuses</option><option value="paid">Paid</option><option value="pending">Pending payment</option><option value="failed">Payment failed</option><option value="unfulfilled">Unfulfilled</option><option value="processing">Processing</option><option value="shipped">Shipped</option><option value="delivered">Delivered</option></select></label></div><div className="v6-version-list">{filteredOrders.map((order) => <article key={order.id} className="v6-order-row"><button type="button" className="v6-order-summary" onClick={() => void loadOrderDetail(order.id)}><strong>{order.orderNumber} · ${order.total.toFixed(2)}</strong><span>{order.customerName} · {order.email}</span><small>{new Date(order.createdAt).toLocaleString()} · Payment: {order.paymentStatus} · Fulfillment: {order.fulfillmentStatus}</small></button><div className="v6-actions"><select aria-label={`Fulfillment status for ${order.orderNumber}`} value={order.fulfillmentStatus} disabled={cmsRole !== "owner" && cmsRole !== "editor"} onChange={(event) => void updateOrder({ ...order, fulfillmentStatus: event.target.value })}><option value="unfulfilled">Unfulfilled</option><option value="processing">Processing</option><option value="shipped">Shipped</option><option value="delivered">Delivered</option><option value="cancelled">Cancelled</option></select></div></article>)}{filteredOrders.length === 0 && <div className="v6-empty">{orders.length ? "No orders match the current filters." : "No orders yet. Orders appear here after Stripe confirms payment."}</div>}</div>{orderLoading && <p className="v6-muted">Loading order details...</p>}{orderDetail && <div className="v6-order-detail"><div className="v6-card-heading"><div><p className="eyebrow">Order detail</p><h3>{orderDetail.order.orderNumber}</h3></div><span>{orderDetail.order.paymentStatus} / {orderDetail.order.fulfillmentStatus}</span></div><div className="v6-order-detail-grid"><div><p className="eyebrow">Customer</p><p>{orderDetail.order.customerName}<br />{orderDetail.order.email}</p><p>{Object.values(orderDetail.order.shippingAddress).filter(Boolean).join(", ")}</p></div><div><p className="eyebrow">Items</p>{orderDetail.items.map((item) => <p key={item.id}>{item.name} / {item.variantLabel} · {item.quantity} · ${(item.unitPrice * item.quantity).toFixed(2)}</p>)}</div></div><div className="v6-order-detail-footer"><label className="v6-field"><span>Tracking number</span><input defaultValue={orderDetail.order.trackingNumber || ""} placeholder="Add tracking number" onBlur={(event) => void updateOrder({ ...orderDetail.order, trackingNumber: event.target.value })} /></label><div><p className="eyebrow">Notifications</p>{orderDetail.notifications.length ? orderDetail.notifications.map((notification) => <span className="v6-status-chip" key={notification.id}>{notification.type}: {notification.status}</span>) : <p className="v6-muted">No notification records yet.</p>}</div></div></div>}</div><div className="v6-card"><div className="v6-card-heading"><div><p className="eyebrow">Inventory / SKU</p><h2>Live stock.</h2></div></div><div className="v6-version-list">{inventory.map((row) => <article key={`${row.productId}-${row.variantId}`}><div><strong>{row.productName} · {row.variantLabel}</strong><span>{row.sku} · {row.reservedQuantity} reserved · {Math.max(0, row.quantity - row.reservedQuantity)} available</span></div><label className="v6-inline-input"><span className="sr-only">Quantity</span><input type="number" min="0" defaultValue={row.quantity} onBlur={(event) => void updateStock(row, Number(event.target.value))} /></label></article>)}{inventory.length === 0 && <div className="v6-empty">Inventory rows initialize from the published catalog.</div>}</div></div></section>;
 }
 
 export function AdminStudioV6() {
@@ -192,6 +238,9 @@ export function AdminStudioV6() {
   const [diff, setDiff] = useState<CmsSnapshotDiff | null>(null);
   const [orders, setOrders] = useState<CmsOrder[]>([]);
   const [inventory, setInventory] = useState<CmsInventoryRow[]>([]);
+  const [commerceConfiguration, setCommerceConfiguration] = useState<CommerceConfiguration | null>(null);
+  const [orderDetail, setOrderDetail] = useState<CmsOrderDetail | null>(null);
+  const [orderLoading, setOrderLoading] = useState(false);
   const [domains, setDomains] = useState<CmsDomain[]>([]);
   const [notice, setNotice] = useState<Notice>(null);
   const [authRequired, setAuthRequired] = useState(false);
@@ -262,16 +311,33 @@ export function AdminStudioV6() {
 
   const loadCommerceData = useCallback(async () => {
     const query = `?siteId=${encodeURIComponent(activeSiteId)}`;
-    const [ordersResponse, inventoryResponse] = await Promise.all([
+    const [ordersResponse, inventoryResponse, configurationResponse] = await Promise.all([
       fetch(`/api/cms/orders${query}`, { cache: "no-store" }),
       fetch(`/api/cms/inventory${query}`, { cache: "no-store" }),
+      fetch(`/api/cms/commerce/status${query}`, { cache: "no-store" }),
     ]);
-    const [ordersPayload, inventoryPayload] = await Promise.all([
+    const [ordersPayload, inventoryPayload, configurationPayload] = await Promise.all([
       ordersResponse.json().catch(() => ({})) as Promise<{ orders?: CmsOrder[] }>,
       inventoryResponse.json().catch(() => ({})) as Promise<{ inventory?: CmsInventoryRow[] }>,
+      configurationResponse.json().catch(() => ({})) as Promise<{ configuration?: CommerceConfiguration }>,
     ]);
     if (ordersResponse.ok) setOrders(ordersPayload.orders ?? []);
     if (inventoryResponse.ok) setInventory(inventoryPayload.inventory ?? []);
+    if (configurationResponse.ok) setCommerceConfiguration(configurationPayload.configuration ?? null);
+  }, [activeSiteId]);
+
+  const loadOrderDetail = useCallback(async (orderId: string) => {
+    setOrderLoading(true);
+    try {
+      const response = await fetch(`/api/cms/orders?siteId=${encodeURIComponent(activeSiteId)}&orderId=${encodeURIComponent(orderId)}`, { cache: "no-store" });
+      const payload = await response.json().catch(() => ({})) as CmsOrderDetail & { error?: string };
+      if (!response.ok || !payload.order) throw new Error(payload.error || "Unable to load order details.");
+      setOrderDetail({ order: payload.order, items: payload.items || [], notifications: payload.notifications || [] });
+    } catch (error) {
+      setNotice({ tone: "error", text: error instanceof Error ? error.message : "Unable to load order details." });
+    } finally {
+      setOrderLoading(false);
+    }
   }, [activeSiteId]);
 
   useEffect(() => {
@@ -333,7 +399,7 @@ export function AdminStudioV6() {
 
   const publish = async () => {
     setBusy(true);
-    const result = await publishCms("V10 P0 storefront release");
+    const result = await publishCms("V11 P0 commerce release");
     setBusy(false);
     if (!result.ok) setNotice({ tone: "error", text: result.checks?.length ? `${result.error || "Publish checks failed"} ${result.checks.join(" · ")}` : result.error || "Publish failed." });
     else {
@@ -442,6 +508,7 @@ export function AdminStudioV6() {
     const payload = await response.json().catch(() => ({})) as { order?: CmsOrder; error?: string };
     if (response.ok && payload.order) {
       setOrders((current) => current.map((item) => item.id === order.id ? payload.order as CmsOrder : item));
+      setOrderDetail((current) => current && current.order.id === order.id ? { ...current, order: payload.order as CmsOrder } : current);
       setNotice({ tone: "success", text: `${order.orderNumber} updated.` });
     } else setNotice({ tone: "error", text: payload.error || "Unable to update order." });
   };
@@ -596,7 +663,7 @@ export function AdminStudioV6() {
           <span>Draft changes autosave · public stays on published version</span>
         </nav>
 
-        <P0Panels tab={tab} config={config} updateConfig={updateConfig} setHome={setHome} toggleModule={toggleModule} moveModule={moveModule} domainForm={domainForm} setDomainForm={setDomainForm} saveDomain={saveDomain} site={site} activeSiteId={activeSiteId} cmsRole={cmsRole} diff={diff} scheduleForm={scheduleForm} setScheduleForm={setScheduleForm} saveSchedule={saveSchedule} schedules={schedules} cancelScheduledPublish={cancelScheduledPublish} busy={busy} publish={publish} members={members} invitations={invitations} changeMemberRole={changeMemberRole} removeAccess={removeAccess} revokeAccessInvite={revokeAccessInvite} auditLogs={auditLogs} loadWorkspaceData={loadWorkspaceData} orders={orders} inventory={inventory} loadCommerceData={loadCommerceData} updateOrder={updateOrder} updateStock={updateStock} domains={domains} />
+        <P0Panels tab={tab} config={config} updateConfig={updateConfig} setHome={setHome} toggleModule={toggleModule} moveModule={moveModule} domainForm={domainForm} setDomainForm={setDomainForm} saveDomain={saveDomain} site={site} activeSiteId={activeSiteId} cmsRole={cmsRole} diff={diff} scheduleForm={scheduleForm} setScheduleForm={setScheduleForm} saveSchedule={saveSchedule} schedules={schedules} cancelScheduledPublish={cancelScheduledPublish} busy={busy} publish={publish} members={members} invitations={invitations} changeMemberRole={changeMemberRole} removeAccess={removeAccess} revokeAccessInvite={revokeAccessInvite} auditLogs={auditLogs} loadWorkspaceData={loadWorkspaceData} orders={orders} inventory={inventory} loadCommerceData={loadCommerceData} updateOrder={updateOrder} updateStock={updateStock} loadOrderDetail={loadOrderDetail} orderDetail={orderDetail} orderLoading={orderLoading} commerceConfiguration={commerceConfiguration} domains={domains} />
 
         {tab === "overview" && <section className="v6-grid v6-overview">
           <div className="v6-card v6-card-large"><p className="eyebrow">Launch readiness</p><h2>{checks.filter((check) => check.done).length}/{checks.length} checks ready.</h2><p className="v6-muted">Publish creates a revision that can be rolled back from the Versions tab.</p><div className="v6-checks">{checks.map((check) => <div className={check.done ? "done" : ""} key={check.label}><span>{check.done ? "✓" : "·"}</span>{check.label}</div>)}</div><button className="button button-dark" onClick={() => void publish()} disabled={busy || checks.some((check) => !check.done)}>Publish when ready <span>↗</span></button></div>

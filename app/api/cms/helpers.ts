@@ -45,7 +45,7 @@ export function errorResponse(error: unknown) {
   if (["INVALID_INVITATION", "INVITATION_NOT_ACTIVE", "INVITATION_EMAIL_MISMATCH"].includes(message)) return Response.json({ error: "This invitation cannot be accepted by the current account.", code: message }, { status: 400, headers: { "Cache-Control": "no-store" } });
   if (["LAST_OWNER", "CANNOT_REMOVE_SELF", "DOMAIN_IN_USE"].includes(message)) return Response.json({ error: "This access or domain change is not allowed.", code: message }, { status: 400, headers: { "Cache-Control": "no-store" } });
   if (["INVALID_SITE", "INVALID_MEMBER", "INVALID_SCHEDULE"].includes(message)) return Response.json({ error: "The submitted CMS fields are invalid.", code: message }, { status: 400, headers: { "Cache-Control": "no-store" } });
-  if (["INVALID_INVENTORY", "INVENTORY_BELOW_RESERVED", "INVALID_ORDER_STATUS"].includes(message)) return Response.json({ error: "The submitted commerce fields are invalid.", code: message }, { status: 400, headers: { "Cache-Control": "no-store" } });
+  if (["INVALID_INVENTORY", "INVENTORY_BELOW_RESERVED", "INVALID_ORDER_STATUS", "ORDER_NOT_PAID"].includes(message)) return Response.json({ error: message === "ORDER_NOT_PAID" ? "Paid orders must be confirmed before fulfillment can advance." : "The submitted commerce fields are invalid.", code: message }, { status: 400, headers: { "Cache-Control": "no-store" } });
   if (message === "SITE_NOT_FOUND") return Response.json({ error: "The requested client site was not found.", code: message }, { status: 404, headers: { "Cache-Control": "no-store" } });
   if (message.startsWith("PUBLISH_CHECKS:")) {
     try {

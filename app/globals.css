@@ -478,6 +478,25 @@ button:disabled, .button:disabled { cursor: not-allowed; opacity: .45; }
 .v6-notice.success { background: rgba(137,144,128,.16); }
 .v6-notice.error { background: rgba(173,78,48,.1); color: var(--rust); }
 .v6-notice button { border: 0; background: none; color: inherit; font-size: 18px; padding: 0 3px; }
+.form-error { display: flex; justify-content: space-between; gap: 16px; align-items: center; border: 1px solid var(--rust); background: rgba(173,78,48,.1); color: var(--rust); padding: 12px 14px; margin: 16px 0; font-size: 13px; line-height: 1.45; }
+.form-error .text-button { color: inherit; }
+.v6-commerce-toolbar { display: grid; grid-template-columns: minmax(0, 1.5fr) minmax(180px, .7fr); gap: 12px; padding: 14px 0 4px; }
+.v6-commerce-config { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; border: 1px solid var(--line); padding: 10px 12px; margin: 14px 0 0; font-size: 11px; }
+.v6-commerce-config span { padding: 4px 7px; border: 1px solid var(--line); }
+.v6-commerce-config .is-ready { color: var(--moss); }
+.v6-commerce-config .is-missing { color: var(--rust); }
+.v6-commerce-config small { color: var(--muted); margin-left: auto; }
+.v6-order-row { align-items: center; gap: 18px; }
+.v6-order-summary { display: grid; gap: 4px; text-align: left; border: 0; background: transparent; padding: 0; color: inherit; cursor: pointer; min-width: 0; }
+.v6-order-summary:hover strong, .v6-order-summary:focus-visible strong { text-decoration: underline; }
+.v6-order-summary span, .v6-order-summary small { color: var(--muted); font-size: 12px; line-height: 1.4; }
+.v6-order-detail { border-top: 1px solid var(--line); margin-top: 16px; padding-top: 20px; }
+.v6-order-detail h3 { margin: 0; font-size: 26px; font-weight: 400; }
+.v6-order-detail-grid, .v6-order-detail-footer { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 20px; border-top: 1px solid var(--line); padding-top: 16px; margin-top: 16px; }
+.v6-order-detail-footer { align-items: start; }
+.v6-order-detail p { margin: 0 0 8px; line-height: 1.5; }
+.v6-status-chip { display: inline-block; border: 1px solid var(--line); padding: 5px 8px; margin: 0 6px 6px 0; font-size: 11px; }
+@media (max-width: 700px) { .v6-commerce-toolbar, .v6-order-detail-grid, .v6-order-detail-footer { grid-template-columns: 1fr; } .v6-order-row { align-items: stretch; } }
 .v6-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 18px; }
 .v6-overview > .v6-card-large { grid-row: span 2; }
 .v6-card { border: 1px solid var(--line); background: var(--white); padding: clamp(22px, 4vw, 34px); min-width: 0; }
