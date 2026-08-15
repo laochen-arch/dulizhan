@@ -164,6 +164,7 @@ export const cmsInventoryTransactions = sqliteTable("cms_inventory_transactions"
   delta: integer("delta").notNull(),
   reason: text("reason").notNull(),
   referenceId: text("reference_id"),
+  idempotencyKey: text("idempotency_key"),
   createdBy: text("created_by").notNull(),
   createdAt: text("created_at").notNull(),
 }, (table) => [index("cms_inventory_tx_site_idx").on(table.siteId, table.createdAt)]);
@@ -195,6 +196,8 @@ export const cmsOrders = sqliteTable("cms_orders", {
   adminNote: text("admin_note"),
   refundTotal: real("refund_total").notNull().default(0),
   refundedAt: text("refunded_at"),
+  discount: real("discount").notNull().default(0),
+  couponCode: text("coupon_code"),
 }, (table) => [uniqueIndex("cms_orders_number_unique").on(table.orderNumber), uniqueIndex("cms_orders_paypal_order_unique").on(table.paypalOrderId), uniqueIndex("cms_orders_checkout_idempotency_unique").on(table.checkoutIdempotencyKey), index("cms_orders_site_status_idx").on(table.siteId, table.status, table.createdAt), index("cms_orders_site_email_idx").on(table.siteId, table.email)]);
 
 export const cmsOrderItems = sqliteTable("cms_order_items", {
@@ -222,6 +225,8 @@ export const cmsPaymentEvents = sqliteTable("cms_payment_events", {
   attempts: integer("attempts").notNull().default(0),
   lastError: text("last_error"),
   nextRetryAt: text("next_retry_at"),
+  deadLettered: integer("dead_lettered", { mode: "boolean" }).notNull().default(false),
+  lastAttemptAt: text("last_attempt_at"),
 }, (table) => [uniqueIndex("cms_payment_events_provider_unique").on(table.providerEventId), index("cms_payment_events_site_idx").on(table.siteId, table.createdAt)]);
 
 export const cmsOrderNotifications = sqliteTable("cms_order_notifications", {
@@ -253,3 +258,43 @@ export const cmsRefunds = sqliteTable("cms_refunds", {
   createdAt: text("created_at").notNull(),
   completedAt: text("completed_at"),
 }, (table) => [uniqueIndex("cms_refunds_paypal_unique").on(table.paypalRefundId), index("cms_refunds_site_order_idx").on(table.siteId, table.orderId, table.createdAt)]);
+
+export const cmsOrderStateEvents = sqliteTable("cms_order_state_events", {
+  id: text("id").primaryKey(), siteId: text("site_id").notNull(), orderId: text("order_id").notNull(), fromStatus: text("from_status"), toStatus: text("to_status").notNull(), reason: text("reason"), actorId: text("actor_id").notNull(), createdAt: text("created_at").notNull(),
+}, (table) => [index("cms_order_state_events_idx").on(table.siteId, table.orderId, table.createdAt)]);
+
+export const cmsOrderAccessTokens = sqliteTable("cms_order_access_tokens", {
+  id: text("id").primaryKey(), siteId: text("site_id").notNull(), orderId: text("order_id").notNull(), email: text("email").notNull(), tokenHash: text("token_hash").notNull().unique(), expiresAt: text("expires_at").notNull(), lastUsedAt: text("last_used_at"), requestCount: integer("request_count").notNull().default(0), createdAt: text("created_at").notNull(),
+}, (table) => [index("cms_order_access_tokens_idx").on(table.siteId, table.orderId, table.email)]);
+
+export const cmsAfterSalesRequests = sqliteTable("cms_after_sales_requests", {
+  id: text("id").primaryKey(), siteId: text("site_id").notNull(), orderId: text("order_id").notNull(), email: text("email").notNull(), requestType: text("request_type").notNull(), reason: text("reason").notNull(), customerNote: text("customer_note"), adminNote: text("admin_note"), requestedAmount: real("requested_amount"), items: text("items"), status: text("status").notNull().default("submitted"), createdAt: text("created_at").notNull(), updatedAt: text("updated_at").notNull(), resolvedAt: text("resolved_at"),
+}, (table) => [index("cms_after_sales_site_idx").on(table.siteId, table.status, table.createdAt)]);
+
+export const cmsClientIntake = sqliteTable("cms_client_intake", {
+  siteId: text("site_id").primaryKey(), status: text("status").notNull().default("incomplete"), payload: text("payload").notNull(), submittedBy: text("submitted_by"), approvedBy: text("approved_by"), submittedAt: text("submitted_at"), approvedAt: text("approved_at"), updatedAt: text("updated_at").notNull(),
+});
+
+export const cmsCoupons = sqliteTable("cms_coupons", {
+  id: text("id").primaryKey(), siteId: text("site_id").notNull(), code: text("code").notNull(), discountType: text("discount_type").notNull().default("percent"), discountValue: real("discount_value").notNull(), minSubtotal: real("min_subtotal").notNull().default(0), maxUses: integer("max_uses"), uses: integer("uses").notNull().default(0), startsAt: text("starts_at"), endsAt: text("ends_at"), active: integer("active", { mode: "boolean" }).notNull().default(true), createdAt: text("created_at").notNull(), updatedAt: text("updated_at").notNull(),
+}, (table) => [uniqueIndex("cms_coupons_site_code_unique").on(table.siteId, table.code)]);
+
+export const cmsBundles = sqliteTable("cms_bundles", {
+  id: text("id").primaryKey(), siteId: text("site_id").notNull(), name: text("name").notNull(), slug: text("slug").notNull(), productIds: text("product_ids").notNull(), discountType: text("discount_type").notNull().default("percent"), discountValue: real("discount_value").notNull().default(0), active: integer("active", { mode: "boolean" }).notNull().default(true), createdAt: text("created_at").notNull(), updatedAt: text("updated_at").notNull(),
+}, (table) => [uniqueIndex("cms_bundles_site_slug_unique").on(table.siteId, table.slug), index("cms_bundles_site_idx").on(table.siteId, table.active, table.createdAt)]);
+
+export const cmsReviews = sqliteTable("cms_reviews", {
+  id: text("id").primaryKey(), siteId: text("site_id").notNull(), productId: text("product_id").notNull(), orderId: text("order_id"), email: text("email").notNull(), rating: integer("rating").notNull(), title: text("title"), body: text("body").notNull(), status: text("status").notNull().default("pending"), createdAt: text("created_at").notNull(), updatedAt: text("updated_at").notNull(),
+}, (table) => [index("cms_reviews_product_idx").on(table.siteId, table.productId, table.status, table.createdAt)]);
+
+export const cmsAnalyticsEvents = sqliteTable("cms_analytics_events", {
+  id: text("id").primaryKey(), siteId: text("site_id").notNull(), eventType: text("event_type").notNull(), productId: text("product_id"), orderId: text("order_id"), sessionId: text("session_id"), payload: text("payload"), createdAt: text("created_at").notNull(),
+}, (table) => [index("cms_analytics_site_idx").on(table.siteId, table.eventType, table.createdAt)]);
+
+export const cmsAbandonedCheckouts = sqliteTable("cms_abandoned_checkouts", {
+  id: text("id").primaryKey(), siteId: text("site_id").notNull(), email: text("email"), cartPayload: text("cart_payload").notNull(), subtotal: real("subtotal").notNull().default(0), currency: text("currency").notNull().default("usd"), status: text("status").notNull().default("open"), createdAt: text("created_at").notNull(), lastSeenAt: text("last_seen_at").notNull(), recoveredAt: text("recovered_at"),
+}, (table) => [index("cms_abandoned_site_idx").on(table.siteId, table.status, table.lastSeenAt)]);
+
+export const cmsHealthChecks = sqliteTable("cms_health_checks", {
+  siteId: text("site_id").notNull(), checkKey: text("check_key").notNull(), status: text("status").notNull(), detail: text("detail").notNull(), checkedAt: text("checked_at").notNull(),
+}, (table) => [primaryKey({ columns: [table.siteId, table.checkKey] }), index("cms_health_site_idx").on(table.siteId, table.checkedAt)]);

@@ -43,11 +43,15 @@ const worker = {
     return handler.fetch(request, env, ctx);
   },
   async scheduled(_controller: unknown, env: Env): Promise<void> {
-    const { expirePendingOrders, retryDueOrderNotifications } = await import("../db/commerce");
+    const { expirePendingOrders, retryDueOrderNotifications, retryDuePaymentEvents, reconcilePayPalOrders } = await import("../db/commerce");
+    const { retryAbandonedCheckoutEmails } = await import("../db/v21");
     const sites = await env.DB.prepare("SELECT id FROM cms_sites WHERE status <> 'deleted'").all<{ id: string }>();
     await Promise.all(sites.results.map(async (site) => {
-      await expirePendingOrders(site.id);
-      await retryDueOrderNotifications(site.id, "system", "system@northlinesupply.com");
+      try { await expirePendingOrders(site.id); } catch { /* keep the remaining tenant jobs running */ }
+      try { await retryDueOrderNotifications(site.id, "system", "system@northlinesupply.com"); } catch { /* traced by notification records */ }
+      try { await retryDuePaymentEvents(site.id, "system", "system@northlinesupply.com"); } catch { /* traced by payment records */ }
+      try { await reconcilePayPalOrders(site.id, "system", "system@northlinesupply.com"); } catch { /* provider may be unconfigured in draft */ }
+      try { await retryAbandonedCheckoutEmails(site.id); } catch { /* traced by checkout recovery status */ }
     }));
   },
 };

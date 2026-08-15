@@ -44,6 +44,7 @@ export function SiteHeader() {
         <nav className={`main-nav ${menuOpen ? "is-open" : ""}`} aria-label="Main navigation">
           {config.navigation.map((item) => <Link key={item.href} href={item.href} className={isActive(item.href) ? "is-active" : ""} aria-current={isActive(item.href) ? "page" : undefined} onClick={() => setMenuOpen(false)}>{item.label}</Link>)}
           <Link href="/orders" className={isActive("/orders") ? "is-active" : ""} aria-current={isActive("/orders") ? "page" : undefined} onClick={() => setMenuOpen(false)}>Track order</Link>
+          <Link href="/wishlist" className={isActive("/wishlist") ? "is-active" : ""} onClick={() => setMenuOpen(false)}>Wishlist</Link>
         </nav>
         <div className="nav-actions">
           {searchOpen ? <form className="nav-search-form" onSubmit={submitSearch}><label className="sr-only" htmlFor="nav-search-input">Search products</label><input id="nav-search-input" value={query} onChange={(event) => setQuery(event.target.value)} placeholder="Search gear" /><button type="submit" aria-label="Submit search">-&gt;</button><button type="button" className="nav-search-close" onClick={() => setSearchOpen(false)} aria-label="Close search">x</button></form> : <button type="button" className="nav-search-trigger" aria-expanded={searchOpen} onClick={() => setSearchOpen(true)}>Search <span>?</span></button>}

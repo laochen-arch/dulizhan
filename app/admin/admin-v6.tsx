@@ -8,8 +8,9 @@ import { getCatalogValidationErrors, getProductValidationErrors, products as tem
 import { type EditableSiteConfig, useSiteRuntime } from "../components/site-runtime";
 import { DeliveryPanel, LaunchSetupPanel } from "./launch-panels";
 import { formatMoney } from "../lib/format-money";
+import { BundleManager, V21OperationsPanel } from "./v21-panels";
 
-type AdminTab = "overview" | "setup" | "delivery" | "brand" | "content" | "products" | "media" | "access" | "team" | "domains" | "activity" | "release" | "commerce" | "versions";
+type AdminTab = "overview" | "setup" | "delivery" | "brand" | "content" | "products" | "media" | "access" | "team" | "domains" | "activity" | "release" | "commerce" | "versions" | "v21";
 type Notice = { tone: "success" | "error" | "info"; text: string } | null;
 type CommerceConfiguration = { paypal: { clientId: boolean; clientSecret: boolean; webhookId: boolean; mode?: string }; resend: { apiKey: boolean; fromEmail: boolean; fromDomain?: string | null }; webhookEndpoint?: string; environmentKeys?: string[] };
 type OnboardingState = { domain?: { hostname: string; status: string } | null; checks: CmsLaunchCheck[]; manualChecks?: CmsManualLaunchCheck[]; replacements: CmsReplacementItem[]; progress: { done: number; total: number }; readiness?: { score: number; done: number; total: number } };
@@ -29,6 +30,7 @@ const tabs: Array<{ id: AdminTab; label: string }> = [
   { id: "release", label: "Release control" },
   { id: "commerce", label: "Orders & stock" },
   { id: "versions", label: "Versions" },
+  { id: "v21", label: "V21 operations" },
 ];
 
 function clone<T>(value: T): T {
@@ -389,7 +391,7 @@ export function AdminStudioV6() {
       const response = await fetch(`/api/cms/orders?siteId=${encodeURIComponent(activeSiteId)}&orderId=${encodeURIComponent(orderId)}`, { cache: "no-store" });
       const payload = await response.json().catch(() => ({})) as CmsOrderDetail & { error?: string };
       if (!response.ok || !payload.order) throw new Error(payload.error || "Unable to load order details.");
-      setOrderDetail({ order: payload.order, items: payload.items || [], notifications: payload.notifications || [], refunds: payload.refunds || [] });
+      setOrderDetail({ order: payload.order, items: payload.items || [], notifications: payload.notifications || [], refunds: payload.refunds || [], stateEvents: payload.stateEvents || [] });
     } catch (error) {
       setNotice({ tone: "error", text: error instanceof Error ? error.message : "Unable to load order details." });
     } finally {
@@ -778,6 +780,7 @@ export function AdminStudioV6() {
 
         {tab === "setup" && <LaunchSetupPanel activeSiteId={activeSiteId} commerceConfiguration={commerceConfiguration} domains={domains} onboarding={onboarding} busy={busy} onRefresh={async () => { await loadCommerceData(); await loadWorkspaceData(); }} onNotice={(next) => setNotice(next)} />}
         {tab === "delivery" && <DeliveryPanel sites={sites} site={site} activeSiteId={activeSiteId} setActiveSiteId={setActiveSiteId} siteForm={siteForm} setSiteForm={setSiteForm} createClientSite={createClientSite} onboarding={onboarding} busy={busy} onRefresh={async () => { await refreshCms(); await loadWorkspaceData(); }} onNotice={(next) => setNotice(next)} />}
+        {tab === "v21" && <><V21OperationsPanel activeSiteId={activeSiteId} cmsRole={cmsRole} config={config} updateConfig={updateConfig} onNotice={(next) => setNotice(next)} /><BundleManager activeSiteId={activeSiteId} cmsRole={cmsRole} onNotice={(next) => setNotice(next)} /></>}
 
         {tab === "overview" && onboarding && <section className="v6-card v6-onboarding-card"><div className="v6-card-heading"><div><p className="eyebrow">V20 delivery center</p><h2>{onboarding.progress.done}/{onboarding.progress.total} required checks ready.</h2></div><span>{onboarding.readiness?.score ?? Math.round(onboarding.progress.done / Math.max(1, onboarding.progress.total) * 100)}% ready</span></div><div className="v6-checks">{onboarding.checks.map((check) => <div className={check.done ? "done" : ""} key={check.key}><span>{check.done ? "OK" : "!"}</span>{check.label}<small>{check.detail}{check.required === false ? " Optional for this site." : ""}</small></div>)}</div><div className="v6-divider"><p className="eyebrow">Replacement checklist</p><div className="v6-version-list">{onboarding.replacements.map((item) => <article key={item.key}><div><strong>{item.label}</strong><span>{item.source}</span></div><span className={item.done ? "v6-status-chip is-ready" : "v6-status-chip is-missing"}>{item.done ? "Replaced" : item.required ? "Required" : "Optional"}</span></article>)}</div></div><div className="v6-divider"><p className="eyebrow">Batch import</p><p className="v6-muted">Upload a client JSON package or product CSV into this tenant draft.</p><button className="button button-outline" onClick={() => clientImportInput.current?.click()} disabled={busy}>Import client JSON / CSV <span>+</span></button><input ref={clientImportInput} type="file" accept=".csv,.json,text/csv,application/json" className="sr-only" onChange={(event) => void importClientFile(event)} /></div></section>}
 

@@ -112,3 +112,22 @@ test("keeps V20 tenant boundaries and release gates in source", async () => {
   assert.match(layout, /generateMetadata/);
   assert.match(money, /Intl\.NumberFormat/);
 });
+
+test("keeps V21 operations and customer recovery paths in source", async () => {
+  const commerce = await readFile(new URL("../db/commerce.ts", import.meta.url), "utf8");
+  const v21 = await readFile(new URL("../db/v21.ts", import.meta.url), "utf8");
+  const schema = await readFile(new URL("../drizzle/0008_v21_operations.sql", import.meta.url), "utf8");
+  const admin = await readFile(new URL("../app/admin/v21-panels.tsx", import.meta.url), "utf8");
+  assert.match(commerce, /dead_lettered/);
+  assert.match(commerce, /reconcilePayPalOrders/);
+  assert.match(commerce, /cms_order_access_tokens/);
+  assert.match(commerce, /idempotency_key/);
+  assert.match(v21, /cms_after_sales_requests/);
+  assert.match(v21, /cms_client_intake/);
+  assert.match(v21, /cms_analytics_events/);
+  assert.match(v21, /cms_bundles/);
+  assert.match(schema, /cms_health_checks/);
+  assert.match(admin, /Launch health/);
+  assert.match(admin, /After-sales queue/);
+  assert.match(admin, /Bundle merchandising/);
+});

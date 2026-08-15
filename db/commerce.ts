@@ -17,6 +17,7 @@ export type CheckoutPayload = {
   country: string;
   deliveryMethod: string;
   items: CheckoutItemInput[];
+  couponCode?: string;
 };
 
 export type CmsInventoryRow = {
@@ -57,6 +58,8 @@ export type CmsOrder = {
   adminNote: string | null;
   refundTotal: number;
   refundedAt: string | null;
+  discount: number;
+  couponCode: string | null;
 };
 
 export type CmsOrderItem = {
@@ -113,6 +116,8 @@ export type CmsPaymentEvent = {
   attempts: number;
   lastError: string | null;
   nextRetryAt: string | null;
+  deadLettered: boolean;
+  lastAttemptAt: string | null;
 };
 
 export type CmsOrderDetail = {
@@ -120,7 +125,10 @@ export type CmsOrderDetail = {
   items: CmsOrderItem[];
   notifications: CmsOrderNotification[];
   refunds: CmsRefund[];
+  stateEvents: CmsOrderStateEvent[];
 };
+
+export type CmsOrderStateEvent = { id: string; fromStatus: string | null; toStatus: string; reason: string | null; actorId: string; createdAt: string };
 
 export type CommerceProvider = "paypal" | "resend";
 
@@ -207,6 +215,17 @@ function changed(result: unknown) {
   return Number((result as { meta?: { changes?: number } })?.meta?.changes ?? 0);
 }
 
+async function checkoutCoupon(database: D1DatabaseLike, siteId: string, codeInput: string | undefined, subtotal: number) {
+  const code = codeInput?.trim().toUpperCase();
+  if (!code) return { code: null as string | null, discount: 0 };
+  const row = await database.prepare(`SELECT code, discount_type AS discountType, discount_value AS discountValue, min_subtotal AS minSubtotal, max_uses AS maxUses, uses, starts_at AS startsAt, ends_at AS endsAt, active FROM cms_coupons WHERE site_id = ?1 AND code = ?2 AND active = 1`).bind(siteId, code).first<{ code: string; discountType: string; discountValue: number; minSubtotal: number; maxUses: number | null; uses: number; startsAt: string | null; endsAt: string | null; active: number }>();
+  if (!row) return { code: null, discount: 0 };
+  const timestamp = now();
+  if (row.startsAt && row.startsAt > timestamp || row.endsAt && row.endsAt < timestamp || subtotal < row.minSubtotal || row.maxUses !== null && row.uses >= row.maxUses) return { code: null, discount: 0 };
+  const discount = Math.min(subtotal, row.discountType === "fixed" ? row.discountValue : subtotal * row.discountValue / 100);
+  return { code: row.code, discount: Math.round(discount * 100) / 100 };
+}
+
 async function ensureInventoryRows(database: D1DatabaseLike, siteId: string, catalog: Product[]) {
   const timestamp = now();
   const statements: D1Statement[] = [];
@@ -236,12 +255,12 @@ function notificationToPublic(row: OrderNotificationRow): CmsOrderNotification {
   return { ...row };
 }
 
-async function readOrder(database: D1DatabaseLike, orderId: string, siteId: string): Promise<CmsOrderDetail> {
+export async function readOrder(database: D1DatabaseLike, orderId: string, siteId: string): Promise<CmsOrderDetail> {
   const row = await database.prepare(`SELECT id, site_id AS siteId, order_number AS orderNumber, email, customer_name AS customerName, currency,
     subtotal, shipping, tax, total, status, payment_status AS paymentStatus, fulfillment_status AS fulfillmentStatus,
     paypal_order_id AS paypalOrderId, paypal_approval_url AS paypalApprovalUrl, paypal_capture_id AS paypalCaptureId, shipping_address, tracking_number AS trackingNumber,
     created_at AS createdAt, updated_at AS updatedAt, paid_at AS paidAt, shipped_at AS shippedAt,
-    admin_note AS adminNote, refund_total AS refundTotal, refunded_at AS refundedAt
+    admin_note AS adminNote, refund_total AS refundTotal, refunded_at AS refundedAt, discount, coupon_code AS couponCode
     FROM cms_orders WHERE id = ?1 AND site_id = ?2`).bind(orderId, siteId).first<OrderRow>();
   if (!row) throw new Error("ORDER_NOT_FOUND");
   const items = await database.prepare(`SELECT id, order_id AS orderId, site_id AS siteId, product_id AS productId, variant_id AS variantId,
@@ -253,11 +272,14 @@ async function readOrder(database: D1DatabaseLike, orderId: string, siteId: stri
   const refunds = await database.prepare(`SELECT id, site_id AS siteId, order_id AS orderId, paypal_refund_id AS paypalRefundId,
     amount, currency, reason, status, restock_items AS restockItems, error, created_by AS createdBy, created_at AS createdAt, completed_at AS completedAt
     FROM cms_refunds WHERE order_id = ?1 AND site_id = ?2 ORDER BY created_at DESC`).bind(orderId, siteId).all<RefundRow>();
+  const stateEvents = await database.prepare(`SELECT id, from_status AS fromStatus, to_status AS toStatus, reason, actor_id AS actorId, created_at AS createdAt
+    FROM cms_order_state_events WHERE order_id = ?1 AND site_id = ?2 ORDER BY created_at ASC`).bind(orderId, siteId).all<CmsOrderStateEvent>();
   return {
     order: orderToPublic(row),
     items: items.results.map(itemToPublic),
     notifications: notifications.results.map(notificationToPublic),
     refunds: refunds.results.map((refund) => ({ ...refund, restockItems: refund.restockItems ? JSON.parse(refund.restockItems) as CmsRefund["restockItems"] : [] })),
+    stateEvents: stateEvents.results,
   };
 }
 
@@ -298,6 +320,7 @@ async function transitionPendingOrder(database: D1DatabaseLike, siteId: string, 
     database.prepare(`UPDATE cms_orders SET status = ?1, payment_status = ?2, updated_at = ?3
       WHERE id = ?4 AND site_id = ?5 AND payment_status = 'pending'`).bind(status, paymentStatus, timestamp, orderId, siteId),
   ]);
+  await recordOrderState(database, siteId, orderId, "pending", status, "system", paymentStatus === "failed" ? "PayPal payment failed" : "pending order expired or cancelled");
   return readOrder(database, orderId, siteId);
 }
 
@@ -367,7 +390,7 @@ function paypalOrderBody(order: CmsOrder, items: CmsOrderItem[], origin: string,
       amount: {
         currency_code: currency,
         value: order.total.toFixed(2),
-        breakdown: { item_total: { currency_code: currency, value: order.subtotal.toFixed(2) }, shipping: { currency_code: currency, value: order.shipping.toFixed(2) } },
+        breakdown: { item_total: { currency_code: currency, value: order.subtotal.toFixed(2) }, shipping: { currency_code: currency, value: order.shipping.toFixed(2) }, ...(order.discount > 0 ? { discount: { currency_code: currency, value: order.discount.toFixed(2) } } : {}) },
       },
       items: items.map((item) => ({ name: `${item.name} / ${item.variantLabel}`.slice(0, 127), sku: item.sku.slice(0, 127), quantity: String(item.quantity), category: "PHYSICAL_GOODS", unit_amount: { currency_code: currency, value: item.unitPrice.toFixed(2) } })),
     }],
@@ -421,7 +444,8 @@ export async function createCheckout(siteId: string, payload: CheckoutPayload, o
   if (!/^\S+@\S+\.\S+$/.test(email)) throw new Error("INVALID_CHECKOUT");
   if (![payload.firstName, payload.lastName, payload.address, payload.city, payload.region, payload.zip, payload.country, payload.deliveryMethod].every((value) => typeof value === "string" && value.trim())) throw new Error("INVALID_CHECKOUT");
   const subtotal = lineItems.reduce((sum, item) => sum + item.unitPrice * item.quantity, 0);
-  const shipping = payload.deliveryMethod.toLowerCase().includes("express") ? profile.shipping.express : subtotal >= profile.shipping.freeThreshold ? 0 : profile.shipping.standard;
+  const coupon = await checkoutCoupon(database, siteId, payload.couponCode, subtotal);
+  const shipping = payload.deliveryMethod.toLowerCase().includes("express") ? profile.shipping.express : subtotal - coupon.discount >= profile.shipping.freeThreshold ? 0 : profile.shipping.standard;
   const timestamp = now();
   const normalizedIdempotencyKey = idempotencyKey.trim().slice(0, 160);
   if (normalizedIdempotencyKey) {
@@ -432,20 +456,22 @@ export async function createCheckout(siteId: string, payload: CheckoutPayload, o
       return { order: existing.order, items: existing.items, checkoutUrl: previous.paypalApprovalUrl };
     }
   }
-  const order: CmsOrder = { id: `order_${crypto.randomUUID()}`, siteId, orderNumber: orderNumber(profile.orderPrefix), email, customerName: `${payload.firstName.trim()} ${payload.lastName.trim()}`.trim(), currency: profile.currency, subtotal, shipping, tax: 0, total: subtotal + shipping, status: "pending", paymentStatus: "pending", fulfillmentStatus: "unfulfilled", paypalOrderId: null, paypalApprovalUrl: null, paypalCaptureId: null, shippingAddress: { address: payload.address.trim(), city: payload.city.trim(), region: payload.region.trim(), zip: payload.zip.trim(), country: payload.country.trim() }, trackingNumber: null, createdAt: timestamp, updatedAt: timestamp, paidAt: null, shippedAt: null, adminNote: null, refundTotal: 0, refundedAt: null };
+  const order: CmsOrder = { id: `order_${crypto.randomUUID()}`, siteId, orderNumber: orderNumber(profile.orderPrefix), email, customerName: `${payload.firstName.trim()} ${payload.lastName.trim()}`.trim(), currency: profile.currency, subtotal, shipping, tax: 0, total: subtotal + shipping - coupon.discount, status: "pending", paymentStatus: "pending", fulfillmentStatus: "unfulfilled", paypalOrderId: null, paypalApprovalUrl: null, paypalCaptureId: null, shippingAddress: { address: payload.address.trim(), city: payload.city.trim(), region: payload.region.trim(), zip: payload.zip.trim(), country: payload.country.trim() }, trackingNumber: null, createdAt: timestamp, updatedAt: timestamp, paidAt: null, shippedAt: null, adminNote: null, refundTotal: 0, refundedAt: null, discount: coupon.discount, couponCode: coupon.code };
   lineItems.forEach((item) => { item.orderId = order.id; });
   await database.batch([
-    database.prepare(`INSERT INTO cms_orders (id, site_id, order_number, email, customer_name, currency, subtotal, shipping, tax, total, status, payment_status, fulfillment_status, paypal_order_id, paypal_approval_url, paypal_capture_id, checkout_idempotency_key, shipping_address, tracking_number, created_at, updated_at, paid_at, shipped_at)
-      VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, NULL, NULL, NULL, ?14, ?15, NULL, ?16, ?16, NULL, NULL)`).bind(order.id, order.siteId, order.orderNumber, order.email, order.customerName, order.currency, order.subtotal, order.shipping, order.tax, order.total, order.status, order.paymentStatus, order.fulfillmentStatus, normalizedIdempotencyKey || null, JSON.stringify(order.shippingAddress), timestamp),
+    database.prepare(`INSERT INTO cms_orders (id, site_id, order_number, email, customer_name, currency, subtotal, shipping, tax, total, status, payment_status, fulfillment_status, paypal_order_id, paypal_approval_url, paypal_capture_id, checkout_idempotency_key, shipping_address, tracking_number, created_at, updated_at, paid_at, shipped_at, discount, coupon_code)
+      VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, NULL, NULL, NULL, ?14, ?15, NULL, ?16, ?16, NULL, NULL, ?17, ?18)`).bind(order.id, order.siteId, order.orderNumber, order.email, order.customerName, order.currency, order.subtotal, order.shipping, order.tax, order.total, order.status, order.paymentStatus, order.fulfillmentStatus, normalizedIdempotencyKey || null, JSON.stringify(order.shippingAddress), timestamp, order.discount, order.couponCode),
     ...lineItems.map((item) => database.prepare(`INSERT INTO cms_order_items (id, order_id, site_id, product_id, variant_id, sku, name, variant_label, unit_price, quantity, payload)
       VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11)`).bind(item.id, item.orderId, item.siteId, item.productId, item.variantId, item.sku, item.name, item.variantLabel, item.unitPrice, item.quantity, JSON.stringify(item.payload))),
   ]);
+  await recordOrderState(database, siteId, order.id, null, "pending", "system", "Checkout created");
   let reserved = false;
   try {
     await reserveItems(database, siteId, lineItems.map((item) => ({ productId: item.productId, variantId: item.variantId, quantity: item.quantity })));
     reserved = true;
     const paypalOrder = await createPayPalOrder(order, lineItems, origin, normalizedIdempotencyKey || order.id, snapshot.config.brand.name);
     await database.prepare("UPDATE cms_orders SET paypal_order_id = ?1, paypal_approval_url = ?2, updated_at = ?3 WHERE id = ?4 AND site_id = ?5").bind(paypalOrder.id, paypalOrder.url, now(), order.id, siteId).run();
+    if (coupon.code) await database.prepare("UPDATE cms_coupons SET uses = uses + 1, updated_at = ?1 WHERE site_id = ?2 AND code = ?3 AND active = 1 AND (max_uses IS NULL OR uses < max_uses)").bind(now(), siteId, coupon.code).run();
     return { order: { ...order, paypalOrderId: paypalOrder.id, paypalApprovalUrl: paypalOrder.url }, items: lineItems, checkoutUrl: paypalOrder.url };
   } catch (error) {
     if (reserved) await releaseReservations(database, siteId, order.id);
@@ -622,7 +648,7 @@ export async function listOrders(siteId: string, userId: string, email: string, 
     subtotal, shipping, tax, total, status, payment_status AS paymentStatus, fulfillment_status AS fulfillmentStatus,
     paypal_order_id AS paypalOrderId, paypal_approval_url AS paypalApprovalUrl, paypal_capture_id AS paypalCaptureId, shipping_address, tracking_number AS trackingNumber,
     created_at AS createdAt, updated_at AS updatedAt, paid_at AS paidAt, shipped_at AS shippedAt,
-    admin_note AS adminNote, refund_total AS refundTotal, refunded_at AS refundedAt FROM cms_orders WHERE site_id = ?1${query} ORDER BY created_at DESC LIMIT 100`);
+    admin_note AS adminNote, refund_total AS refundTotal, refunded_at AS refundedAt, discount, coupon_code AS couponCode FROM cms_orders WHERE site_id = ?1${query} ORDER BY created_at DESC LIMIT 100`);
   const rows = status ? await statement.bind(siteId, status).all<OrderRow>() : await statement.bind(siteId).all<OrderRow>();
   return rows.results.map(orderToPublic);
 }
@@ -635,6 +661,19 @@ export async function getOrder(siteId: string, orderId: string, userId: string, 
   return readOrder(database, orderId, siteId);
 }
 
+async function recordOrderState(database: D1DatabaseLike, siteId: string, orderId: string, fromStatus: string | null, toStatus: string, actorId: string, reason: string) {
+  await database.prepare(`INSERT INTO cms_order_state_events (id, site_id, order_id, from_status, to_status, reason, actor_id, created_at)
+    VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8)`).bind(`order_state_${crypto.randomUUID()}`, siteId, orderId, fromStatus, toStatus, reason.slice(0, 500), actorId, now()).run();
+}
+
+const fulfillmentTransitions: Record<string, string[]> = {
+  unfulfilled: ["processing", "cancelled"],
+  processing: ["shipped", "cancelled"],
+  shipped: ["delivered"],
+  delivered: [],
+  cancelled: [],
+};
+
 export async function updateOrderFulfillment(siteId: string, orderId: string, fulfillmentStatus: string, trackingNumber: string, userId: string, email: string) {
   void userId;
   void email;
@@ -642,10 +681,12 @@ export async function updateOrderFulfillment(siteId: string, orderId: string, fu
   const database = getCmsDatabase();
   await ensureCmsSchema(database);
   const existing = await readOrder(database, orderId, siteId);
+  if (existing.order.fulfillmentStatus !== fulfillmentStatus && !fulfillmentTransitions[existing.order.fulfillmentStatus]?.includes(fulfillmentStatus)) throw new Error("INVALID_ORDER_STATUS");
   if (["processing", "shipped", "delivered"].includes(fulfillmentStatus) && !["paid", "partially_refunded"].includes(existing.order.paymentStatus)) throw new Error("ORDER_NOT_PAID");
   const timestamp = now();
   const shippedAt = fulfillmentStatus === "shipped" || fulfillmentStatus === "delivered" ? existing.order.shippedAt || timestamp : existing.order.shippedAt;
   await database.prepare(`UPDATE cms_orders SET fulfillment_status = ?1, tracking_number = ?2, shipped_at = ?3, updated_at = ?4 WHERE id = ?5 AND site_id = ?6`).bind(fulfillmentStatus, trackingNumber.trim() || null, shippedAt, timestamp, orderId, siteId).run();
+  if (existing.order.fulfillmentStatus !== fulfillmentStatus) await recordOrderState(database, siteId, orderId, existing.order.fulfillmentStatus, fulfillmentStatus, userId, "admin fulfillment update");
   await recordAudit(database, siteId, { userId, email }, "order.fulfillment_updated", "order", orderId, { status: fulfillmentStatus, trackingNumber: trackingNumber.trim() || null });
   if (fulfillmentStatus === "shipped" && existing.order.fulfillmentStatus !== "shipped") await sendOrderNotification(database, { ...existing.order, fulfillmentStatus, trackingNumber: trackingNumber.trim() || null, shippedAt }, existing.items, "shipped");
   return { ...existing.order, fulfillmentStatus, trackingNumber: trackingNumber.trim() || null, shippedAt };
@@ -685,12 +726,12 @@ async function sendOrderNotification(database: D1DatabaseLike, order: CmsOrder, 
   const apiKey = workerEnv().RESEND_API_KEY?.trim();
   const from = workerEnv().RESEND_FROM_EMAIL?.trim();
   if (!apiKey || !from) {
-    await database.prepare("UPDATE cms_order_notifications SET status = 'not_configured', error = ?1, next_retry_at = NULL WHERE id = ?2").bind("RESEND_API_KEY and RESEND_FROM_EMAIL are not configured.", notificationId).run();
+    await database.prepare("UPDATE cms_order_notifications SET status = 'failed', error = ?1, next_retry_at = ?2 WHERE id = ?3").bind("RESEND_API_KEY and RESEND_FROM_EMAIL are not configured.", new Date(Date.now() + 15 * 60 * 1000).toISOString(), notificationId).run();
     return;
   }
   const recipient = type === "admin_new_order" ? await ownerEmail(database, order.siteId) : order.email;
   if (!recipient) {
-    await database.prepare("UPDATE cms_order_notifications SET status = 'not_configured', error = ?1, next_retry_at = NULL WHERE id = ?2").bind("No recipient email is configured for this notification.", notificationId).run();
+    await database.prepare("UPDATE cms_order_notifications SET status = 'failed', error = ?1, next_retry_at = NULL WHERE id = ?2").bind("No recipient email is configured for this notification.", notificationId).run();
     return;
   }
   let brandName = "Storefront";
@@ -748,20 +789,38 @@ export async function retryDueOrderNotifications(siteId: string, userId: string,
 async function finalizePaidOrder(database: D1DatabaseLike, orderId: string, siteId: string, paypalCaptureId: string | null) {
   const existing = await readOrder(database, orderId, siteId);
   if (existing.order.paymentStatus === "paid") return existing;
-  if (existing.order.paymentStatus !== "pending") return existing;
+  if (!["pending", "processing"].includes(existing.order.paymentStatus)) return existing;
+  const claim = await database.prepare(`UPDATE cms_orders SET status = 'processing', payment_status = 'processing', updated_at = ?1
+    WHERE id = ?2 AND site_id = ?3 AND payment_status = 'pending'`).bind(now(), orderId, siteId).run();
+  if (changed(claim) === 0) {
+    const current = await readOrder(database, orderId, siteId);
+    if (current.order.paymentStatus === "paid") return current;
+    if (current.order.paymentStatus === "processing") return current;
+    return current;
+  }
   const inventory = await database.prepare(`SELECT product_id AS productId, variant_id AS variantId, reserved_quantity AS reservedQuantity, quantity
     FROM cms_inventory WHERE site_id = ?1 AND product_id IN (${existing.items.map((_, index) => `?${index + 2}`).join(",")})`).bind(siteId, ...existing.items.map((item) => item.productId)).all<{ productId: string; variantId: string; reservedQuantity: number; quantity: number }>();
   const inventoryByVariant = new Map(inventory.results.map((row) => [`${row.productId}:${row.variantId}`, row]));
-  if (existing.items.some((item) => (inventoryByVariant.get(`${item.productId}:${item.variantId}`)?.reservedQuantity ?? 0) < item.quantity)) throw new Error("STOCK_UNAVAILABLE");
+  if (existing.items.some((item) => (inventoryByVariant.get(`${item.productId}:${item.variantId}`)?.reservedQuantity ?? 0) < item.quantity)) {
+    await database.prepare("UPDATE cms_orders SET status = 'payment_failed', payment_status = 'failed', updated_at = ?1 WHERE id = ?2 AND site_id = ?3 AND payment_status = 'processing'").bind(now(), orderId, siteId).run();
+    throw new Error("STOCK_UNAVAILABLE");
+  }
   const timestamp = now();
-  await database.batch([
-    ...existing.items.map((item) => database.prepare(`UPDATE cms_inventory SET quantity = quantity - ?1, reserved_quantity = MAX(0, reserved_quantity - ?1), updated_at = ?2
-      WHERE site_id = ?3 AND product_id = ?4 AND variant_id = ?5 AND reserved_quantity >= ?1`).bind(item.quantity, timestamp, siteId, item.productId, item.variantId)),
-    ...existing.items.map((item) => database.prepare(`INSERT INTO cms_inventory_transactions (id, site_id, product_id, variant_id, sku, delta, reason, reference_id, created_by, created_at)
-      VALUES (?1, ?2, ?3, ?4, ?5, ?6, 'sale', ?7, 'paypal', ?8)`).bind(`invtx_${crypto.randomUUID()}`, siteId, item.productId, item.variantId, item.sku, -item.quantity, orderId, timestamp)),
-    database.prepare(`UPDATE cms_orders SET status = 'paid', payment_status = 'paid', paypal_capture_id = ?1, paid_at = ?2, updated_at = ?2 WHERE id = ?3 AND site_id = ?4 AND payment_status <> 'paid'`).bind(paypalCaptureId, timestamp, orderId, siteId),
-  ]);
+  try {
+    await database.batch([
+      ...existing.items.map((item) => database.prepare(`UPDATE cms_inventory SET quantity = quantity - ?1, reserved_quantity = MAX(0, reserved_quantity - ?1), updated_at = ?2
+        WHERE site_id = ?3 AND product_id = ?4 AND variant_id = ?5 AND reserved_quantity >= ?1`).bind(item.quantity, timestamp, siteId, item.productId, item.variantId)),
+      ...existing.items.map((item) => database.prepare(`INSERT OR IGNORE INTO cms_inventory_transactions (id, site_id, product_id, variant_id, sku, delta, reason, reference_id, idempotency_key, created_by, created_at)
+        VALUES (?1, ?2, ?3, ?4, ?5, ?6, 'sale', ?7, ?8, 'paypal', ?9)`).bind(`invtx_${crypto.randomUUID()}`, siteId, item.productId, item.variantId, item.sku, -item.quantity, orderId, `sale:${orderId}:${item.productId}:${item.variantId}`, timestamp)),
+      database.prepare(`UPDATE cms_orders SET status = 'paid', payment_status = 'paid', paypal_capture_id = ?1, paid_at = ?2, updated_at = ?2 WHERE id = ?3 AND site_id = ?4 AND payment_status = 'processing'`).bind(paypalCaptureId, timestamp, orderId, siteId),
+    ]);
+  } catch (error) {
+    await database.prepare("UPDATE cms_orders SET status = 'pending', payment_status = 'pending', updated_at = ?1 WHERE id = ?2 AND site_id = ?3 AND payment_status = 'processing'").bind(now(), orderId, siteId).run();
+    throw error;
+  }
+  await recordOrderState(database, siteId, orderId, "pending", "paid", "paypal", "PayPal capture confirmed");
   const paid = await readOrder(database, orderId, siteId);
+  await database.prepare("UPDATE cms_abandoned_checkouts SET status = 'recovered', recovered_at = ?1, last_seen_at = ?1 WHERE site_id = ?2 AND email = ?3 AND status IN ('open', 'sent')").bind(timestamp, siteId, paid.order.email).run();
   await sendOrderNotification(database, paid.order, paid.items, "paid");
   await sendOrderNotification(database, paid.order, paid.items, "admin_new_order");
   return paid;
@@ -809,13 +868,14 @@ export async function processPayPalEvent(event: PayPalEvent) {
     const row = await database.prepare("SELECT id, site_id AS siteId FROM cms_orders WHERE paypal_order_id = ?1").bind(reference.paypalOrderId).first<{ id: string; siteId: string }>();
     if (row) { orderId = row.id; siteId = row.siteId; }
   }
-  const inserted = await database.prepare(`INSERT INTO cms_payment_events (id, site_id, provider_event_id, event_type, payload, created_at, processed_at)
-    VALUES (?1, ?2, ?3, ?4, ?5, ?6, NULL) ON CONFLICT(provider_event_id) DO NOTHING`).bind(`payment_${crypto.randomUUID()}`, siteId, event.id, event.event_type, JSON.stringify(event), now()).run();
+  const inserted = await database.prepare(`INSERT INTO cms_payment_events (id, site_id, provider_event_id, event_type, payload, created_at, processed_at, dead_lettered)
+    VALUES (?1, ?2, ?3, ?4, ?5, ?6, NULL, 0) ON CONFLICT(provider_event_id) DO NOTHING`).bind(`payment_${crypto.randomUUID()}`, siteId, event.id, event.event_type, JSON.stringify(event), now()).run();
   if (changed(inserted) === 0) {
-    const previous = await database.prepare("SELECT processed_at AS processedAt FROM cms_payment_events WHERE provider_event_id = ?1").bind(event.id).first<{ processedAt: string | null }>();
+    const previous = await database.prepare("SELECT processed_at AS processedAt, dead_lettered AS deadLettered FROM cms_payment_events WHERE provider_event_id = ?1").bind(event.id).first<{ processedAt: string | null; deadLettered: number }>();
     if (previous?.processedAt) return { duplicate: true };
+    if (previous?.deadLettered === 1) return { duplicate: false, deadLettered: true };
   }
-  await database.prepare("UPDATE cms_payment_events SET attempts = attempts + 1, last_error = NULL, next_retry_at = NULL WHERE provider_event_id = ?1").bind(event.id).run();
+  await database.prepare("UPDATE cms_payment_events SET attempts = attempts + 1, last_attempt_at = ?1, last_error = NULL, next_retry_at = NULL WHERE provider_event_id = ?2").bind(now(), event.id).run();
   const paidEvent = event.event_type === "PAYMENT.CAPTURE.COMPLETED" || event.event_type === "CHECKOUT.ORDER.COMPLETED";
   const failedEvent = event.event_type === "PAYMENT.CAPTURE.DENIED" || event.event_type === "PAYMENT.CAPTURE.REVERSED";
   const cancelledEvent = event.event_type === "CHECKOUT.ORDER.VOIDED";
@@ -835,7 +895,9 @@ export async function processPayPalEvent(event: PayPalEvent) {
     return { duplicate: false };
   } catch (error) {
     const retryAt = new Date(Date.now() + 5 * 60 * 1000).toISOString();
-    await database.prepare("UPDATE cms_payment_events SET last_error = ?1, next_retry_at = ?2 WHERE provider_event_id = ?3").bind(error instanceof Error ? error.message : "PayPal event processing failed.", retryAt, event.id).run();
+    const attempts = await database.prepare("SELECT attempts FROM cms_payment_events WHERE provider_event_id = ?1").bind(event.id).first<{ attempts: number }>();
+    const deadLettered = Number(attempts?.attempts || 0) >= 5;
+    await database.prepare("UPDATE cms_payment_events SET last_error = ?1, next_retry_at = ?2, dead_lettered = ?3 WHERE provider_event_id = ?4").bind(error instanceof Error ? error.message : "PayPal event processing failed.", deadLettered ? null : retryAt, deadLettered ? 1 : 0, event.id).run();
     throw error;
   }
 }
@@ -846,7 +908,7 @@ export async function listPaymentEvents(siteId: string, userId: string, email: s
   const database = getCmsDatabase();
   await ensureCmsSchema(database);
   const rows = await database.prepare(`SELECT id, site_id AS siteId, provider_event_id AS providerEventId, event_type AS eventType,
-    created_at AS createdAt, processed_at AS processedAt, attempts, last_error AS lastError, next_retry_at AS nextRetryAt
+    created_at AS createdAt, processed_at AS processedAt, attempts, last_error AS lastError, next_retry_at AS nextRetryAt, dead_lettered AS deadLettered, last_attempt_at AS lastAttemptAt
     FROM cms_payment_events WHERE site_id = ?1 ORDER BY created_at DESC LIMIT 100`).bind(siteId).all<CmsPaymentEvent>();
   return rows.results;
 }
@@ -856,10 +918,52 @@ export async function retryPaymentEvent(siteId: string, eventId: string, userId:
   await ensureCmsSchema(database);
   const row = await database.prepare("SELECT payload FROM cms_payment_events WHERE id = ?1 AND site_id = ?2").bind(eventId, siteId).first<{ payload: string }>();
   if (!row) throw new Error("PAYMENT_EVENT_NOT_FOUND");
-  await database.prepare("UPDATE cms_payment_events SET next_retry_at = NULL WHERE id = ?1 AND site_id = ?2").bind(eventId, siteId).run();
+  await database.prepare("UPDATE cms_payment_events SET next_retry_at = NULL, dead_lettered = 0, last_error = NULL WHERE id = ?1 AND site_id = ?2").bind(eventId, siteId).run();
   const result = await processPayPalEvent(JSON.parse(row.payload) as PayPalEvent);
   await recordAudit(database, siteId, { userId, email }, "payment.event_retried", "payment_event", eventId);
   return result;
+}
+
+export async function retryDuePaymentEvents(siteId: string, userId: string, email: string) {
+  const database = getCmsDatabase();
+  await ensureCmsSchema(database);
+  const rows = await database.prepare(`SELECT id, payload FROM cms_payment_events
+    WHERE site_id = ?1 AND processed_at IS NULL AND dead_lettered = 0 AND next_retry_at IS NOT NULL AND next_retry_at <= ?2
+    ORDER BY next_retry_at ASC LIMIT 50`).bind(siteId, now()).all<{ id: string; payload: string }>();
+  let retried = 0;
+  let failed = 0;
+  for (const row of rows.results) {
+    try { await processPayPalEvent(JSON.parse(row.payload) as PayPalEvent); retried += 1; } catch { failed += 1; }
+  }
+  await recordAudit(database, siteId, { userId, email }, "payment.events_retried_due", "payment_event", siteId, { retried, failed });
+  return { retried, failed };
+}
+
+export async function reconcilePayPalOrders(siteId: string, userId: string, email: string) {
+  const database = getCmsDatabase();
+  await ensureCmsSchema(database);
+  const token = await getPayPalAccessToken();
+  const rows = await database.prepare(`SELECT id, paypal_order_id AS paypalOrderId FROM cms_orders
+    WHERE site_id = ?1 AND paypal_order_id IS NOT NULL AND payment_status IN ('pending', 'processing')
+    ORDER BY created_at ASC LIMIT 50`).bind(siteId).all<{ id: string; paypalOrderId: string }>();
+  const result = { checked: rows.results.length, paid: 0, failed: 0, errors: 0 };
+  for (const row of rows.results) {
+    try {
+      const remote = await getPayPalOrder(row.paypalOrderId, token);
+      if (remote.status === "COMPLETED") { await finalizePaidOrder(database, row.id, siteId, captureIdFromPayPalOrder(remote)); result.paid += 1; }
+      else if (["VOIDED", "DECLINED"].includes(remote.status || "")) { await transitionPendingOrder(database, siteId, row.id, "payment_failed", "failed"); result.failed += 1; }
+    } catch { result.errors += 1; }
+  }
+  await recordAudit(database, siteId, { userId, email }, "payment.orders_reconciled", "order", siteId, result);
+  return result;
+}
+
+export async function listOrderStateEvents(siteId: string, orderId: string) {
+  const database = getCmsDatabase();
+  await ensureCmsSchema(database);
+  const rows = await database.prepare(`SELECT id, from_status AS fromStatus, to_status AS toStatus, reason, actor_id AS actorId, created_at AS createdAt
+    FROM cms_order_state_events WHERE site_id = ?1 AND order_id = ?2 ORDER BY created_at ASC`).bind(siteId, orderId).all<{ id: string; fromStatus: string | null; toStatus: string; reason: string | null; actorId: string; createdAt: string }>();
+  return rows.results;
 }
 
 export async function listRefunds(siteId: string, orderId: string, userId: string, email: string): Promise<CmsRefund[]> {
@@ -886,9 +990,10 @@ async function completeRefundRecord(database: D1DatabaseLike, refundId: string, 
     database.prepare("UPDATE cms_refunds SET paypal_refund_id = ?1, status = 'succeeded', completed_at = ?2, error = NULL WHERE id = ?3").bind(paypalRefundId, completedAt, refundId),
     database.prepare("UPDATE cms_orders SET refund_total = ?1, payment_status = ?2, status = ?2, refunded_at = ?3, updated_at = ?4 WHERE id = ?5 AND site_id = ?6").bind(nextRefundTotal, fullRefund ? "refunded" : "partially_refunded", fullRefund ? completedAt : detail.order.refundedAt, completedAt, refund.orderId, refund.siteId),
     ...restockItems.map((item) => database.prepare(`UPDATE cms_inventory SET quantity = quantity + ?1, updated_at = ?2 WHERE site_id = ?3 AND product_id = ?4 AND variant_id = ?5`).bind(item.quantity, completedAt, refund.siteId, item.productId, item.variantId)),
-    ...restockItems.map((item) => { const orderItem = detail.items.find((candidate) => candidate.productId === item.productId && candidate.variantId === item.variantId); return orderItem ? database.prepare(`INSERT INTO cms_inventory_transactions (id, site_id, product_id, variant_id, sku, delta, reason, reference_id, created_by, created_at)
-      VALUES (?1, ?2, ?3, ?4, ?5, ?6, 'refund-restock', ?7, 'paypal', ?8)`).bind(`invtx_${crypto.randomUUID()}`, refund.siteId, item.productId, item.variantId, orderItem.sku, item.quantity, refundId, completedAt) : null; }).filter((statement): statement is D1Statement => Boolean(statement)),
+    ...restockItems.map((item) => { const orderItem = detail.items.find((candidate) => candidate.productId === item.productId && candidate.variantId === item.variantId); return orderItem ? database.prepare(`INSERT OR IGNORE INTO cms_inventory_transactions (id, site_id, product_id, variant_id, sku, delta, reason, reference_id, idempotency_key, created_by, created_at)
+      VALUES (?1, ?2, ?3, ?4, ?5, ?6, 'refund-restock', ?7, ?8, 'paypal', ?9)`).bind(`invtx_${crypto.randomUUID()}`, refund.siteId, item.productId, item.variantId, orderItem.sku, item.quantity, refundId, `refund:${refundId}:${item.productId}:${item.variantId}`, completedAt) : null; }).filter((statement): statement is D1Statement => Boolean(statement)),
   ]);
+  await recordOrderState(database, refund.siteId, refund.orderId, detail.order.paymentStatus, fullRefund ? "refunded" : "partially_refunded", "paypal", "PayPal refund completed");
   return true;
 }
 
@@ -944,9 +1049,35 @@ export async function getPublicOrderByNumber(siteId: string, orderNumberValue: s
   const row = await database.prepare("SELECT id FROM cms_orders WHERE site_id = ?1 AND lower(order_number) = lower(?2) AND lower(email) = lower(?3)").bind(siteId, orderNumberValue.trim(), email.trim()).first<{ id: string }>();
   if (!row) throw new Error("ORDER_NOT_FOUND");
   const detail = await readOrder(database, row.id, siteId);
+  const token = `${crypto.randomUUID()}${crypto.randomUUID().replaceAll("-", "")}`;
+  const digest = await crypto.subtle.digest("SHA-256", new TextEncoder().encode(token));
+  const tokenHash = Array.from(new Uint8Array(digest)).map((value) => value.toString(16).padStart(2, "0")).join("");
+  const expiresAt = new Date(Date.now() + 24 * 60 * 60 * 1000).toISOString();
+  await database.prepare("DELETE FROM cms_order_access_tokens WHERE site_id = ?1 AND order_id = ?2 AND lower(email) = lower(?3)").bind(siteId, row.id, email.trim()).run();
+  await database.prepare(`INSERT INTO cms_order_access_tokens (id, site_id, order_id, email, token_hash, expires_at, last_used_at, request_count, created_at)
+    VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, 1, ?7)`).bind(`access_${crypto.randomUUID()}`, siteId, row.id, email.trim().toLowerCase(), tokenHash, expiresAt, now()).run();
   return {
     order: { ...detail.order, shippingAddress: undefined, paypalOrderId: undefined, paypalApprovalUrl: undefined, paypalCaptureId: undefined, adminNote: undefined },
     items: detail.items.map((item) => ({ id: item.id, name: item.name, variantLabel: item.variantLabel, quantity: item.quantity, unitPrice: item.unitPrice })),
+    accessToken: token,
+    accessExpiresAt: expiresAt,
+  };
+}
+
+export async function getPublicOrderByAccessToken(siteId: string, token: string) {
+  if (!token || token.length > 160) throw new Error("ORDER_NOT_FOUND");
+  const digest = await crypto.subtle.digest("SHA-256", new TextEncoder().encode(token));
+  const tokenHash = Array.from(new Uint8Array(digest)).map((value) => value.toString(16).padStart(2, "0")).join("");
+  const database = getCmsDatabase();
+  await ensureCmsSchema(database);
+  const row = await database.prepare(`SELECT order_id AS orderId, email, expires_at AS expiresAt, request_count AS requestCount
+    FROM cms_order_access_tokens WHERE site_id = ?1 AND token_hash = ?2`).bind(siteId, tokenHash).first<{ orderId: string; email: string; expiresAt: string; requestCount: number }>();
+  if (!row || row.expiresAt <= now() || row.requestCount >= 100) throw new Error("ORDER_NOT_FOUND");
+  await database.prepare("UPDATE cms_order_access_tokens SET last_used_at = ?1, request_count = request_count + 1 WHERE site_id = ?2 AND token_hash = ?3").bind(now(), siteId, tokenHash).run();
+  const detail = await readOrder(database, row.orderId, siteId);
+  return {
+    order: { ...detail.order, shippingAddress: undefined, paypalOrderId: undefined, paypalApprovalUrl: undefined, paypalCaptureId: undefined, adminNote: undefined },
+    items: detail.items.map((item) => ({ id: item.id, productId: item.productId, name: item.name, variantLabel: item.variantLabel, quantity: item.quantity, unitPrice: item.unitPrice })),
   };
 }
 

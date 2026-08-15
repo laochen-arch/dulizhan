@@ -322,6 +322,18 @@ h1 em, h2 em { font-family: var(--serif); font-style: italic; letter-spacing: -.
   .form-two, .form-three { grid-template-columns: 1fr; gap: 0; }
 }
 
+.v21-operations { display: grid; gap: 18px; }
+.v21-operations .v6-card { min-width: 0; }
+.wishlist-button { border: 1px solid var(--line, #d6d4cd); background: transparent; color: var(--ink, #1d1f1c); padding: 7px 12px; cursor: pointer; }
+.wishlist-button.is-saved { background: var(--ink, #1d1f1c); color: var(--paper, #f5f3ed); }
+.after-sales-form, .review-form { margin-top: 28px; padding-top: 24px; border-top: 1px solid var(--line, #d6d4cd); display: grid; gap: 14px; }
+.reviews-section { margin: 72px 0 20px; padding-top: 36px; border-top: 1px solid var(--line, #d6d4cd); }
+.review-list { display: grid; grid-template-columns: repeat(3, 1fr); gap: 14px; }
+.review-list article { padding: 20px; border: 1px solid var(--line, #d6d4cd); background: var(--paper, #f5f3ed); }
+.review-list h3 { margin: 10px 0 8px; }
+.review-list p { margin: 0; color: var(--muted, #6d6b64); }
+@media (max-width: 760px) { .review-list { grid-template-columns: 1fr; } }
+
 .v13-setup-stack, .v13-delivery-stack { display: grid; gap: 18px; }
 .v13-setup-hero { display: flex; align-items: flex-end; justify-content: space-between; gap: 25px; }
 .v13-setup-hero h2 { max-width: 680px; margin: 8px 0 0; font-size: clamp(30px, 4vw, 52px); line-height: .98; }

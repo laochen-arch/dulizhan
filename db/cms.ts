@@ -68,6 +68,9 @@ export type CmsDomain = {
   verificationToken: string;
   verifiedAt: string | null;
   lastCheckedAt: string | null;
+  dnsTarget?: string | null;
+  sslStatus?: string | null;
+  lastError?: string | null;
   createdAt: string;
 };
 
@@ -461,6 +464,125 @@ export async function ensureCmsSchema(database: D1DatabaseLike) {
       created_at TEXT NOT NULL,
       completed_at TEXT
     )`),
+    database.prepare(`CREATE TABLE IF NOT EXISTS cms_order_state_events (
+      id TEXT PRIMARY KEY,
+      site_id TEXT NOT NULL,
+      order_id TEXT NOT NULL,
+      from_status TEXT,
+      to_status TEXT NOT NULL,
+      reason TEXT,
+      actor_id TEXT NOT NULL,
+      created_at TEXT NOT NULL
+    )`),
+    database.prepare(`CREATE TABLE IF NOT EXISTS cms_order_access_tokens (
+      id TEXT PRIMARY KEY,
+      site_id TEXT NOT NULL,
+      order_id TEXT NOT NULL,
+      email TEXT NOT NULL,
+      token_hash TEXT NOT NULL UNIQUE,
+      expires_at TEXT NOT NULL,
+      last_used_at TEXT,
+      request_count INTEGER NOT NULL DEFAULT 0,
+      created_at TEXT NOT NULL
+    )`),
+    database.prepare(`CREATE TABLE IF NOT EXISTS cms_after_sales_requests (
+      id TEXT PRIMARY KEY,
+      site_id TEXT NOT NULL,
+      order_id TEXT NOT NULL,
+      email TEXT NOT NULL,
+      request_type TEXT NOT NULL,
+      reason TEXT NOT NULL,
+      customer_note TEXT,
+      admin_note TEXT,
+      requested_amount REAL,
+      items TEXT,
+      status TEXT NOT NULL DEFAULT 'submitted',
+      created_at TEXT NOT NULL,
+      updated_at TEXT NOT NULL,
+      resolved_at TEXT
+    )`),
+    database.prepare(`CREATE TABLE IF NOT EXISTS cms_client_intake (
+      site_id TEXT PRIMARY KEY,
+      status TEXT NOT NULL DEFAULT 'incomplete',
+      payload TEXT NOT NULL,
+      submitted_by TEXT,
+      approved_by TEXT,
+      submitted_at TEXT,
+      approved_at TEXT,
+      updated_at TEXT NOT NULL
+    )`),
+    database.prepare(`CREATE TABLE IF NOT EXISTS cms_coupons (
+      id TEXT PRIMARY KEY,
+      site_id TEXT NOT NULL,
+      code TEXT NOT NULL,
+      discount_type TEXT NOT NULL DEFAULT 'percent',
+      discount_value REAL NOT NULL,
+      min_subtotal REAL NOT NULL DEFAULT 0,
+      max_uses INTEGER,
+      uses INTEGER NOT NULL DEFAULT 0,
+      starts_at TEXT,
+      ends_at TEXT,
+      active INTEGER NOT NULL DEFAULT 1,
+      created_at TEXT NOT NULL,
+      updated_at TEXT NOT NULL,
+      UNIQUE(site_id, code)
+    )`),
+    database.prepare(`CREATE TABLE IF NOT EXISTS cms_bundles (
+      id TEXT PRIMARY KEY,
+      site_id TEXT NOT NULL,
+      name TEXT NOT NULL,
+      slug TEXT NOT NULL,
+      product_ids TEXT NOT NULL,
+      discount_type TEXT NOT NULL DEFAULT 'percent',
+      discount_value REAL NOT NULL DEFAULT 0,
+      active INTEGER NOT NULL DEFAULT 1,
+      created_at TEXT NOT NULL,
+      updated_at TEXT NOT NULL,
+      UNIQUE(site_id, slug)
+    )`),
+    database.prepare(`CREATE TABLE IF NOT EXISTS cms_reviews (
+      id TEXT PRIMARY KEY,
+      site_id TEXT NOT NULL,
+      product_id TEXT NOT NULL,
+      order_id TEXT,
+      email TEXT NOT NULL,
+      rating INTEGER NOT NULL,
+      title TEXT,
+      body TEXT NOT NULL,
+      status TEXT NOT NULL DEFAULT 'pending',
+      created_at TEXT NOT NULL,
+      updated_at TEXT NOT NULL
+    )`),
+    database.prepare(`CREATE TABLE IF NOT EXISTS cms_analytics_events (
+      id TEXT PRIMARY KEY,
+      site_id TEXT NOT NULL,
+      event_type TEXT NOT NULL,
+      product_id TEXT,
+      order_id TEXT,
+      session_id TEXT,
+      payload TEXT,
+      created_at TEXT NOT NULL
+    )`),
+    database.prepare(`CREATE TABLE IF NOT EXISTS cms_abandoned_checkouts (
+      id TEXT PRIMARY KEY,
+      site_id TEXT NOT NULL,
+      email TEXT,
+      cart_payload TEXT NOT NULL,
+      subtotal REAL NOT NULL DEFAULT 0,
+      currency TEXT NOT NULL DEFAULT 'usd',
+      status TEXT NOT NULL DEFAULT 'open',
+      created_at TEXT NOT NULL,
+      last_seen_at TEXT NOT NULL,
+      recovered_at TEXT
+    )`),
+    database.prepare(`CREATE TABLE IF NOT EXISTS cms_health_checks (
+      site_id TEXT NOT NULL,
+      check_key TEXT NOT NULL,
+      status TEXT NOT NULL,
+      detail TEXT NOT NULL,
+      checked_at TEXT NOT NULL,
+      PRIMARY KEY(site_id, check_key)
+    )`),
     database.prepare("CREATE INDEX IF NOT EXISTS cms_sites_status_idx ON cms_sites(status)"),
     database.prepare("CREATE INDEX IF NOT EXISTS cms_site_products_site_idx ON cms_site_products(site_id)"),
     database.prepare("CREATE INDEX IF NOT EXISTS cms_members_email_idx ON cms_members(site_id, email)"),
@@ -481,6 +603,16 @@ export async function ensureCmsSchema(database: D1DatabaseLike) {
     database.prepare("CREATE INDEX IF NOT EXISTS cms_payment_events_site_idx ON cms_payment_events(site_id, created_at)"),
     database.prepare("CREATE INDEX IF NOT EXISTS cms_order_notifications_site_idx ON cms_order_notifications(site_id, created_at)"),
     database.prepare("CREATE INDEX IF NOT EXISTS cms_refunds_site_order_idx ON cms_refunds(site_id, order_id, created_at)"),
+    database.prepare("CREATE INDEX IF NOT EXISTS cms_order_state_events_idx ON cms_order_state_events(site_id, order_id, created_at)"),
+    database.prepare("CREATE INDEX IF NOT EXISTS cms_order_access_tokens_idx ON cms_order_access_tokens(site_id, order_id, email)"),
+    database.prepare("CREATE INDEX IF NOT EXISTS cms_after_sales_site_idx ON cms_after_sales_requests(site_id, status, created_at)"),
+    database.prepare("CREATE INDEX IF NOT EXISTS cms_after_sales_order_idx ON cms_after_sales_requests(site_id, order_id, created_at)"),
+    database.prepare("CREATE INDEX IF NOT EXISTS cms_coupons_site_idx ON cms_coupons(site_id, active, starts_at, ends_at)"),
+    database.prepare("CREATE INDEX IF NOT EXISTS cms_bundles_site_idx ON cms_bundles(site_id, active, created_at)"),
+    database.prepare("CREATE INDEX IF NOT EXISTS cms_reviews_product_idx ON cms_reviews(site_id, product_id, status, created_at)"),
+    database.prepare("CREATE INDEX IF NOT EXISTS cms_analytics_site_idx ON cms_analytics_events(site_id, event_type, created_at)"),
+    database.prepare("CREATE INDEX IF NOT EXISTS cms_abandoned_site_idx ON cms_abandoned_checkouts(site_id, status, last_seen_at)"),
+    database.prepare("CREATE INDEX IF NOT EXISTS cms_health_site_idx ON cms_health_checks(site_id, checked_at)"),
   ]);
   await ensureColumn(database, "cms_orders", "admin_note", "TEXT");
   await ensureColumn(database, "cms_orders", "paypal_order_id", "TEXT");
@@ -489,12 +621,21 @@ export async function ensureCmsSchema(database: D1DatabaseLike) {
   await ensureColumn(database, "cms_orders", "checkout_idempotency_key", "TEXT");
   await ensureColumn(database, "cms_orders", "refund_total", "REAL NOT NULL DEFAULT 0");
   await ensureColumn(database, "cms_orders", "refunded_at", "TEXT");
+  await ensureColumn(database, "cms_orders", "discount", "REAL NOT NULL DEFAULT 0");
+  await ensureColumn(database, "cms_orders", "coupon_code", "TEXT");
   await ensureColumn(database, "cms_payment_events", "attempts", "INTEGER NOT NULL DEFAULT 0");
   await ensureColumn(database, "cms_payment_events", "last_error", "TEXT");
   await ensureColumn(database, "cms_payment_events", "next_retry_at", "TEXT");
+  await ensureColumn(database, "cms_payment_events", "dead_lettered", "INTEGER NOT NULL DEFAULT 0");
+  await ensureColumn(database, "cms_payment_events", "last_attempt_at", "TEXT");
   await ensureColumn(database, "cms_order_notifications", "attempts", "INTEGER NOT NULL DEFAULT 0");
   await ensureColumn(database, "cms_order_notifications", "next_retry_at", "TEXT");
   await ensureColumn(database, "cms_refunds", "paypal_refund_id", "TEXT");
+  await ensureColumn(database, "cms_inventory_transactions", "idempotency_key", "TEXT");
+  await ensureColumn(database, "cms_site_domains", "dns_target", "TEXT");
+  await ensureColumn(database, "cms_site_domains", "ssl_status", "TEXT");
+  await ensureColumn(database, "cms_site_domains", "last_error", "TEXT");
+  await database.prepare("CREATE UNIQUE INDEX IF NOT EXISTS cms_inventory_tx_idempotency_unique ON cms_inventory_transactions(idempotency_key) WHERE idempotency_key IS NOT NULL").run();
 }
 
 function parseConfig(value: string): SiteConfig {
@@ -825,6 +966,7 @@ async function buildSiteLaunchChecks(database: D1DatabaseLike, siteId: string, c
   const catalogErrors = getCatalogValidationErrors(catalog);
   const readiness = runtimeLaunchReadiness();
   const isClientSite = siteId !== DEFAULT_SITE_ID;
+  const intake = await database.prepare("SELECT status FROM cms_client_intake WHERE site_id = ?1").bind(siteId).first<{ status: string }>();
   const manualRows = await readManualLaunchChecks(database, siteId);
   const brandReady = Boolean(config.brand.name.trim() && config.brand.mark.trim() && (!isClientSite || config.brand.mark !== siteConfig.brand.mark));
   const heroReady = Boolean(config.assets.hero.trim() && (!isClientSite || config.assets.hero !== siteConfig.assets.hero));
@@ -849,6 +991,7 @@ async function buildSiteLaunchChecks(database: D1DatabaseLike, siteId: string, c
     { key: "paypal-webhook", label: "PayPal webhook identity", done: !isClientSite || readiness.webhook, required: isClientSite, detail: readiness.webhook ? "PayPal webhook identity is present." : "Add PAYPAL_WEBHOOK_ID before publishing this client site." },
     { key: "resend", label: "Resend email runtime credentials", done: !isClientSite || readiness.resend, required: isClientSite, detail: readiness.resend ? "Resend API key and sender are present in the Sites runtime." : "Add RESEND_API_KEY and RESEND_FROM_EMAIL before publishing this client site." },
     { key: "domain", label: "Custom domain mapping", done: !isClientSite || Boolean(domain?.hostname && (domain.status === "verified" || domain.status === "active")), required: isClientSite, detail: domain ? `${domain.hostname} is ${domain.status}.` : "Map and verify the client domain." },
+    { key: "client-intake", label: "Client handoff intake approved", done: !isClientSite || intake?.status === "approved", required: isClientSite, detail: !isClientSite ? "Template site does not require client intake." : intake?.status === "approved" ? "Client delivery intake is approved." : "Collect and approve the client's brand, content, legal and domain details." },
     ...manualChecks,
   ];
   const replacements: CmsReplacementItem[] = [

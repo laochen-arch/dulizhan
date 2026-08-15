@@ -5,6 +5,7 @@ import type { Product } from "../data/products";
 import { AddToCartButton } from "./product-actions";
 import { useSiteRuntime } from "./site-runtime";
 import { formatMoney } from "../lib/format-money";
+import { WishlistButton } from "./wishlist-button";
 
 export function ProductCard({ product }: { product: Product }) {
   const { config } = useSiteRuntime();
@@ -19,6 +20,7 @@ export function ProductCard({ product }: { product: Product }) {
         <div><p className="eyebrow">{product.category}</p><Link href={`/products/${product.slug}`} className="product-name">{product.name}</Link></div>
         <div className="product-price"><span>{formatMoney(product.price, config.commerce.currency)}</span>{product.compareAt && <del>{formatMoney(product.compareAt, config.commerce.currency)}</del>}</div>
       </div>
+      <WishlistButton productId={product.id} />
       <AddToCartButton product={product} compact />
     </article>
   );

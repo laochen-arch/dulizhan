@@ -8,6 +8,8 @@ import { SiteRuntimeProvider } from "./components/site-runtime";
 import { ToastViewport } from "./components/toast";
 import { siteConfig } from "./data/site-config";
 import { TenantMetadata } from "./components/tenant-metadata";
+import { AnalyticsTracker } from "./components/analytics-tracker";
+import { TrackingScripts } from "./components/tracking-scripts";
 
 const geistSans = Geist({ variable: "--font-geist-sans", subsets: ["latin"] });
 const geistMono = Geist_Mono({ variable: "--font-geist-mono", subsets: ["latin"] });
@@ -59,6 +61,8 @@ export default function RootLayout({ children }: Readonly<{ children: React.Reac
       <body style={themeStyle as React.CSSProperties} className={`${geistSans.variable} ${geistMono.variable}`}>
         <SiteRuntimeProvider>
           <TenantMetadata />
+          <AnalyticsTracker />
+          <TrackingScripts />
           <SiteHeader />
           <main>{children}</main>
           <SiteFooter />

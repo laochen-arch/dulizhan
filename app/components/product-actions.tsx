@@ -8,6 +8,7 @@ import { useStore } from "./cart-store";
 import { useSiteRuntime } from "./site-runtime";
 import { showToast } from "./toast";
 import { formatMoney } from "../lib/format-money";
+import { trackAnalytics } from "./analytics-tracker";
 
 function fallbackVariant(product: Product): ProductVariant {
   return product.variants[0] ?? {
@@ -43,6 +44,7 @@ export function AddToCartButton({ product, compact = false, variantId, quantity 
       className={compact ? "add-button add-button-compact" : "button button-dark button-wide"}
       onClick={() => {
         addToCart(product, { variantId: selected.id, quantity: Math.min(quantity, availableStock(product, selected)) });
+        trackAnalytics("add_to_cart", { productId: product.id, payload: { quantity, variantId: selected.id } });
         setAdded(true);
         showToast(`${product.name} added to your bag.`);
         window.setTimeout(() => setAdded(false), 1800);
