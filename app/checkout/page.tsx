@@ -1,6 +1,6 @@
 "use client";
 
-import Link from "next/link";
+import Link from "../components/site-link";
 import { useSearchParams } from "next/navigation";
 import { useEffect, useRef, useState } from "react";
 import { CheckoutForm } from "../components/checkout-form";

@@ -1,6 +1,6 @@
 "use client";
 
-import Link from "next/link";
+import Link from "../components/site-link";
 import { useSiteRuntime } from "../components/site-runtime";
 
 export default function AboutPage() {

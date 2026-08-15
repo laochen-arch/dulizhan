@@ -1,7 +1,7 @@
 "use client";
 
-import Link from "next/link";
-import { usePathname, useRouter } from "next/navigation";
+import Link from "./site-link";
+import { usePathname } from "next/navigation";
 import { type FormEvent, useState } from "react";
 import { useStore } from "./cart-store";
 import { useSiteRuntime } from "./site-runtime";
@@ -13,14 +13,13 @@ export function SiteHeader() {
   const { cartCount } = useStore();
   const { config } = useSiteRuntime();
   const pathname = usePathname();
-  const router = useRouter();
   const brandParts = config.brand.name.trim().split(/\s+/);
 
   function submitSearch(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
     const params = new URLSearchParams();
     if (query.trim()) params.set("search", query.trim());
-    router.push(`/shop${params.toString() ? `?${params.toString()}` : ""}`);
+    window.location.assign(`/shop${params.toString() ? `?${params.toString()}` : ""}`);
     setSearchOpen(false);
     setMenuOpen(false);
   }

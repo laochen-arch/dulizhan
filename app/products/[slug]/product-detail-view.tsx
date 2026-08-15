@@ -1,6 +1,6 @@
 "use client";
 
-import Link from "next/link";
+import Link from "../../components/site-link";
 import { ProductGallery } from "../../components/product-gallery";
 import { ProductPurchase } from "../../components/product-actions";
 import { ProductCard } from "../../components/product-card";

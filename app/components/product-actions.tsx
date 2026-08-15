@@ -1,6 +1,6 @@
 "use client";
 
-import Link from "next/link";
+import Link from "./site-link";
 import { useState } from "react";
 import type { Product, ProductVariant } from "../data/products";
 import { variantOptionValues } from "../data/products";

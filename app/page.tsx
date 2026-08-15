@@ -1,6 +1,6 @@
 "use client";
 
-import Link from "next/link";
+import Link from "./components/site-link";
 import { NewsletterForm } from "./components/newsletter-form";
 import { ProductCard } from "./components/product-card";
 import { useSiteRuntime } from "./components/site-runtime";

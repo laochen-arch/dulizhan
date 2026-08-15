@@ -1,6 +1,6 @@
 "use client";
 
-import Link from "next/link";
+import Link from "./site-link";
 import type { Product } from "../data/products";
 import { AddToCartButton } from "./product-actions";
 
