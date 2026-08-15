@@ -39,6 +39,14 @@ const tabs: Array<{ id: AdminTab; label: string }> = [
   { id: "v24", label: "V24 launch center" },
 ];
 
+const adminNavGroups: Array<{ label: string; items: AdminTab[] }> = [
+  { label: "Workspace", items: ["overview", "setup", "delivery"] },
+  { label: "Storefront", items: ["brand", "content", "products", "media"] },
+  { label: "People & access", items: ["access", "team", "domains"] },
+  { label: "Operations", items: ["activity", "release", "commerce", "versions"] },
+  { label: "Platform releases", items: ["v21", "v22", "v23", "v24"] },
+];
+
 function clone<T>(value: T): T {
   return JSON.parse(JSON.stringify(value)) as T;
 }
@@ -755,8 +763,39 @@ export function AdminStudioV6() {
   }
 
   return (
-    <main className="admin-shell">
-      <div className="container">
+    <main className="admin-shell admin-shell-blue">
+      <div className="admin-layout container">
+        <aside className="admin-sidebar" aria-label="CMS workspace navigation">
+          <a className="admin-sidebar-brand" href="/admin" aria-label="Northline CMS home">
+            <span className="admin-sidebar-mark">N</span>
+            <span><strong>Northline</strong><small>Client studio</small></span>
+          </a>
+
+          <div className="admin-site-switcher">
+            <label><span>Active client site</span><select value={activeSiteId} onChange={(event) => setActiveSiteId(event.target.value)}>{sites.map((item) => <option key={item.id} value={item.id}>{item.name} · {item.slug}</option>)}</select></label>
+            <div className="admin-sidebar-site-meta"><strong>{site?.name || "Loading site..."}</strong><span>{cmsRole ? `${cmsRole} access` : "Draft workspace"}</span><span className={`v6-status ${cmsStatus}`}>{cmsStatus.replace("-", " ")}</span></div>
+          </div>
+
+          <nav className="admin-sidebar-nav" aria-label="CMS sections">
+            {adminNavGroups.map((group) => <div className="admin-nav-group" key={group.label}>
+              <p>{group.label}</p>
+              {group.items.map((itemId) => {
+                const item = tabs.find((candidate) => candidate.id === itemId);
+                const index = tabs.findIndex((candidate) => candidate.id === itemId);
+                if (!item) return null;
+                return <button key={item.id} className={tab === item.id ? "is-active" : ""} onClick={() => setTab(item.id)} aria-current={tab === item.id ? "page" : undefined}><span className="admin-nav-index">{String(index + 1).padStart(2, "0")}</span><span>{item.label}</span></button>;
+              })}
+            </div>)}
+          </nav>
+
+          <div className="admin-sidebar-footer">
+            <span className="admin-sidebar-footer-dot" />
+            <span><strong>Workspace synced</strong><small>Draft autosaves · publish when ready</small></span>
+          </div>
+        </aside>
+
+        <div className="admin-main">
+          <div className="admin-topbar"><span>White-label commerce workspace</span><span>{site?.name || "Client site"} · {cmsStatus.replace("-", " ")}</span></div>
         <header className="admin-hero v6-hero">
           <div>
             <p className="eyebrow">White-label CMS / V10 P0</p>
@@ -810,6 +849,7 @@ export function AdminStudioV6() {
         {tab === "access" && <section className="v6-grid"><div className="v6-card"><p className="eyebrow">Site members</p><h2>Role-based access.</h2><p className="v6-muted">Owners manage members, editors manage draft content and viewers can review the workspace.</p><div className="v6-member-list">{members.map((member) => <div key={`${member.siteId}-${member.userId}`}><span>{member.email}</span><strong>{member.role}</strong></div>)}{members.length === 0 && <div className="v6-empty">No members returned for this site.</div>}</div></div><div className="v6-card"><p className="eyebrow">Add access</p><h2>Invite a collaborator.</h2><form className="v6-form" onSubmit={saveMember}><Field label="Email" value={memberForm.email} onChange={(value) => setMemberForm((current) => ({ ...current, email: value }))} placeholder="client@company.com" /><label className="v6-field"><span>Role</span><select value={memberForm.role} onChange={(event) => setMemberForm((current) => ({ ...current, role: event.target.value as CmsRole }))}><option value="editor">Editor</option><option value="viewer">Viewer</option><option value="owner">Owner</option></select></label><button className="button button-dark" disabled={busy || cmsRole !== "owner" || !memberForm.email}>Save access <span>+</span></button></form>{cmsRole !== "owner" && <p className="v6-help">Only the site owner can change member access.</p>}</div></section>}
 
         {tab === "versions" && <section className="v6-card"><div className="v6-card-heading"><div><p className="eyebrow">Release history</p><h2>Drafts you can trust.</h2></div><button className="text-button" onClick={() => void fetchRevisions().then(setRevisions)}>Refresh versions</button></div><div className="v6-version-list">{revisions.map((revision) => <article key={revision.id}><div><strong>{revision.label}</strong><span>{revision.kind} · {new Date(revision.createdAt).toLocaleString()}</span></div><button className="button button-outline" onClick={() => void rollback(revision)} disabled={busy || (cmsRole !== "owner" && cmsRole !== "editor")}>Restore to draft</button></article>)}{revisions.length === 0 && <div className="v6-empty">Published revisions will appear here after the first release.</div>}</div></section>}
+        </div>
       </div>
 
       {editingProduct && <V6ProductEditor product={editingProduct} assets={assets} errors={productValidation} onChange={setEditingProduct} onSave={saveProduct} onCancel={() => { setEditingProduct(null); setProductValidation([]); }} />}

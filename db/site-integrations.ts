@@ -185,12 +185,23 @@ function legacyCredentials(siteId: string, provider: SiteIntegrationProvider): S
 
 export async function getSiteProviderCredentials(siteId: string, provider: SiteIntegrationProvider, database?: D1DatabaseLike): Promise<SiteProviderCredentials> {
   const row = await getRow(siteId, provider, database);
-  if (!row) return legacyCredentials(siteId, provider) || { provider, source: "missing", configured: false, hasEncryptionKey: Boolean(workerSecrets().CMS_SECRETS_KEY?.trim()), environment: "sandbox", clientId: "", clientSecret: "", webhookId: "", apiKey: "", fromEmail: "", fromDomain: null, lastCheckedAt: null, lastError: null };
+  const legacy = legacyCredentials(siteId, provider);
+  if (!row) return legacy || { provider, source: "missing", configured: false, hasEncryptionKey: Boolean(workerSecrets().CMS_SECRETS_KEY?.trim()), environment: "sandbox", clientId: "", clientSecret: "", webhookId: "", apiKey: "", fromEmail: "", fromDomain: null, lastCheckedAt: null, lastError: null };
+  // Keep the default storefront compatible with the original Sites runtime
+  // variables. This matters when a tenant row exists but CMS_SECRETS_KEY has
+  // not been added yet: checkout must still be able to use the configured
+  // legacy PayPal/Resend credentials instead of failing with a generic error.
+  if (legacy?.configured && !workerSecrets().CMS_SECRETS_KEY?.trim()) return legacy;
   const hasEncryptionKey = Boolean(workerSecrets().CMS_SECRETS_KEY?.trim());
-  if (provider === "paypal") {
-    return { provider, source: "site", configured: Boolean(row.clientIdCipher && row.clientSecretCipher && row.webhookIdCipher), hasEncryptionKey, environment: normalizedEnvironment(row.environment), clientId: await decryptSecret(row.clientIdCipher), clientSecret: await decryptSecret(row.clientSecretCipher), webhookId: await decryptSecret(row.webhookIdCipher), lastCheckedAt: row.lastCheckedAt, lastError: row.lastError };
+  try {
+    if (provider === "paypal") {
+      return { provider, source: "site", configured: Boolean(row.clientIdCipher && row.clientSecretCipher && row.webhookIdCipher), hasEncryptionKey, environment: normalizedEnvironment(row.environment), clientId: await decryptSecret(row.clientIdCipher), clientSecret: await decryptSecret(row.clientSecretCipher), webhookId: await decryptSecret(row.webhookIdCipher), lastCheckedAt: row.lastCheckedAt, lastError: row.lastError };
+    }
+    return { provider, source: "site", configured: Boolean(row.apiKeyCipher && row.fromEmail), hasEncryptionKey, environment: "sandbox", apiKey: await decryptSecret(row.apiKeyCipher), fromEmail: row.fromEmail || "", fromDomain: row.fromDomain, lastCheckedAt: row.lastCheckedAt, lastError: row.lastError };
+  } catch (error) {
+    if (legacy?.configured) return legacy;
+    throw error;
   }
-  return { provider, source: "site", configured: Boolean(row.apiKeyCipher && row.fromEmail), hasEncryptionKey, environment: "sandbox", apiKey: await decryptSecret(row.apiKeyCipher), fromEmail: row.fromEmail || "", fromDomain: row.fromDomain, lastCheckedAt: row.lastCheckedAt, lastError: row.lastError };
 }
 
 export async function getSiteIntegrationStatuses(siteId: string, database?: D1DatabaseLike): Promise<SiteIntegrationStatus[]> {
@@ -198,12 +209,13 @@ export async function getSiteIntegrationStatuses(siteId: string, database?: D1Da
   const statuses: SiteIntegrationStatus[] = [];
   for (const provider of providers) {
     const row = await getRow(siteId, provider, database);
-    const legacy = !row ? legacyCredentials(siteId, provider) : null;
-    const source: IntegrationSource = row ? "site" : legacy ? "legacy" : "missing";
+    const legacy = legacyCredentials(siteId, provider);
+    const legacyFallback = Boolean(legacy?.configured && !workerSecrets().CMS_SECRETS_KEY?.trim());
+    const source: IntegrationSource = legacyFallback ? "legacy" : row ? "site" : legacy ? "legacy" : "missing";
     const hasEncryptionKey = Boolean(workerSecrets().CMS_SECRETS_KEY?.trim());
     const paypal = provider === "paypal";
     let secretError: string | null = null;
-    if (row) {
+    if (row && !legacyFallback) {
       try {
         if (paypal) {
           await decryptSecret(row.clientIdCipher);
@@ -216,13 +228,13 @@ export async function getSiteIntegrationStatuses(siteId: string, database?: D1Da
         secretError = error instanceof Error ? error.message : "CMS_SECRETS_INVALID";
       }
     }
-    const clientId = Boolean(row?.clientIdCipher || legacy?.clientId);
-    const clientSecret = Boolean(row?.clientSecretCipher || legacy?.clientSecret);
-    const webhookId = Boolean(row?.webhookIdCipher || legacy?.webhookId);
-    const apiKey = Boolean(row?.apiKeyCipher || legacy?.apiKey);
-    const fromEmail = Boolean(row?.fromEmail || legacy?.fromEmail);
+    const clientId = legacyFallback ? Boolean(legacy?.clientId) : Boolean(row?.clientIdCipher || legacy?.clientId);
+    const clientSecret = legacyFallback ? Boolean(legacy?.clientSecret) : Boolean(row?.clientSecretCipher || legacy?.clientSecret);
+    const webhookId = legacyFallback ? Boolean(legacy?.webhookId) : Boolean(row?.webhookIdCipher || legacy?.webhookId);
+    const apiKey = legacyFallback ? Boolean(legacy?.apiKey) : Boolean(row?.apiKeyCipher || legacy?.apiKey);
+    const fromEmail = legacyFallback ? Boolean(legacy?.fromEmail) : Boolean(row?.fromEmail || legacy?.fromEmail);
     const configured = paypal ? clientId && clientSecret && webhookId : apiKey && fromEmail;
-    statuses.push({ provider, source, status: secretError || row?.status === "error" ? "error" : configured ? "ready" : "missing", configured, hasEncryptionKey, environment: paypal ? normalizedEnvironment(row?.environment || legacy?.environment) : undefined, clientId, clientSecret, webhookId, apiKey, fromEmail, fromDomain: row?.fromDomain || legacy?.fromDomain || null, lastCheckedAt: row?.lastCheckedAt || legacy?.lastCheckedAt || null, lastError: secretError || row?.lastError || legacy?.lastError || null });
+    statuses.push({ provider, source, status: secretError || (!legacyFallback && row?.status === "error") ? "error" : configured ? "ready" : "missing", configured, hasEncryptionKey, environment: paypal ? normalizedEnvironment(legacyFallback ? legacy?.environment : row?.environment || legacy?.environment) : undefined, clientId, clientSecret, webhookId, apiKey, fromEmail, fromDomain: row?.fromDomain || legacy?.fromDomain || null, lastCheckedAt: row?.lastCheckedAt || legacy?.lastCheckedAt || null, lastError: legacyFallback ? null : secretError || row?.lastError || legacy?.lastError || null });
   }
   return statuses;
 }
