@@ -345,8 +345,16 @@ async function getPayPalAccessToken(siteId: string) {
     headers: { Authorization: `Basic ${btoa(`${clientId}:${clientSecret}`)}`, "Content-Type": "application/x-www-form-urlencoded" },
     body: "grant_type=client_credentials",
   });
-  const payload = await response.json().catch(() => ({})) as { access_token?: string; error_description?: string };
-  if (!response.ok || !payload.access_token) throw new Error(payload.error_description || "PAYMENT_PROVIDER_ERROR");
+  const payload = await response.json().catch(() => ({})) as { access_token?: string; error?: string; error_description?: string };
+  if (!response.ok || !payload.access_token) {
+    console.error("[PayPal] OAuth token request failed", {
+      status: response.status,
+      error: payload.error || null,
+      description: payload.error_description || null,
+      environment: credentials.environment || "sandbox",
+    });
+    throw new Error("PAYMENT_PROVIDER_ERROR");
+  }
   return { token: payload.access_token, environment: credentials.environment };
 }
 
@@ -382,12 +390,16 @@ function paypalOrderBody(order: CmsOrder, items: CmsOrderItem[], origin: string,
       },
       items: items.map((item) => ({ name: `${item.name} / ${item.variantLabel}`.slice(0, 127), sku: item.sku.slice(0, 127), quantity: String(item.quantity), category: "PHYSICAL_GOODS", unit_amount: { currency_code: currency, value: item.unitPrice.toFixed(2) } })),
     }],
-    application_context: {
-      brand_name: brandName.slice(0, 127),
-      user_action: "PAY_NOW",
-      shipping_preference: "SET_FROM_PROVIDER",
-      return_url: `${origin}/checkout?order_id=${encodeURIComponent(order.id)}&paypal_return=1`,
-      cancel_url: `${origin}/checkout?order_id=${encodeURIComponent(order.id)}&cancelled=1`,
+    payment_source: {
+      paypal: {
+        experience_context: {
+          brand_name: brandName.slice(0, 127),
+          user_action: "PAY_NOW",
+          shipping_preference: "SET_FROM_PROVIDER",
+          return_url: `${origin}/checkout?order_id=${encodeURIComponent(order.id)}&paypal_return=1`,
+          cancel_url: `${origin}/checkout?order_id=${encodeURIComponent(order.id)}&cancelled=1`,
+        },
+      },
     },
   };
 }
@@ -395,9 +407,18 @@ function paypalOrderBody(order: CmsOrder, items: CmsOrderItem[], origin: string,
 async function createPayPalOrder(order: CmsOrder, items: CmsOrderItem[], origin: string, requestId: string, brandName: string) {
   const session = await getPayPalAccessToken(order.siteId);
   const response = await fetch(`${paypalBaseUrl(session.environment)}/v2/checkout/orders`, { method: "POST", headers: { Authorization: `Bearer ${session.token}`, "Content-Type": "application/json", Prefer: "return=representation", "PayPal-Request-Id": requestId }, body: JSON.stringify(paypalOrderBody(order, items, origin, brandName)) });
-  const payload = await response.json().catch(() => ({})) as { id?: string; links?: Array<{ rel?: string; href?: string }>; name?: string; message?: string; details?: Array<{ description?: string }> };
-  const approval = payload.links?.find((link) => link.rel === "approve")?.href;
-  if (!response.ok || !payload.id || !approval) throw new Error(payload.details?.[0]?.description || payload.message || payload.name || "PAYMENT_PROVIDER_ERROR");
+  const payload = await response.json().catch(() => ({})) as { id?: string; links?: Array<{ rel?: string; href?: string }>; name?: string; message?: string; debug_id?: string; details?: Array<{ field?: string; issue?: string; description?: string }> };
+  const approval = payload.links?.find((link) => link.rel === "payer-action" || link.rel === "approve")?.href;
+  if (!response.ok || !payload.id || !approval) {
+    console.error("[PayPal] order creation failed", {
+      status: response.status,
+      name: payload.name || null,
+      message: payload.message || null,
+      debugId: payload.debug_id || null,
+      details: payload.details?.map((detail) => ({ field: detail.field || null, issue: detail.issue || null, description: detail.description || null })) || [],
+    });
+    throw new Error("PAYMENT_PROVIDER_ERROR");
+  }
   return { id: payload.id, url: approval };
 }
 
