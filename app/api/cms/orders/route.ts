@@ -1,4 +1,4 @@
-import { getOrder, listOrders, updateOrderFulfillment } from "../../../../db/commerce";
+import { getOrder, listOrders, updateOrderAdminNote, updateOrderFulfillment } from "../../../../db/commerce";
 import { errorResponse, getSiteId, requireMember } from "../helpers";
 
 export const dynamic = "force-dynamic";
@@ -18,11 +18,13 @@ export async function GET(request: Request) {
 
 export async function PATCH(request: Request) {
   try {
-    const payload = await request.json() as { siteId?: string; orderId?: string; fulfillmentStatus?: string; trackingNumber?: string };
+    const payload = await request.json() as { siteId?: string; orderId?: string; fulfillmentStatus?: string; trackingNumber?: string; adminNote?: string };
     const siteId = getSiteId(request, payload.siteId);
     const access = await requireMember(siteId, "editor");
-    if (!payload.orderId || !payload.fulfillmentStatus) return Response.json({ error: "orderId and fulfillmentStatus are required.", code: "INVALID_ORDER_STATUS" }, { status: 400 });
-    return Response.json({ order: await updateOrderFulfillment(siteId, payload.orderId, payload.fulfillmentStatus, payload.trackingNumber || "", access.user.userId, access.user.email) }, { headers: { "Cache-Control": "no-store" } });
+    if (!payload.orderId) return Response.json({ error: "orderId is required.", code: "INVALID_ORDER_STATUS" }, { status: 400 });
+    if (payload.fulfillmentStatus) await updateOrderFulfillment(siteId, payload.orderId, payload.fulfillmentStatus, payload.trackingNumber || "", access.user.userId, access.user.email);
+    if (payload.adminNote !== undefined) await updateOrderAdminNote(siteId, payload.orderId, payload.adminNote, access.user.userId, access.user.email);
+    return Response.json({ order: (await getOrder(siteId, payload.orderId, access.user.userId, access.user.email)).order }, { headers: { "Cache-Control": "no-store" } });
   } catch (error) {
     return errorResponse(error);
   }

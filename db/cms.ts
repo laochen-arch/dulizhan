@@ -103,6 +103,21 @@ export type CmsAsset = {
   createdBy: string;
 };
 
+export type CmsLaunchCheck = {
+  key: string;
+  label: string;
+  done: boolean;
+  detail: string;
+};
+
+export type CmsReplacementItem = {
+  key: string;
+  label: string;
+  source: string;
+  required: boolean;
+  done: boolean;
+};
+
 export type CmsSnapshot = {
   site: CmsSite;
   config: SiteConfig;
@@ -123,6 +138,17 @@ export type D1DatabaseLike = {
   prepare: (sql: string) => D1Statement;
   batch: (statements: D1Statement[]) => Promise<unknown>;
 };
+
+async function ensureColumn(database: D1DatabaseLike, table: string, column: string, definition: string) {
+  const columns = await database.prepare(`PRAGMA table_info(${table})`).all<{ name: string }>();
+  if (columns.results.some((item) => item.name === column)) return;
+  try {
+    await database.prepare(`ALTER TABLE ${table} ADD COLUMN ${column} ${definition}`).run();
+  } catch (error) {
+    const message = error instanceof Error ? error.message.toLowerCase() : "";
+    if (!message.includes("duplicate column") && !message.includes("already exists")) throw error;
+  }
+}
 
 type R2BucketLike = {
   put: (key: string, value: unknown, options?: { httpMetadata?: { contentType?: string; cacheControl?: string } }) => Promise<unknown>;
@@ -354,7 +380,10 @@ export async function ensureCmsSchema(database: D1DatabaseLike) {
       created_at TEXT NOT NULL,
       updated_at TEXT NOT NULL,
       paid_at TEXT,
-      shipped_at TEXT
+       shipped_at TEXT,
+       admin_note TEXT,
+       refund_total REAL NOT NULL DEFAULT 0,
+       refunded_at TEXT
     )`),
     database.prepare(`CREATE TABLE IF NOT EXISTS cms_order_items (
       id TEXT PRIMARY KEY,
@@ -376,7 +405,10 @@ export async function ensureCmsSchema(database: D1DatabaseLike) {
       event_type TEXT NOT NULL,
       payload TEXT NOT NULL,
       created_at TEXT NOT NULL,
-      processed_at TEXT
+       processed_at TEXT,
+       attempts INTEGER NOT NULL DEFAULT 0,
+       last_error TEXT,
+       next_retry_at TEXT
     )`),
     database.prepare(`CREATE TABLE IF NOT EXISTS cms_order_notifications (
       id TEXT PRIMARY KEY,
@@ -387,8 +419,25 @@ export async function ensureCmsSchema(database: D1DatabaseLike) {
       provider_id TEXT,
       error TEXT,
       created_at TEXT NOT NULL,
-      sent_at TEXT,
-      UNIQUE(order_id, type)
+       sent_at TEXT,
+       attempts INTEGER NOT NULL DEFAULT 0,
+       next_retry_at TEXT,
+       UNIQUE(order_id, type)
+    )`),
+    database.prepare(`CREATE TABLE IF NOT EXISTS cms_refunds (
+      id TEXT PRIMARY KEY,
+      site_id TEXT NOT NULL,
+      order_id TEXT NOT NULL,
+      stripe_refund_id TEXT UNIQUE,
+      amount REAL NOT NULL,
+      currency TEXT NOT NULL DEFAULT 'usd',
+      reason TEXT,
+      status TEXT NOT NULL DEFAULT 'pending',
+      restock_items TEXT,
+      error TEXT,
+      created_by TEXT NOT NULL,
+      created_at TEXT NOT NULL,
+      completed_at TEXT
     )`),
     database.prepare("CREATE INDEX IF NOT EXISTS cms_sites_status_idx ON cms_sites(status)"),
     database.prepare("CREATE INDEX IF NOT EXISTS cms_site_products_site_idx ON cms_site_products(site_id)"),
@@ -408,7 +457,16 @@ export async function ensureCmsSchema(database: D1DatabaseLike) {
     database.prepare("CREATE INDEX IF NOT EXISTS cms_order_items_site_idx ON cms_order_items(site_id)"),
     database.prepare("CREATE INDEX IF NOT EXISTS cms_payment_events_site_idx ON cms_payment_events(site_id, created_at)"),
     database.prepare("CREATE INDEX IF NOT EXISTS cms_order_notifications_site_idx ON cms_order_notifications(site_id, created_at)"),
+    database.prepare("CREATE INDEX IF NOT EXISTS cms_refunds_site_order_idx ON cms_refunds(site_id, order_id, created_at)"),
   ]);
+  await ensureColumn(database, "cms_orders", "admin_note", "TEXT");
+  await ensureColumn(database, "cms_orders", "refund_total", "REAL NOT NULL DEFAULT 0");
+  await ensureColumn(database, "cms_orders", "refunded_at", "TEXT");
+  await ensureColumn(database, "cms_payment_events", "attempts", "INTEGER NOT NULL DEFAULT 0");
+  await ensureColumn(database, "cms_payment_events", "last_error", "TEXT");
+  await ensureColumn(database, "cms_payment_events", "next_retry_at", "TEXT");
+  await ensureColumn(database, "cms_order_notifications", "attempts", "INTEGER NOT NULL DEFAULT 0");
+  await ensureColumn(database, "cms_order_notifications", "next_retry_at", "TEXT");
 }
 
 function parseConfig(value: string): SiteConfig {
@@ -543,6 +601,159 @@ export async function createSite(name: string, slug: string, userId: string, ema
   await insertSite(database, site, config, [], { userId, email });
   await recordAudit(database, site.id, { userId, email }, "site.created", "site", site.id, { name, slug });
   return { ...site, role: "owner" };
+}
+
+function mergeRecords<T>(base: T, incoming: unknown): T {
+  if (!incoming || typeof incoming !== "object" || Array.isArray(incoming)) return incoming === undefined ? base : incoming as T;
+  const result = clone(base) as Record<string, unknown>;
+  Object.entries(incoming as Record<string, unknown>).forEach(([key, value]) => {
+    result[key] = value && typeof value === "object" && !Array.isArray(value) ? mergeRecords(result[key], value) : value;
+  });
+  return result as T;
+}
+
+function replaceAssetUrls<T>(value: T, replacements: Map<string, string>): T {
+  const serialized = JSON.stringify(value);
+  let replaced = serialized;
+  replacements.forEach((target, source) => { replaced = replaced.split(source).join(target); });
+  return JSON.parse(replaced) as T;
+}
+
+async function copySiteAssets(sourceSiteId: string, targetSiteId: string, userId: string, sourceAssets: CmsAsset[]) {
+  const bucket = getMediaBucket();
+  const replacements = new Map<string, string>();
+  const copied: CmsAsset[] = [];
+  for (const source of sourceAssets) {
+    const assetId = `asset_${crypto.randomUUID()}`;
+    const safeName = source.assetKey || "image";
+    let objectKey = source.objectKey ? `sites/${targetSiteId}/assets/${assetId}-${safeName}` : null;
+    let url = source.url;
+    if (source.objectKey && objectKey) {
+      const object = await bucket.get(source.objectKey) as { arrayBuffer?: () => Promise<ArrayBuffer> } | null;
+      if (object?.arrayBuffer) {
+        await bucket.put(objectKey, await object.arrayBuffer(), { httpMetadata: { contentType: source.mimeType, cacheControl: "public, max-age=31536000, immutable" } });
+        url = `/api/cms/assets/${assetId}?siteId=${encodeURIComponent(targetSiteId)}`;
+      } else {
+        objectKey = null;
+      }
+    }
+    const target: CmsAsset = { ...source, id: assetId, siteId: targetSiteId, url, objectKey, createdAt: now(), createdBy: userId };
+    copied.push(target);
+    if (source.url !== target.url) replacements.set(source.url, target.url);
+  }
+  return { copied, replacements };
+}
+
+export async function createSiteFromTemplate(name: string, slug: string, templateSiteId: string, userId: string, email: string) {
+  const database = getD1();
+  await ensureCmsSchema(database);
+  const normalizedTemplate = templateSiteId || DEFAULT_SITE_ID;
+  if (normalizedTemplate !== DEFAULT_SITE_ID) {
+    const sourceMember = await ensureMember(normalizedTemplate, userId, email, database);
+    if (sourceMember.role === "viewer") throw new Error("FORBIDDEN");
+  }
+  const source = await readSnapshot(normalizedTemplate, "published");
+  const sourceAssets = await listAssets(normalizedTemplate, userId, email);
+  const siteId = `site_${crypto.randomUUID()}`;
+  const site: CmsSite = { id: siteId, slug, name, status: "active", domain: null, createdAt: now(), updatedAt: now() };
+  const copiedAssets = await copySiteAssets(normalizedTemplate, siteId, userId, sourceAssets);
+  const editableConfig = replaceAssetUrls(clone(source.config), copiedAssets.replacements) as unknown as { client: { demoName: string }; brand: { name: string }; content: { home: { heroLabel: string } } };
+  const config = editableConfig as unknown as SiteConfig;
+  const catalog = replaceAssetUrls(clone(source.catalog), copiedAssets.replacements);
+  editableConfig.client.demoName = name;
+  editableConfig.brand.name = name;
+  editableConfig.content.home.heroLabel = `${name} / Client draft`;
+  await insertSite(database, site, config, catalog, { userId, email });
+  if (copiedAssets.copied.length) {
+    await database.batch(copiedAssets.copied.map((asset) => database.prepare(`INSERT INTO cms_assets (id, site_id, asset_key, kind, url, object_key, alt, mime_type, size_bytes, created_at, created_by)
+      VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11)`).bind(asset.id, asset.siteId, asset.assetKey, asset.kind, asset.url, asset.objectKey, asset.alt, asset.mimeType, asset.sizeBytes, asset.createdAt, userId)));
+  }
+  await recordAudit(database, siteId, { userId, email }, "site.created_from_template", "site", siteId, { templateSiteId: normalizedTemplate, copiedProducts: catalog.length, copiedAssets: copiedAssets.copied.length });
+  return { ...site, role: "owner" as const, templateSiteId: normalizedTemplate, copiedProducts: catalog.length, copiedAssets: copiedAssets.copied.length };
+}
+
+function parseCsv(text: string) {
+  const rows: string[][] = [];
+  let row: string[] = [];
+  let cell = "";
+  let quoted = false;
+  for (let index = 0; index < text.length; index += 1) {
+    const char = text[index];
+    const next = text[index + 1];
+    if (char === '"' && quoted && next === '"') { cell += '"'; index += 1; }
+    else if (char === '"') quoted = !quoted;
+    else if (char === "," && !quoted) { row.push(cell.trim()); cell = ""; }
+    else if ((char === "\n" || char === "\r") && !quoted) { if (char === "\r" && next === "\n") index += 1; row.push(cell.trim()); if (row.some(Boolean)) rows.push(row); row = []; cell = ""; }
+    else cell += char;
+  }
+  if (cell || row.length) { row.push(cell.trim()); if (row.some(Boolean)) rows.push(row); }
+  return rows;
+}
+
+function importedProduct(row: Record<string, string>, current: Product[]) {
+  const existing = current.find((item) => item.id === row.id || item.slug === row.slug || item.sku === row.sku);
+  const base = clone(existing ?? defaultProducts[0]);
+  const text = (value: unknown, fallback = "") => Array.isArray(value) ? value.map(String).join("|") : typeof value === "string" ? value : value === undefined || value === null ? fallback : String(value);
+  const imageList = text(row.images, text(row.image, base.images.join("|"))).split("|").map((item) => item.trim()).filter(Boolean);
+  const colors = text(row.colors, base.colors.join("|")).split("|").map((item) => item.trim()).filter(Boolean);
+  const parsedPrice = row.price === undefined || row.price === "" ? base.price : Number(row.price);
+  const parsedStock = row.stock === undefined || row.stock === "" ? base.stock : Number(row.stock);
+  const incoming = row as unknown as Partial<Product>;
+  return { ...base, id: text(row.id) || existing?.id || `product_${crypto.randomUUID()}`, slug: text(row.slug, base.slug), name: text(row.name, base.name), shortName: text(row.shortName || row.shortname, text(row.name, base.shortName)), category: text(row.category, base.category), sku: text(row.sku, base.sku), status: row.status === "draft" ? "draft" : "active", featured: row.featured === "true" || row.featured === "1" || incoming.featured === true, price: Number.isFinite(parsedPrice) ? parsedPrice : base.price, stock: Number.isInteger(parsedStock) && parsedStock >= 0 ? parsedStock : base.stock, description: text(row.description, base.description), details: text(row.details, base.details), image: imageList[0] || base.image, images: imageList, alt: text(row.alt, base.alt), colors, options: Array.isArray(incoming.options) ? incoming.options : [{ name: "Color", values: colors }], variants: Array.isArray(incoming.variants) && incoming.variants.length ? incoming.variants : base.variants, specs: Array.isArray(incoming.specs) ? incoming.specs : base.specs, tags: text(row.tags, base.tags.join("|")).split("|").map((item) => item.trim()).filter(Boolean), relatedSlugs: text(row.relatedSlugs || row.relatedslugs, base.relatedSlugs.join("|")).split("|").map((item) => item.trim()).filter(Boolean) } as Product;
+}
+
+export async function importClientData(siteId: string, payload: { config?: unknown; products?: unknown; productCsv?: string; assetBindings?: Record<string, string> }, userId: string, email: string) {
+  const database = getD1();
+  await ensureCmsSchema(database);
+  const access = await ensureMember(siteId, userId, email, database);
+  if (access.role === "viewer") throw new Error("VIEWER_READ_ONLY");
+  const draft = await readSnapshot(siteId, "draft", { userId, email });
+  const bindings = new Map(Object.entries(payload.assetBindings || {}));
+  let config = replaceAssetUrls(mergeRecords(draft.config, payload.config), bindings);
+  let catalog = draft.catalog;
+  if (Array.isArray(payload.products)) catalog = payload.products.map((item) => item && typeof item === "object" ? importedProduct(item as Record<string, string>, catalog) : null).filter(Boolean) as Product[];
+  if (typeof payload.productCsv === "string" && payload.productCsv.trim()) {
+    const rows = parseCsv(payload.productCsv);
+    if (rows.length < 2) throw new Error("INVALID_IMPORT");
+    const headers = rows[0].map((header) => header.trim());
+    const imported = rows.slice(1).map((values) => importedProduct(Object.fromEntries(headers.map((header, index) => [header, values[index] || ""])), catalog));
+    const next = [...catalog];
+    imported.forEach((product) => { const index = next.findIndex((item) => item.id === product.id || item.slug === product.slug || item.sku === product.sku); if (index >= 0) next[index] = product; else next.push(product); });
+    catalog = next;
+  }
+  config = replaceAssetUrls(config, bindings);
+  catalog = replaceAssetUrls(catalog, bindings);
+  await writeDraft(siteId, config, catalog, userId, email);
+  await recordAudit(database, siteId, { userId, email }, "client.imported", "import", siteId, { products: catalog.length, hasConfig: Boolean(payload.config), bindings: bindings.size });
+  return { config, catalog, importedProducts: catalog.length, assetBindings: bindings.size };
+}
+
+export async function getSiteLaunchChecks(siteId: string, userId: string, email: string) {
+  const database = getD1();
+  await ensureCmsSchema(database);
+  const snapshot = await readSnapshot(siteId, "draft", { userId, email });
+  const domain = await database.prepare("SELECT status, hostname FROM cms_site_domains WHERE site_id = ?1 ORDER BY created_at DESC LIMIT 1").bind(siteId).first<{ status: CmsDomain["status"]; hostname: string }>();
+  const catalogErrors = getCatalogValidationErrors(snapshot.catalog);
+  const checks: CmsLaunchCheck[] = [
+    { key: "brand", label: "Brand name and logo mark", done: Boolean(snapshot.config.brand.name.trim() && snapshot.config.brand.mark.trim()), detail: "Add the client brand name and logo mark." },
+    { key: "hero", label: "Hero media", done: Boolean(snapshot.config.assets.hero.trim()), detail: "Bind a hero image from the client media library." },
+    { key: "seo", label: "SEO title and description", done: Boolean(snapshot.config.seo.title.trim() && snapshot.config.seo.description.trim()), detail: "Complete the storefront SEO fields." },
+    { key: "contact", label: "Customer contact email", done: Boolean(snapshot.config.content.contact.email.trim()), detail: "Add the operational customer email." },
+    { key: "policies", label: "Shipping and returns copy", done: Boolean(snapshot.config.content.policies.shippingLead.trim() && snapshot.config.content.policies.returnsLead.trim()), detail: "Confirm the client delivery and returns policies." },
+    { key: "catalog", label: "At least one active product", done: snapshot.catalog.some((product) => product.status === "active"), detail: "Import or activate at least one product." },
+    { key: "commerce", label: "Active product commerce validation", done: catalogErrors.length === 0, detail: catalogErrors[0] || "All active products have valid variants, SKUs, prices and images." },
+    { key: "domain", label: "Custom domain mapping", done: Boolean(domain?.hostname && (domain.status === "verified" || domain.status === "active")), detail: domain ? `${domain.hostname} is ${domain.status}.` : "Map and verify the client domain." },
+  ];
+  const replacements: CmsReplacementItem[] = [
+    { key: "brand.name", label: "Brand name", source: snapshot.config.brand.name, required: true, done: snapshot.config.brand.name !== siteConfig.brand.name },
+    { key: "brand.mark", label: "Logo / mark", source: snapshot.config.brand.mark, required: true, done: snapshot.config.brand.mark !== siteConfig.brand.mark },
+    { key: "theme.colors", label: "Theme palette", source: "theme.colors", required: false, done: JSON.stringify(snapshot.config.theme.colors) !== JSON.stringify(siteConfig.theme.colors) },
+    { key: "assets.hero", label: "Hero image", source: snapshot.config.assets.hero, required: true, done: snapshot.config.assets.hero !== siteConfig.assets.hero },
+    { key: "catalog", label: "Client product catalog", source: `${snapshot.catalog.length} products`, required: true, done: JSON.stringify(snapshot.catalog) !== JSON.stringify(defaultProducts) },
+    { key: "policies", label: "Shipping / returns policy", source: snapshot.config.content.policies.returnsLead, required: true, done: snapshot.config.content.policies.returnsLead !== siteConfig.content.policies.returnsLead },
+    { key: "seo", label: "SEO metadata", source: snapshot.config.seo.title, required: true, done: snapshot.config.seo.title !== siteConfig.seo.title },
+  ];
+  return { domain, checks, replacements, progress: { done: checks.filter((check) => check.done).length, total: checks.length } };
 }
 
 async function ensureMember(siteId: string, userId: string, email: string, database: D1DatabaseLike): Promise<CmsMember> {

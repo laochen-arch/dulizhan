@@ -1,4 +1,4 @@
-import { createSite, listSites, updateSiteIdentity } from "../../../../db/cms";
+import { createSiteFromTemplate, listSites, updateSiteIdentity } from "../../../../db/cms";
 import { errorResponse, currentUser, getSiteId, requireMember } from "../helpers";
 
 export const dynamic = "force-dynamic";
@@ -17,11 +17,11 @@ export async function POST(request: Request) {
   try {
     const user = await currentUser();
     if (!user) return Response.json({ error: "Sign in with ChatGPT to create client sites.", code: "AUTH_REQUIRED" }, { status: 401 });
-    const payload = await request.json() as { name?: string; slug?: string };
+    const payload = await request.json() as { name?: string; slug?: string; templateSiteId?: string };
     const name = payload.name?.trim() ?? "";
     const slug = payload.slug?.trim().toLowerCase() ?? "";
     if (!name || !/^[a-z0-9]+(?:-[a-z0-9]+)*$/.test(slug)) return Response.json({ error: "Provide a client name and a lowercase URL slug.", code: "INVALID_SITE" }, { status: 400 });
-    const site = await createSite(name, slug, user.userId, user.email);
+    const site = await createSiteFromTemplate(name, slug, payload.templateSiteId || "default", user.userId, user.email);
     return Response.json({ site }, { status: 201, headers: { "Cache-Control": "no-store" } });
   } catch (error) {
     return errorResponse(error);

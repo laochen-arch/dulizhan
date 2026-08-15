@@ -181,6 +181,9 @@ export const cmsOrders = sqliteTable("cms_orders", {
   updatedAt: text("updated_at").notNull(),
   paidAt: text("paid_at"),
   shippedAt: text("shipped_at"),
+  adminNote: text("admin_note"),
+  refundTotal: real("refund_total").notNull().default(0),
+  refundedAt: text("refunded_at"),
 }, (table) => [uniqueIndex("cms_orders_number_unique").on(table.orderNumber), uniqueIndex("cms_orders_stripe_session_unique").on(table.stripeSessionId), index("cms_orders_site_status_idx").on(table.siteId, table.status, table.createdAt), index("cms_orders_site_email_idx").on(table.siteId, table.email)]);
 
 export const cmsOrderItems = sqliteTable("cms_order_items", {
@@ -205,6 +208,9 @@ export const cmsPaymentEvents = sqliteTable("cms_payment_events", {
   payload: text("payload").notNull(),
   createdAt: text("created_at").notNull(),
   processedAt: text("processed_at"),
+  attempts: integer("attempts").notNull().default(0),
+  lastError: text("last_error"),
+  nextRetryAt: text("next_retry_at"),
 }, (table) => [uniqueIndex("cms_payment_events_provider_unique").on(table.providerEventId), index("cms_payment_events_site_idx").on(table.siteId, table.createdAt)]);
 
 export const cmsOrderNotifications = sqliteTable("cms_order_notifications", {
@@ -217,4 +223,22 @@ export const cmsOrderNotifications = sqliteTable("cms_order_notifications", {
   error: text("error"),
   createdAt: text("created_at").notNull(),
   sentAt: text("sent_at"),
+  attempts: integer("attempts").notNull().default(0),
+  nextRetryAt: text("next_retry_at"),
 }, (table) => [uniqueIndex("cms_order_notifications_order_type_unique").on(table.orderId, table.type), index("cms_order_notifications_site_idx").on(table.siteId, table.createdAt)]);
+
+export const cmsRefunds = sqliteTable("cms_refunds", {
+  id: text("id").primaryKey(),
+  siteId: text("site_id").notNull(),
+  orderId: text("order_id").notNull(),
+  stripeRefundId: text("stripe_refund_id"),
+  amount: real("amount").notNull(),
+  currency: text("currency").notNull().default("usd"),
+  reason: text("reason"),
+  status: text("status").notNull().default("pending"),
+  restockItems: text("restock_items"),
+  error: text("error"),
+  createdBy: text("created_by").notNull(),
+  createdAt: text("created_at").notNull(),
+  completedAt: text("completed_at"),
+}, (table) => [uniqueIndex("cms_refunds_stripe_unique").on(table.stripeRefundId), index("cms_refunds_site_order_idx").on(table.siteId, table.orderId, table.createdAt)]);

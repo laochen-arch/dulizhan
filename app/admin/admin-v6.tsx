@@ -1,14 +1,15 @@
 "use client";
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import type { CmsAsset, CmsAuditLog, CmsDomain, CmsInvitation, CmsMember, CmsRevision, CmsSchedule, CmsSite, CmsRole, CmsSnapshotDiff } from "../../db/cms";
-import type { CmsInventoryRow, CmsOrder, CmsOrderDetail } from "../../db/commerce";
+import type { CmsAsset, CmsAuditLog, CmsDomain, CmsInvitation, CmsLaunchCheck, CmsMember, CmsReplacementItem, CmsRevision, CmsSchedule, CmsSite, CmsRole, CmsSnapshotDiff } from "../../db/cms";
+import type { CmsInventoryRow, CmsOrder, CmsOrderDetail, CmsPaymentEvent } from "../../db/commerce";
 import { getCatalogValidationErrors, getProductValidationErrors, products as templateProducts, type Product, type ProductVariant, variantOptionValues } from "../data/products";
 import { type EditableSiteConfig, useSiteRuntime } from "../components/site-runtime";
 
 type AdminTab = "overview" | "brand" | "content" | "products" | "media" | "access" | "team" | "domains" | "activity" | "release" | "commerce" | "versions";
 type Notice = { tone: "success" | "error" | "info"; text: string } | null;
 type CommerceConfiguration = { stripe: { secretKey: boolean; webhookSecret: boolean }; resend: { apiKey: boolean; fromEmail: boolean } };
+type OnboardingState = { domain?: { hostname: string; status: string } | null; checks: CmsLaunchCheck[]; replacements: CmsReplacementItem[]; progress: { done: number; total: number } };
 
 const tabs: Array<{ id: AdminTab; label: string }> = [
   { id: "overview", label: "Overview" },
@@ -170,20 +171,26 @@ type P0PanelsProps = {
   orderLoading: boolean;
   commerceConfiguration: CommerceConfiguration | null;
   domains: CmsDomain[];
+  onboarding: OnboardingState | null;
+  paymentEvents: CmsPaymentEvent[];
+  retryPaymentEvent: (eventId: string) => Promise<void>;
+  retryNotification: (notificationId: string) => Promise<void>;
+  refundOrder: (order: CmsOrderDetail["order"], amount: number | undefined, reason: string, restockItems: Array<{ productId: string; variantId: string; quantity: number }>) => Promise<void>;
 };
 
 function P0Panels(props: P0PanelsProps) {
-  const { tab, config, updateConfig, setHome, toggleModule, moveModule, domainForm, setDomainForm, saveDomain, site, activeSiteId, cmsRole, diff, scheduleForm, setScheduleForm, saveSchedule, schedules, cancelScheduledPublish, busy, publish, members, invitations, changeMemberRole, removeAccess, revokeAccessInvite, auditLogs, loadWorkspaceData, orders, inventory, loadCommerceData, updateOrder, updateStock, loadOrderDetail, orderDetail, orderLoading, commerceConfiguration, domains } = props;
+  const { tab, config, updateConfig, setHome, toggleModule, moveModule, domainForm, setDomainForm, saveDomain, site, activeSiteId, cmsRole, diff, scheduleForm, setScheduleForm, saveSchedule, schedules, cancelScheduledPublish, busy, publish, members, invitations, changeMemberRole, removeAccess, revokeAccessInvite, auditLogs, loadWorkspaceData, orders, inventory, loadCommerceData, updateOrder, updateStock, loadOrderDetail, orderDetail, orderLoading, commerceConfiguration, domains, paymentEvents, retryPaymentEvent, retryNotification, refundOrder } = props;
   if (tab === "content") return <section className="v6-card"><div className="v6-card-heading"><div><p className="eyebrow">P0 content modules</p><h2>Compose the client storefront.</h2></div><span>Draft autosave</span></div><div className="v6-module-list">{["hero", "intro", "products", "story", "journal", "newsletter"].map((module, index) => <div className="v6-inline-row" key={module}><label className="v6-check-field"><input type="checkbox" checked={config.content.home.modules.includes(module)} onChange={() => toggleModule(module)} /> {module}</label><span><button className="text-button" onClick={() => moveModule(module, -1)} disabled={index === 0}>↑</button><button className="text-button" onClick={() => moveModule(module, 1)} disabled={index === 5}>↓</button></span></div>)}</div><div className="v6-divider"><p className="eyebrow">Announcement and navigation</p><div className="v6-form-grid"><Field label="Announcement" value={config.announcement.text} onChange={(value) => updateConfig((current) => { current.announcement.text = value; return current; })} /><Field label="Announcement accent" value={config.announcement.accent} onChange={(value) => updateConfig((current) => { current.announcement.accent = value; return current; })} />{config.navigation.map((item, index) => <Field key={`${item.href}-${index}`} label={`Nav ${index + 1} label | link`} value={`${item.label} | ${item.href}`} onChange={(value) => updateConfig((current) => { const [label, href] = value.split("|"); current.navigation[index] = { label: label.trim(), href: href?.trim() || current.navigation[index].href }; return current; })} />)}</div></div><div className="v6-divider"><p className="eyebrow">Home, trust, contact and SEO</p><div className="v6-form-grid"><Field label="Products label" value={config.content.home.productsLabel} onChange={(value) => setHome("productsLabel", value)} /><Field label="Products title" value={config.content.home.productsTitleLead} onChange={(value) => setHome("productsTitleLead", value)} /><Field label="Products accent" value={config.content.home.productsTitleAccent} onChange={(value) => setHome("productsTitleAccent", value)} /><Field label="Journal label" value={config.content.home.journalLabel} onChange={(value) => setHome("journalLabel", value)} /><Field label="About title" value={config.content.about.titleLead} onChange={(value) => updateConfig((current) => { current.content.about.titleLead = value; return current; })} /><Field label="About accent" value={config.content.about.titleAccent} onChange={(value) => updateConfig((current) => { current.content.about.titleAccent = value; return current; })} /><Field label="About lead" value={config.content.about.lead} onChange={(value) => updateConfig((current) => { current.content.about.lead = value; return current; })} multiline /><Field label="FAQ intro" value={config.content.faq.intro} onChange={(value) => updateConfig((current) => { current.content.faq.intro = value; return current; })} multiline /><Field label="Shipping copy" value={config.content.policies.shippingLead} onChange={(value) => updateConfig((current) => { current.content.policies.shippingLead = value; return current; })} multiline /><Field label="Returns copy" value={config.content.policies.returnsLead} onChange={(value) => updateConfig((current) => { current.content.policies.returnsLead = value; return current; })} multiline /><Field label="Contact email" value={config.content.contact.email} onChange={(value) => updateConfig((current) => { current.content.contact.email = value; return current; })} /><Field label="Trade email" value={config.content.contact.tradeEmail} onChange={(value) => updateConfig((current) => { current.content.contact.tradeEmail = value; return current; })} /><Field label="SEO title" value={config.seo.title} onChange={(value) => updateConfig((current) => { current.seo.title = value; return current; })} /><Field label="SEO description" value={config.seo.description} onChange={(value) => updateConfig((current) => { current.seo.description = value; return current; })} multiline /><Field label="SEO keywords" value={config.seo.keywords} onChange={(value) => updateConfig((current) => { current.seo.keywords = value; return current; })} /></div></div></section>;
   if (tab === "domains") return <section className="v6-grid"><div className="v6-card"><p className="eyebrow">Public tenant routing</p><h2>One workspace, many storefronts.</h2><p className="v6-muted">Public requests resolve a client site by hostname. Shared Sites URLs continue to use the default site.</p><div className="v6-callout"><strong>{site?.domain || "No custom domain mapped"}</strong><span>{site?.domain ? "Mapped in CMS · verify DNS with Sites" : "Add a domain mapping to route this tenant"}</span></div>{domains.map((domain) => <div className="v6-inline-row" key={domain.id}><span>{domain.hostname}<small>Verification: {domain.status}</small></span></div>)}<a className="text-link" href={`/preview?siteId=${encodeURIComponent(activeSiteId)}`} target="_blank" rel="noreferrer">Open tenant preview <span>↗</span></a></div><div className="v6-card"><p className="eyebrow">Domain mapping</p><h2>Connect the client URL.</h2><form className="v6-form" onSubmit={saveDomain}><Field label="Client site name" value={domainForm.name} onChange={(value) => setDomainForm((current) => ({ ...current, name: value }))} /><Field label="URL slug" value={domainForm.slug} onChange={(value) => setDomainForm((current) => ({ ...current, slug: slugify(value) }))} /><Field label="Custom domain" value={domainForm.domain} onChange={(value) => setDomainForm((current) => ({ ...current, domain: value }))} placeholder="shop.client.com" /><button className="button button-dark" disabled={busy || cmsRole !== "owner"}>Save domain mapping <span>+</span></button></form><p className="v6-help">After saving the mapping, verify the DNS target and activate the Sites custom-domain binding when the client provides the hostname.</p></div></section>;
   if (tab === "release") return <section className="v6-grid"><div className="v6-card"><p className="eyebrow">Publish diff</p><h2>{diff?.totalChanges ?? 0} changes waiting.</h2>{diff?.changes.length ? <div className="v6-checks">{diff.changes.map((change) => <div key={change}><span>+</span>{change}</div>)}</div> : <p className="v6-muted">Draft and published storefronts are aligned.</p>}<button className="button button-dark" onClick={() => void publish()} disabled={busy || !diff?.totalChanges || (cmsRole !== "owner" && cmsRole !== "editor")}>Review and publish <span>-&gt;</span></button></div><div className="v6-card"><p className="eyebrow">Scheduled publish</p><h2>Set the release moment.</h2><form className="v6-form" onSubmit={saveSchedule}><Field label="Release label" value={scheduleForm.label} onChange={(value) => setScheduleForm((current) => ({ ...current, label: value }))} /><label className="v6-field"><span>Publish at</span><input type="datetime-local" value={scheduleForm.scheduledAt} onChange={(event) => setScheduleForm((current) => ({ ...current, scheduledAt: event.target.value }))} /></label><button className="button button-dark" disabled={busy || !scheduleForm.scheduledAt || cmsRole === "viewer"}>Schedule release <span>+</span></button></form>{schedules.filter((schedule) => schedule.status === "pending").map((schedule) => <div className="v6-inline-row" key={schedule.id}><span>{schedule.label}<small>{new Date(schedule.scheduledAt).toLocaleString()}</small></span><button className="text-button danger" onClick={() => void cancelScheduledPublish(schedule.id)}>Cancel</button></div>)}</div></section>;
   if (tab === "team") return <section className="v6-card"><div className="v6-card-heading"><div><p className="eyebrow">Member lifecycle</p><h2>Invite, change, revoke.</h2></div><span>Owner controlled</span></div><div className="v6-member-list">{members.map((member) => <div key={`${member.siteId}-${member.userId}`}><span>{member.email}</span><select value={member.role} disabled={cmsRole !== "owner"} onChange={(event) => void changeMemberRole(member.userId, event.target.value as CmsRole)}><option value="viewer">Viewer</option><option value="editor">Editor</option><option value="owner">Owner</option></select><button className="text-button danger" onClick={() => void removeAccess(member.userId)}>Remove</button></div>)}</div><div className="v6-divider"><p className="eyebrow">Pending invitations</p>{invitations.map((invitation) => <div className="v6-inline-row" key={invitation.id}><span>{invitation.email} · {invitation.role}<small>{invitation.status} · expires {new Date(invitation.expiresAt).toLocaleDateString()}</small></span>{invitation.status === "pending" && <button className="text-button danger" onClick={() => void revokeAccessInvite(invitation.id)}>Revoke</button>}</div>)}{invitations.length === 0 && <p className="v6-muted">No pending invitations.</p>}</div><p className="v6-help">The existing invite form creates a secure seven-day link and copies it to the clipboard. The link can be sent through the client’s preferred email channel.</p></section>;
   if (tab === "activity") return <section className="v6-card"><div className="v6-card-heading"><div><p className="eyebrow">Audit trail</p><h2>Every important change, visible.</h2></div><button className="text-button" onClick={() => void loadWorkspaceData()}>Refresh activity</button></div><div className="v6-version-list">{auditLogs.map((log) => <article key={log.id}><div><strong>{log.action}</strong><span>{log.actorEmail} · {log.entityType}{log.entityId ? ` / ${log.entityId}` : ""}</span></div><time>{new Date(log.createdAt).toLocaleString()}</time></article>)}{auditLogs.length === 0 && <div className="v6-empty">No audited changes yet.</div>}</div></section>;
-  if (tab === "commerce") return <CommercePanel orders={orders} inventory={inventory} cmsRole={cmsRole} loadCommerceData={loadCommerceData} updateOrder={updateOrder} updateStock={updateStock} loadOrderDetail={loadOrderDetail} orderDetail={orderDetail} orderLoading={orderLoading} commerceConfiguration={commerceConfiguration} />;
+  if (tab === "commerce") return <CommercePanel activeSiteId={activeSiteId} orders={orders} inventory={inventory} cmsRole={cmsRole} loadCommerceData={loadCommerceData} updateOrder={updateOrder} updateStock={updateStock} loadOrderDetail={loadOrderDetail} orderDetail={orderDetail} orderLoading={orderLoading} commerceConfiguration={commerceConfiguration} paymentEvents={paymentEvents} retryPaymentEvent={retryPaymentEvent} retryNotification={retryNotification} refundOrder={refundOrder} />;
   return null;
 }
 
 type CommercePanelProps = {
+  activeSiteId: string;
   orders: CmsOrder[];
   inventory: CmsInventoryRow[];
   cmsRole?: CmsRole;
@@ -194,9 +201,13 @@ type CommercePanelProps = {
   orderDetail: CmsOrderDetail | null;
   orderLoading: boolean;
   commerceConfiguration: CommerceConfiguration | null;
+  paymentEvents: CmsPaymentEvent[];
+  retryPaymentEvent: (eventId: string) => Promise<void>;
+  retryNotification: (notificationId: string) => Promise<void>;
+  refundOrder: (order: CmsOrderDetail["order"], amount: number | undefined, reason: string, restockItems: Array<{ productId: string; variantId: string; quantity: number }>) => Promise<void>;
 };
 
-function CommercePanel({ orders, inventory, cmsRole, loadCommerceData, updateOrder, updateStock, loadOrderDetail, orderDetail, orderLoading, commerceConfiguration }: CommercePanelProps) {
+function CommercePanelBase({ orders, inventory, cmsRole, loadCommerceData, updateOrder, updateStock, loadOrderDetail, orderDetail, orderLoading, commerceConfiguration }: CommercePanelProps) {
   const [query, setQuery] = useState("");
   const [status, setStatus] = useState("all");
   const filteredOrders = orders.filter((order) => {
@@ -224,6 +235,27 @@ function CommercePanel({ orders, inventory, cmsRole, loadCommerceData, updateOrd
   return <section className="v6-grid"><div className="v6-card v6-card-large"><div className="v6-card-heading"><div><p className="eyebrow">Order operations</p><h2>{orders.length} recent orders.</h2></div><div className="v6-actions"><button className="text-button" onClick={() => void loadCommerceData()}>Refresh</button><button className="text-button" onClick={exportOrders} disabled={!filteredOrders.length}>Export CSV</button></div></div><div className="v6-commerce-config"><span className={paymentReady ? "is-ready" : "is-missing"}>Stripe {paymentReady ? "ready" : "needs keys"}</span><span className={emailReady ? "is-ready" : "is-missing"}>Resend {emailReady ? "ready" : "needs keys"}</span><small>Configure production secrets before accepting live orders.</small></div><div className="v6-commerce-toolbar"><label className="v6-field"><span>Search orders</span><input value={query} onChange={(event) => setQuery(event.target.value)} placeholder="Order, customer or email" /></label><label className="v6-field"><span>Status</span><select value={status} onChange={(event) => setStatus(event.target.value)}><option value="all">All statuses</option><option value="paid">Paid</option><option value="pending">Pending payment</option><option value="failed">Payment failed</option><option value="unfulfilled">Unfulfilled</option><option value="processing">Processing</option><option value="shipped">Shipped</option><option value="delivered">Delivered</option></select></label></div><div className="v6-version-list">{filteredOrders.map((order) => <article key={order.id} className="v6-order-row"><button type="button" className="v6-order-summary" onClick={() => void loadOrderDetail(order.id)}><strong>{order.orderNumber} · ${order.total.toFixed(2)}</strong><span>{order.customerName} · {order.email}</span><small>{new Date(order.createdAt).toLocaleString()} · Payment: {order.paymentStatus} · Fulfillment: {order.fulfillmentStatus}</small></button><div className="v6-actions"><select aria-label={`Fulfillment status for ${order.orderNumber}`} value={order.fulfillmentStatus} disabled={cmsRole !== "owner" && cmsRole !== "editor"} onChange={(event) => void updateOrder({ ...order, fulfillmentStatus: event.target.value })}><option value="unfulfilled">Unfulfilled</option><option value="processing">Processing</option><option value="shipped">Shipped</option><option value="delivered">Delivered</option><option value="cancelled">Cancelled</option></select></div></article>)}{filteredOrders.length === 0 && <div className="v6-empty">{orders.length ? "No orders match the current filters." : "No orders yet. Orders appear here after Stripe confirms payment."}</div>}</div>{orderLoading && <p className="v6-muted">Loading order details...</p>}{orderDetail && <div className="v6-order-detail"><div className="v6-card-heading"><div><p className="eyebrow">Order detail</p><h3>{orderDetail.order.orderNumber}</h3></div><span>{orderDetail.order.paymentStatus} / {orderDetail.order.fulfillmentStatus}</span></div><div className="v6-order-detail-grid"><div><p className="eyebrow">Customer</p><p>{orderDetail.order.customerName}<br />{orderDetail.order.email}</p><p>{Object.values(orderDetail.order.shippingAddress).filter(Boolean).join(", ")}</p></div><div><p className="eyebrow">Items</p>{orderDetail.items.map((item) => <p key={item.id}>{item.name} / {item.variantLabel} · {item.quantity} · ${(item.unitPrice * item.quantity).toFixed(2)}</p>)}</div></div><div className="v6-order-detail-footer"><label className="v6-field"><span>Tracking number</span><input defaultValue={orderDetail.order.trackingNumber || ""} placeholder="Add tracking number" onBlur={(event) => void updateOrder({ ...orderDetail.order, trackingNumber: event.target.value })} /></label><div><p className="eyebrow">Notifications</p>{orderDetail.notifications.length ? orderDetail.notifications.map((notification) => <span className="v6-status-chip" key={notification.id}>{notification.type}: {notification.status}</span>) : <p className="v6-muted">No notification records yet.</p>}</div></div></div>}</div><div className="v6-card"><div className="v6-card-heading"><div><p className="eyebrow">Inventory / SKU</p><h2>Live stock.</h2></div></div><div className="v6-version-list">{inventory.map((row) => <article key={`${row.productId}-${row.variantId}`}><div><strong>{row.productName} · {row.variantLabel}</strong><span>{row.sku} · {row.reservedQuantity} reserved · {Math.max(0, row.quantity - row.reservedQuantity)} available</span></div><label className="v6-inline-input"><span className="sr-only">Quantity</span><input type="number" min="0" defaultValue={row.quantity} onBlur={(event) => void updateStock(row, Number(event.target.value))} /></label></article>)}{inventory.length === 0 && <div className="v6-empty">Inventory rows initialize from the published catalog.</div>}</div></div></section>;
 }
 
+function CommercePanel(props: CommercePanelProps) {
+  return <><CommercePanelBase {...props} /><CommerceOperations key={props.orderDetail?.order.id || "empty"} {...props} /></>;
+}
+
+function CommerceOperations({ activeSiteId, orderDetail, cmsRole, paymentEvents, retryPaymentEvent, retryNotification, refundOrder }: CommercePanelProps) {
+  const [refundAmount, setRefundAmount] = useState("");
+  const [refundReason, setRefundReason] = useState("");
+  const [restock, setRestock] = useState<Record<string, boolean>>({});
+  const [note, setNote] = useState(orderDetail?.order.adminNote || "");
+
+  if (!orderDetail) return <section className="v6-card"><p className="eyebrow">Operations log</p><h2>Payment and email retries.</h2><div className="v6-version-list">{paymentEvents.map((event) => <article key={event.id}><div><strong>{event.eventType}</strong><span>{event.providerEventId} · attempts {event.attempts}</span></div><div className="v6-actions"><span className={event.processedAt ? "v6-status-chip is-ready" : "v6-status-chip is-missing"}>{event.processedAt ? "Processed" : event.lastError || "Pending"}</span>{!event.processedAt && <button className="text-button" onClick={() => void retryPaymentEvent(event.id)}>Retry</button>}</div></article>)}{paymentEvents.length === 0 && <div className="v6-empty">Stripe webhook events will appear here after the first payment.</div>}</div></section>;
+
+  const remaining = Math.max(0, orderDetail.order.total - orderDetail.order.refundTotal);
+  const restockItems = orderDetail.items.filter((item) => restock[item.productId + ":" + item.variantId]).map((item) => ({ productId: item.productId, variantId: item.variantId, quantity: item.quantity }));
+  return <section className="v6-grid"><div className="v6-card"><div className="v6-card-heading"><div><p className="eyebrow">Support operations</p><h2>Keep the order traceable.</h2></div><span>{orderDetail.order.orderNumber}</span></div><label className="v6-field"><span>Admin note</span><textarea value={note} onChange={(event) => setNote(event.target.value)} onBlur={() => void propsUpdateNote(orderDetail.order, note)} placeholder="Internal note for support and fulfillment" /></label><div className="v6-divider"><p className="eyebrow">Email notifications</p>{orderDetail.notifications.length ? orderDetail.notifications.map((notification) => <div className="v6-inline-row" key={notification.id}><span>{notification.type}<small>{notification.status} · attempts {notification.attempts}{notification.error ? " · " + notification.error : ""}</small></span>{notification.status !== "sent" && <button className="text-button" onClick={() => void retryNotification(notification.id)}>Retry email</button>}</div>) : <p className="v6-muted">No notification records yet.</p>}</div></div><div className="v6-card"><div className="v6-card-heading"><div><p className="eyebrow">Stripe refunds</p><h2>{"$" + remaining.toFixed(2)} refundable.</h2></div><span>{orderDetail.order.refundTotal > 0 ? "$" + orderDetail.order.refundTotal.toFixed(2) + " refunded" : "No refunds"}</span></div><label className="v6-field"><span>Amount in USD; blank means full remaining balance</span><input type="number" min="0.01" max={remaining.toFixed(2)} step="0.01" value={refundAmount} onChange={(event) => setRefundAmount(event.target.value)} disabled={remaining <= 0 || cmsRole === "viewer"} /></label><label className="v6-field"><span>Reason</span><input value={refundReason} onChange={(event) => setRefundReason(event.target.value)} placeholder="Customer request" disabled={remaining <= 0 || cmsRole === "viewer"} /></label><p className="eyebrow">Inventory rule: only selected items are restocked.</p>{orderDetail.items.map((item) => <label className="v6-check-field" key={item.id}><input type="checkbox" checked={Boolean(restock[item.productId + ":" + item.variantId])} onChange={(event) => setRestock((current) => ({ ...current, [item.productId + ":" + item.variantId]: event.target.checked }))} /> Return {item.name} × {item.quantity}</label>)}<button className="button button-dark" disabled={remaining <= 0 || cmsRole === "viewer"} onClick={() => void refundOrder(orderDetail.order, refundAmount ? Number(refundAmount) : undefined, refundReason, restockItems)}>Issue Stripe refund <span>→</span></button>{orderDetail.refunds.length > 0 && <div className="v6-version-list">{orderDetail.refunds.map((refund) => <article key={refund.id}><div><strong>{"$" + refund.amount.toFixed(2)} · {refund.status}</strong><span>{refund.reason || "No reason"} · {new Date(refund.createdAt).toLocaleString()}</span></div><small>{refund.error || refund.stripeRefundId || "Pending provider ID"}</small></article>)}</div>}</div><div className="v6-card"><div className="v6-card-heading"><div><p className="eyebrow">Stripe event log</p><h2>Webhook recovery.</h2></div></div><div className="v6-version-list">{paymentEvents.map((event) => <article key={event.id}><div><strong>{event.eventType}</strong><span>{event.providerEventId} · attempts {event.attempts}</span></div><div className="v6-actions"><span className={event.processedAt ? "v6-status-chip is-ready" : "v6-status-chip is-missing"}>{event.processedAt ? "Processed" : event.lastError || "Pending"}</span>{!event.processedAt && <button className="text-button" onClick={() => void retryPaymentEvent(event.id)}>Retry event</button>}</div></article>)}{paymentEvents.length === 0 && <div className="v6-empty">No webhook events yet.</div>}</div></div></section>;
+
+  async function propsUpdateNote(order: CmsOrder, value: string) {
+    await fetch("/api/cms/orders", { method: "PATCH", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ siteId: activeSiteId, orderId: order.id, adminNote: value }) });
+  }
+}
+
 export function AdminStudioV6() {
   const runtime = useSiteRuntime();
   const { config, catalog, cmsError, cmsMode, cmsRole, cmsStatus, activeSiteId, site, updateCatalog, updateConfig, refreshCms, setActiveSiteId, publishCms, fetchRevisions, rollbackCms } = runtime;
@@ -242,6 +274,8 @@ export function AdminStudioV6() {
   const [orderDetail, setOrderDetail] = useState<CmsOrderDetail | null>(null);
   const [orderLoading, setOrderLoading] = useState(false);
   const [domains, setDomains] = useState<CmsDomain[]>([]);
+  const [onboarding, setOnboarding] = useState<OnboardingState | null>(null);
+  const [paymentEvents, setPaymentEvents] = useState<CmsPaymentEvent[]>([]);
   const [notice, setNotice] = useState<Notice>(null);
   const [authRequired, setAuthRequired] = useState(false);
   const [busy, setBusy] = useState(false);
@@ -255,6 +289,7 @@ export function AdminStudioV6() {
   const [editingProduct, setEditingProduct] = useState<Product | null>(null);
   const [productValidation, setProductValidation] = useState<string[]>([]);
   const csvInput = useRef<HTMLInputElement>(null);
+  const clientImportInput = useRef<HTMLInputElement>(null);
   const mediaInput = useRef<HTMLInputElement>(null);
 
   const checks = useMemo(() => launchChecks(config, catalog), [catalog, config]);
@@ -281,7 +316,7 @@ export function AdminStudioV6() {
 
   const loadWorkspaceData = useCallback(async () => {
     const query = `?siteId=${encodeURIComponent(activeSiteId)}`;
-    const [membersResponse, assetsResponse, revisionsResponse, auditResponse, diffResponse, schedulesResponse, domainsResponse] = await Promise.all([
+    const [membersResponse, assetsResponse, revisionsResponse, auditResponse, diffResponse, schedulesResponse, domainsResponse, onboardingResponse] = await Promise.all([
       fetch(`/api/cms/members${query}`, { cache: "no-store" }),
       fetch(`/api/cms/assets${query}`, { cache: "no-store" }),
       fetch(`/api/cms/revisions${query}`, { cache: "no-store" }),
@@ -289,8 +324,9 @@ export function AdminStudioV6() {
       fetch(`/api/cms/diff${query}`, { cache: "no-store" }),
       fetch(`/api/cms/schedules${query}`, { cache: "no-store" }),
       fetch(`/api/cms/domains${query}`, { cache: "no-store" }),
+      fetch(`/api/cms/onboarding${query}`, { cache: "no-store" }),
     ]);
-    const [membersPayload, assetsPayload, revisionsPayload, auditPayload, diffPayload, schedulesPayload, domainsPayload] = await Promise.all([
+    const [membersPayload, assetsPayload, revisionsPayload, auditPayload, diffPayload, schedulesPayload, domainsPayload, onboardingPayload] = await Promise.all([
       membersResponse.json().catch(() => ({})),
       assetsResponse.json().catch(() => ({})),
       revisionsResponse.json().catch(() => ({})),
@@ -298,7 +334,8 @@ export function AdminStudioV6() {
       diffResponse.json().catch(() => ({})),
       schedulesResponse.json().catch(() => ({})),
       domainsResponse.json().catch(() => ({})),
-    ]) as [{ members?: CmsMember[]; invitations?: CmsInvitation[] }, { assets?: CmsAsset[] }, { revisions?: CmsRevision[] }, { logs?: CmsAuditLog[] }, { diff?: CmsSnapshotDiff }, { schedules?: CmsSchedule[] }, { domains?: CmsDomain[] }];
+      onboardingResponse.json().catch(() => ({})),
+    ]) as [{ members?: CmsMember[]; invitations?: CmsInvitation[] }, { assets?: CmsAsset[] }, { revisions?: CmsRevision[] }, { logs?: CmsAuditLog[] }, { diff?: CmsSnapshotDiff }, { schedules?: CmsSchedule[] }, { domains?: CmsDomain[] }, OnboardingState];
     if (membersResponse.ok) setMembers(membersPayload.members ?? []);
     if (membersResponse.ok) setInvitations(membersPayload.invitations ?? []);
     if (assetsResponse.ok) setAssets(assetsPayload.assets ?? []);
@@ -307,23 +344,27 @@ export function AdminStudioV6() {
     if (diffResponse.ok) setDiff(diffPayload.diff ?? null);
     if (schedulesResponse.ok) setSchedules(schedulesPayload.schedules ?? []);
     if (domainsResponse.ok) setDomains(domainsPayload.domains ?? []);
+    if (onboardingResponse.ok) setOnboarding(onboardingPayload);
   }, [activeSiteId]);
 
   const loadCommerceData = useCallback(async () => {
     const query = `?siteId=${encodeURIComponent(activeSiteId)}`;
-    const [ordersResponse, inventoryResponse, configurationResponse] = await Promise.all([
+    const [ordersResponse, inventoryResponse, configurationResponse, eventsResponse] = await Promise.all([
       fetch(`/api/cms/orders${query}`, { cache: "no-store" }),
       fetch(`/api/cms/inventory${query}`, { cache: "no-store" }),
       fetch(`/api/cms/commerce/status${query}`, { cache: "no-store" }),
+      fetch(`/api/cms/commerce/events${query}`, { cache: "no-store" }),
     ]);
-    const [ordersPayload, inventoryPayload, configurationPayload] = await Promise.all([
+    const [ordersPayload, inventoryPayload, configurationPayload, eventsPayload] = await Promise.all([
       ordersResponse.json().catch(() => ({})) as Promise<{ orders?: CmsOrder[] }>,
       inventoryResponse.json().catch(() => ({})) as Promise<{ inventory?: CmsInventoryRow[] }>,
       configurationResponse.json().catch(() => ({})) as Promise<{ configuration?: CommerceConfiguration }>,
+      eventsResponse.json().catch(() => ({})) as Promise<{ events?: CmsPaymentEvent[] }>,
     ]);
     if (ordersResponse.ok) setOrders(ordersPayload.orders ?? []);
     if (inventoryResponse.ok) setInventory(inventoryPayload.inventory ?? []);
     if (configurationResponse.ok) setCommerceConfiguration(configurationPayload.configuration ?? null);
+    if (eventsResponse.ok) setPaymentEvents(eventsPayload.events ?? []);
   }, [activeSiteId]);
 
   const loadOrderDetail = useCallback(async (orderId: string) => {
@@ -332,7 +373,7 @@ export function AdminStudioV6() {
       const response = await fetch(`/api/cms/orders?siteId=${encodeURIComponent(activeSiteId)}&orderId=${encodeURIComponent(orderId)}`, { cache: "no-store" });
       const payload = await response.json().catch(() => ({})) as CmsOrderDetail & { error?: string };
       if (!response.ok || !payload.order) throw new Error(payload.error || "Unable to load order details.");
-      setOrderDetail({ order: payload.order, items: payload.items || [], notifications: payload.notifications || [] });
+      setOrderDetail({ order: payload.order, items: payload.items || [], notifications: payload.notifications || [], refunds: payload.refunds || [] });
     } catch (error) {
       setNotice({ tone: "error", text: error instanceof Error ? error.message : "Unable to load order details." });
     } finally {
@@ -504,13 +545,46 @@ export function AdminStudioV6() {
   };
 
   const updateOrder = async (order: CmsOrder) => {
-    const response = await fetch("/api/cms/orders", { method: "PATCH", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ siteId: activeSiteId, orderId: order.id, fulfillmentStatus: order.fulfillmentStatus, trackingNumber: order.trackingNumber || "" }) });
+    const response = await fetch("/api/cms/orders", { method: "PATCH", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ siteId: activeSiteId, orderId: order.id, fulfillmentStatus: order.fulfillmentStatus, trackingNumber: order.trackingNumber || "", adminNote: order.adminNote || "" }) });
     const payload = await response.json().catch(() => ({})) as { order?: CmsOrder; error?: string };
     if (response.ok && payload.order) {
       setOrders((current) => current.map((item) => item.id === order.id ? payload.order as CmsOrder : item));
       setOrderDetail((current) => current && current.order.id === order.id ? { ...current, order: payload.order as CmsOrder } : current);
       setNotice({ tone: "success", text: `${order.orderNumber} updated.` });
     } else setNotice({ tone: "error", text: payload.error || "Unable to update order." });
+  };
+
+  const retryPaymentEvent = async (eventId: string) => {
+    const response = await fetch("/api/cms/commerce/events", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ siteId: activeSiteId, eventId }) });
+    if (response.ok) {
+      setNotice({ tone: "success", text: "Stripe event retry completed." });
+      await loadCommerceData();
+    } else {
+      const payload = await response.json().catch(() => ({})) as { error?: string };
+      setNotice({ tone: "error", text: payload.error || "Stripe event retry failed." });
+    }
+  };
+
+  const retryNotification = async (notificationId: string) => {
+    const response = await fetch("/api/cms/commerce/notifications", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ siteId: activeSiteId, notificationId }) });
+    if (response.ok) {
+      const payload = await response.json() as CmsOrderDetail;
+      setOrderDetail(payload);
+      setNotice({ tone: "success", text: "Email notification retry completed." });
+    } else {
+      const payload = await response.json().catch(() => ({})) as { error?: string };
+      setNotice({ tone: "error", text: payload.error || "Email retry failed." });
+    }
+  };
+
+  const refundOrder = async (order: CmsOrderDetail["order"], amount: number | undefined, reason: string, restockItems: Array<{ productId: string; variantId: string; quantity: number }>) => {
+    const response = await fetch("/api/cms/orders/refund", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ siteId: activeSiteId, orderId: order.id, amount, reason, restockItems }) });
+    const payload = await response.json().catch(() => ({})) as CmsOrderDetail & { error?: string };
+    if (response.ok && payload.order) {
+      setOrderDetail(payload);
+      setOrders((current) => current.map((item) => item.id === order.id ? payload.order : item));
+      setNotice({ tone: "success", text: order.orderNumber + " refund recorded." });
+    } else setNotice({ tone: "error", text: payload.error || "Refund failed." });
   };
 
   const updateStock = async (row: CmsInventoryRow, quantity: number) => {
@@ -576,6 +650,27 @@ export function AdminStudioV6() {
     } catch (error) {
       setNotice({ tone: "error", text: error instanceof Error ? error.message : "CSV import failed." });
     } finally {
+      event.target.value = "";
+    }
+  };
+
+  const importClientFile = async (event: React.ChangeEvent<HTMLInputElement>) => {
+    const file = event.target.files?.[0];
+    if (!file) return;
+    setBusy(true);
+    try {
+      const text = await file.text();
+      const payload = file.name.toLowerCase().endsWith(".json") ? JSON.parse(text) as Record<string, unknown> : { productCsv: text };
+      const response = await fetch("/api/cms/import", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ siteId: activeSiteId, ...payload }) });
+      const result = await response.json().catch(() => ({})) as { importedProducts?: number; error?: string };
+      if (!response.ok) throw new Error(result.error || "Client import failed.");
+      await refreshCms();
+      await loadWorkspaceData();
+      setNotice({ tone: "success", text: `Client data imported. ${result.importedProducts ?? 0} products are now in draft.` });
+    } catch (error) {
+      setNotice({ tone: "error", text: error instanceof Error ? error.message : "Client import failed." });
+    } finally {
+      setBusy(false);
       event.target.value = "";
     }
   };
@@ -663,7 +758,9 @@ export function AdminStudioV6() {
           <span>Draft changes autosave · public stays on published version</span>
         </nav>
 
-        <P0Panels tab={tab} config={config} updateConfig={updateConfig} setHome={setHome} toggleModule={toggleModule} moveModule={moveModule} domainForm={domainForm} setDomainForm={setDomainForm} saveDomain={saveDomain} site={site} activeSiteId={activeSiteId} cmsRole={cmsRole} diff={diff} scheduleForm={scheduleForm} setScheduleForm={setScheduleForm} saveSchedule={saveSchedule} schedules={schedules} cancelScheduledPublish={cancelScheduledPublish} busy={busy} publish={publish} members={members} invitations={invitations} changeMemberRole={changeMemberRole} removeAccess={removeAccess} revokeAccessInvite={revokeAccessInvite} auditLogs={auditLogs} loadWorkspaceData={loadWorkspaceData} orders={orders} inventory={inventory} loadCommerceData={loadCommerceData} updateOrder={updateOrder} updateStock={updateStock} loadOrderDetail={loadOrderDetail} orderDetail={orderDetail} orderLoading={orderLoading} commerceConfiguration={commerceConfiguration} domains={domains} />
+        <P0Panels tab={tab} config={config} updateConfig={updateConfig} setHome={setHome} toggleModule={toggleModule} moveModule={moveModule} domainForm={domainForm} setDomainForm={setDomainForm} saveDomain={saveDomain} site={site} activeSiteId={activeSiteId} cmsRole={cmsRole} diff={diff} scheduleForm={scheduleForm} setScheduleForm={setScheduleForm} saveSchedule={saveSchedule} schedules={schedules} cancelScheduledPublish={cancelScheduledPublish} busy={busy} publish={publish} members={members} invitations={invitations} changeMemberRole={changeMemberRole} removeAccess={removeAccess} revokeAccessInvite={revokeAccessInvite} auditLogs={auditLogs} loadWorkspaceData={loadWorkspaceData} orders={orders} inventory={inventory} loadCommerceData={loadCommerceData} updateOrder={updateOrder} updateStock={updateStock} loadOrderDetail={loadOrderDetail} orderDetail={orderDetail} orderLoading={orderLoading} commerceConfiguration={commerceConfiguration} domains={domains} onboarding={onboarding} paymentEvents={paymentEvents} retryPaymentEvent={retryPaymentEvent} retryNotification={retryNotification} refundOrder={refundOrder} />
+
+        {tab === "overview" && onboarding && <section className="v6-card v6-onboarding-card"><div className="v6-card-heading"><div><p className="eyebrow">V12 delivery center</p><h2>{onboarding.progress.done}/{onboarding.progress.total} launch checks ready.</h2></div><span>{onboarding.domain?.hostname || "Custom domain pending"}</span></div><div className="v6-checks">{onboarding.checks.map((check) => <div className={check.done ? "done" : ""} key={check.key}><span>{check.done ? "OK" : "—"}</span>{check.label}<small>{check.detail}</small></div>)}</div><div className="v6-divider"><p className="eyebrow">Replacement checklist</p><div className="v6-version-list">{onboarding.replacements.map((item) => <article key={item.key}><div><strong>{item.label}</strong><span>{item.source}</span></div><span className={item.done ? "v6-status-chip is-ready" : "v6-status-chip is-missing"}>{item.done ? "Replaced" : item.required ? "Required" : "Optional"}</span></article>)}</div></div><div className="v6-divider"><p className="eyebrow">Batch import</p><p className="v6-muted">Upload a client JSON package or product CSV into this tenant draft.</p><button className="button button-outline" onClick={() => clientImportInput.current?.click()} disabled={busy}>Import client JSON / CSV <span>+</span></button><input ref={clientImportInput} type="file" accept=".csv,.json,text/csv,application/json" className="sr-only" onChange={(event) => void importClientFile(event)} /></div></section>}
 
         {tab === "overview" && <section className="v6-grid v6-overview">
           <div className="v6-card v6-card-large"><p className="eyebrow">Launch readiness</p><h2>{checks.filter((check) => check.done).length}/{checks.length} checks ready.</h2><p className="v6-muted">Publish creates a revision that can be rolled back from the Versions tab.</p><div className="v6-checks">{checks.map((check) => <div className={check.done ? "done" : ""} key={check.label}><span>{check.done ? "✓" : "·"}</span>{check.label}</div>)}</div><button className="button button-dark" onClick={() => void publish()} disabled={busy || checks.some((check) => !check.done)}>Publish when ready <span>↗</span></button></div>

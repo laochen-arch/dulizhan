@@ -7,7 +7,7 @@ export async function GET(request: Request) {
   try {
     const siteId = getSiteId(request);
     const access = await requireMember(siteId, "editor");
-    return Response.json({ siteId, configuration: getCommerceConfiguration(), role: access.member.role }, { headers: { "Cache-Control": "no-store" } });
+    return Response.json({ siteId, configuration: getCommerceConfiguration(), webhookEndpoint: new URL("/api/stripe/webhook", request.url).toString(), role: access.member.role }, { headers: { "Cache-Control": "no-store" } });
   } catch (error) {
     return errorResponse(error);
   }
