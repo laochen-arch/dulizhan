@@ -42,6 +42,14 @@ const worker = {
 
     return handler.fetch(request, env, ctx);
   },
+  async scheduled(_controller: unknown, env: Env): Promise<void> {
+    const { expirePendingOrders, retryDueOrderNotifications } = await import("../db/commerce");
+    const sites = await env.DB.prepare("SELECT id FROM cms_sites WHERE status <> 'deleted'").all<{ id: string }>();
+    await Promise.all(sites.results.map(async (site) => {
+      await expirePendingOrders(site.id);
+      await retryDueOrderNotifications(site.id, "system", "system@northlinesupply.com");
+    }));
+  },
 };
 
 export default worker;
