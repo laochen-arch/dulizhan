@@ -41,6 +41,27 @@ export const cmsSiteSettings = sqliteTable("cms_site_settings", {
   publishedBy: text("published_by"),
 });
 
+export const cmsSiteIntegrations = sqliteTable("cms_site_integrations", {
+  siteId: text("site_id").notNull(),
+  provider: text("provider").notNull(),
+  status: text("status").notNull().default("missing"),
+  clientIdCipher: text("client_id_cipher"),
+  clientSecretCipher: text("client_secret_cipher"),
+  webhookIdCipher: text("webhook_id_cipher"),
+  apiKeyCipher: text("api_key_cipher"),
+  environment: text("environment").notNull().default("sandbox"),
+  fromEmail: text("from_email"),
+  fromDomain: text("from_domain"),
+  lastCheckedAt: text("last_checked_at"),
+  lastError: text("last_error"),
+  updatedBy: text("updated_by"),
+  createdAt: text("created_at").notNull(),
+  updatedAt: text("updated_at").notNull(),
+}, (table) => [
+  primaryKey({ columns: [table.siteId, table.provider] }),
+  index("cms_site_integrations_status_idx").on(table.siteId, table.status),
+]);
+
 export const cmsSiteProducts = sqliteTable("cms_site_products", {
   siteId: text("site_id").notNull(),
   productId: text("product_id").notNull(),
@@ -331,3 +352,11 @@ export const cmsAbandonedCheckouts = sqliteTable("cms_abandoned_checkouts", {
 export const cmsHealthChecks = sqliteTable("cms_health_checks", {
   siteId: text("site_id").notNull(), checkKey: text("check_key").notNull(), status: text("status").notNull(), detail: text("detail").notNull(), checkedAt: text("checked_at").notNull(),
 }, (table) => [primaryKey({ columns: [table.siteId, table.checkKey] }), index("cms_health_site_idx").on(table.siteId, table.checkedAt)]);
+
+export const cmsReleaseRequests = sqliteTable("cms_release_requests", {
+  id: text("id").primaryKey(), siteId: text("site_id").notNull(), status: text("status").notNull().default("pending"), label: text("label").notNull(), note: text("note"), requestedBy: text("requested_by").notNull(), requestedByEmail: text("requested_by_email").notNull(), requestedAt: text("requested_at").notNull(), reviewedBy: text("reviewed_by"), reviewedByEmail: text("reviewed_by_email"), reviewedAt: text("reviewed_at"), revisionId: text("revision_id"), publishedAt: text("published_at"), createdAt: text("created_at").notNull(), updatedAt: text("updated_at").notNull(),
+}, (table) => [index("cms_release_requests_site_idx").on(table.siteId, table.status, table.createdAt)]);
+
+export const cmsPreviewTokens = sqliteTable("cms_preview_tokens", {
+  id: text("id").primaryKey(), siteId: text("site_id").notNull(), tokenHash: text("token_hash").notNull().unique(), mode: text("mode").notNull().default("draft"), expiresAt: text("expires_at").notNull(), createdBy: text("created_by").notNull(), createdAt: text("created_at").notNull(), lastUsedAt: text("last_used_at"),
+}, (table) => [index("cms_preview_tokens_site_idx").on(table.siteId, table.expiresAt)]);

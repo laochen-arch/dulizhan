@@ -1,6 +1,6 @@
-import { env } from "cloudflare:workers";
 import { ensureCmsSchema, getCmsDatabase, getMediaBucket, recordAudit } from "./cms";
 import { probeCommerceProvider } from "./commerce";
+import { getSiteProviderCredentials, markSiteIntegrationCheck } from "./site-integrations";
 
 function now() { return new Date().toISOString(); }
 function changed(result: unknown) { return Number((result as { meta?: { changes?: number } })?.meta?.changes ?? 0); }
@@ -122,12 +122,12 @@ export async function recordAbandonedCheckout(siteId: string, input: { email?: s
 export async function retryAbandonedCheckoutEmails(siteId: string) {
   const database = getCmsDatabase(); await ensureCmsSchema(database);
   const rows = await database.prepare(`SELECT id, email FROM cms_abandoned_checkouts WHERE site_id = ?1 AND status = 'open' AND email IS NOT NULL AND last_seen_at <= ?2 ORDER BY last_seen_at ASC LIMIT 25`).bind(siteId, new Date(Date.now() - 60 * 60 * 1000).toISOString()).all<{ id: string; email: string }>();
-  const values = env as unknown as { RESEND_API_KEY?: string; RESEND_FROM_EMAIL?: string };
+  const values = await getSiteProviderCredentials(siteId, "resend");
   let sent = 0; let failed = 0;
   for (const row of rows.results) {
     try {
-      if (!values.RESEND_API_KEY?.trim() || !values.RESEND_FROM_EMAIL?.trim()) throw new Error("RESEND_NOT_CONFIGURED");
-      const response = await fetch("https://api.resend.com/emails", { method: "POST", headers: { Authorization: `Bearer ${values.RESEND_API_KEY}`, "Content-Type": "application/json" }, body: JSON.stringify({ from: values.RESEND_FROM_EMAIL, to: [row.email], subject: "Your cart is still waiting", html: `<p>You left items in your cart. Return to the storefront to finish checkout.</p>` }) });
+      if (!values.apiKey?.trim() || !values.fromEmail?.trim()) throw new Error("RESEND_NOT_CONFIGURED");
+      const response = await fetch("https://api.resend.com/emails", { method: "POST", headers: { Authorization: `Bearer ${values.apiKey}`, "Content-Type": "application/json" }, body: JSON.stringify({ from: values.fromEmail, to: [row.email], subject: "Your cart is still waiting", html: `<p>You left items in your cart. Return to the storefront to finish checkout.</p>` }) });
       if (!response.ok) throw new Error("RESEND_REJECTED");
       await database.prepare("UPDATE cms_abandoned_checkouts SET status = 'sent', last_seen_at = ?1 WHERE id = ?2 AND site_id = ?3").bind(now(), row.id, siteId).run(); sent += 1;
     } catch { await database.prepare("UPDATE cms_abandoned_checkouts SET status = 'failed', last_seen_at = ?1 WHERE id = ?2 AND site_id = ?3").bind(now(), row.id, siteId).run(); failed += 1; }
@@ -155,7 +155,7 @@ export async function moderateReview(siteId: string, id: string, status: string,
 export async function runHealthChecks(siteId: string) {
   const database = getCmsDatabase(); const checks: Array<{ key: string; status: string; detail: string }> = [];
   try { await ensureCmsSchema(database); await database.prepare("SELECT 1 AS ok").first(); checks.push({ key: "d1", status: "ready", detail: "D1 schema and query are available." }); } catch (error) { checks.push({ key: "d1", status: "error", detail: error instanceof Error ? error.message : "D1 unavailable." }); }
-  for (const provider of ["paypal", "resend"] as const) { try { const probe = await probeCommerceProvider(provider); checks.push({ key: provider, status: probe.status, detail: probe.detail }); } catch (error) { checks.push({ key: provider, status: "error", detail: error instanceof Error ? error.message : "Provider check failed." }); } }
+  for (const provider of ["paypal", "resend"] as const) { try { const probe = await probeCommerceProvider(provider, siteId); checks.push({ key: provider, status: probe.status, detail: probe.detail }); await markSiteIntegrationCheck(siteId, provider, probe.status === "ready" ? "ready" : probe.status === "missing" ? "missing" : "error", probe.status === "ready" ? null : probe.detail, database); } catch (error) { const detail = error instanceof Error ? error.message : "Provider check failed."; checks.push({ key: provider, status: "error", detail }); await markSiteIntegrationCheck(siteId, provider, "error", detail, database); } }
   try { getMediaBucket(); checks.push({ key: "r2", status: "ready", detail: "R2 media binding is present." }); } catch (error) { checks.push({ key: "r2", status: "error", detail: error instanceof Error ? error.message : "R2 unavailable." }); }
   const domain = await database.prepare("SELECT hostname, status FROM cms_site_domains WHERE site_id = ?1 ORDER BY created_at DESC LIMIT 1").bind(siteId).first<{ hostname: string; status: string }>(); checks.push({ key: "domain", status: domain?.status === "active" || domain?.status === "verified" ? "ready" : domain ? "error" : "missing", detail: domain ? `${domain.hostname} is ${domain.status}.` : "No custom domain mapping." });
   checks.push({ key: "worker", status: "ready", detail: "Scheduled operations are available in the worker runtime." });

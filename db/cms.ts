@@ -1,6 +1,7 @@
 import { env } from "cloudflare:workers";
 import { getCatalogValidationErrors, products as defaultProducts, type Product } from "../app/data/products";
 import { siteConfig, type SiteConfig } from "../app/data/site-config";
+import { getSiteIntegrationReadiness } from "./site-integrations";
 
 export type CmsMode = "draft" | "published";
 export type CmsRole = "owner" | "editor" | "viewer";
@@ -284,6 +285,24 @@ export async function ensureCmsSchema(database: D1DatabaseLike) {
       updated_by TEXT,
       published_at TEXT,
       published_by TEXT
+    )`),
+    database.prepare(`CREATE TABLE IF NOT EXISTS cms_site_integrations (
+      site_id TEXT NOT NULL,
+      provider TEXT NOT NULL,
+      status TEXT NOT NULL DEFAULT 'missing',
+      client_id_cipher TEXT,
+      client_secret_cipher TEXT,
+      webhook_id_cipher TEXT,
+      api_key_cipher TEXT,
+      environment TEXT NOT NULL DEFAULT 'sandbox',
+      from_email TEXT,
+      from_domain TEXT,
+      last_checked_at TEXT,
+      last_error TEXT,
+      updated_by TEXT,
+      created_at TEXT NOT NULL,
+      updated_at TEXT NOT NULL,
+      PRIMARY KEY (site_id, provider)
     )`),
     database.prepare(`CREATE TABLE IF NOT EXISTS cms_site_products (
       site_id TEXT NOT NULL,
@@ -634,8 +653,36 @@ export async function ensureCmsSchema(database: D1DatabaseLike) {
       checked_at TEXT NOT NULL,
       PRIMARY KEY(site_id, check_key)
     )`),
+    database.prepare(`CREATE TABLE IF NOT EXISTS cms_release_requests (
+      id TEXT PRIMARY KEY,
+      site_id TEXT NOT NULL,
+      status TEXT NOT NULL DEFAULT 'pending',
+      label TEXT NOT NULL,
+      note TEXT,
+      requested_by TEXT NOT NULL,
+      requested_by_email TEXT NOT NULL,
+      requested_at TEXT NOT NULL,
+      reviewed_by TEXT,
+      reviewed_by_email TEXT,
+      reviewed_at TEXT,
+      revision_id TEXT,
+      published_at TEXT,
+      created_at TEXT NOT NULL,
+      updated_at TEXT NOT NULL
+    )`),
+    database.prepare(`CREATE TABLE IF NOT EXISTS cms_preview_tokens (
+      id TEXT PRIMARY KEY,
+      site_id TEXT NOT NULL,
+      token_hash TEXT NOT NULL UNIQUE,
+      mode TEXT NOT NULL DEFAULT 'draft',
+      expires_at TEXT NOT NULL,
+      created_by TEXT NOT NULL,
+      created_at TEXT NOT NULL,
+      last_used_at TEXT
+    )`),
     database.prepare("CREATE INDEX IF NOT EXISTS cms_sites_status_idx ON cms_sites(status)"),
     database.prepare("CREATE INDEX IF NOT EXISTS cms_site_products_site_idx ON cms_site_products(site_id)"),
+    database.prepare("CREATE INDEX IF NOT EXISTS cms_site_integrations_status_idx ON cms_site_integrations(site_id, status)"),
     database.prepare("CREATE INDEX IF NOT EXISTS cms_members_email_idx ON cms_members(site_id, email)"),
     database.prepare("CREATE INDEX IF NOT EXISTS cms_revisions_site_idx ON cms_revisions(site_id, created_at)"),
     database.prepare("CREATE INDEX IF NOT EXISTS cms_assets_site_idx ON cms_assets(site_id, created_at)"),
@@ -667,6 +714,8 @@ export async function ensureCmsSchema(database: D1DatabaseLike) {
     database.prepare("CREATE INDEX IF NOT EXISTS cms_analytics_site_idx ON cms_analytics_events(site_id, event_type, created_at)"),
     database.prepare("CREATE INDEX IF NOT EXISTS cms_abandoned_site_idx ON cms_abandoned_checkouts(site_id, status, last_seen_at)"),
     database.prepare("CREATE INDEX IF NOT EXISTS cms_health_site_idx ON cms_health_checks(site_id, checked_at)"),
+    database.prepare("CREATE INDEX IF NOT EXISTS cms_release_requests_site_idx ON cms_release_requests(site_id, status, created_at)"),
+    database.prepare("CREATE INDEX IF NOT EXISTS cms_preview_tokens_site_idx ON cms_preview_tokens(site_id, expires_at)"),
   ]);
   await ensureColumn(database, "cms_orders", "admin_note", "TEXT");
   await ensureColumn(database, "cms_orders", "paypal_order_id", "TEXT");
@@ -1000,15 +1049,6 @@ export async function importClientData(siteId: string, payload: ClientImportPayl
   return { config, catalog, importedProducts: catalog.length, assetBindings: bindings.size, revisionId };
 }
 
-function runtimeLaunchReadiness() {
-  const values = env as unknown as Record<string, string | undefined>;
-  return {
-    paypal: Boolean(values.PAYPAL_CLIENT_ID?.trim() && values.PAYPAL_CLIENT_SECRET?.trim()),
-    webhook: Boolean(values.PAYPAL_WEBHOOK_ID?.trim()),
-    resend: Boolean(values.RESEND_API_KEY?.trim() && values.RESEND_FROM_EMAIL?.trim()),
-  };
-}
-
 async function readManualLaunchChecks(database: D1DatabaseLike, siteId: string) {
   const rows = await database.prepare(`SELECT check_key AS checkKey, completed, note, updated_at AS updatedAt, updated_by AS updatedBy
     FROM cms_launch_checks WHERE site_id = ?1`).bind(siteId).all<{ checkKey: string; completed: number; note: string | null; updatedAt: string; updatedBy: string }>();
@@ -1018,7 +1058,7 @@ async function readManualLaunchChecks(database: D1DatabaseLike, siteId: string) 
 async function buildSiteLaunchChecks(database: D1DatabaseLike, siteId: string, config: SiteConfig, catalog: Product[]) {
   const domain = await database.prepare("SELECT status, hostname FROM cms_site_domains WHERE site_id = ?1 ORDER BY created_at DESC LIMIT 1").bind(siteId).first<{ status: CmsDomain["status"]; hostname: string }>();
   const catalogErrors = getCatalogValidationErrors(catalog);
-  const readiness = runtimeLaunchReadiness();
+  const readiness = await getSiteIntegrationReadiness(database, siteId);
   const isClientSite = siteId !== DEFAULT_SITE_ID;
   const intake = await database.prepare("SELECT status FROM cms_client_intake WHERE site_id = ?1").bind(siteId).first<{ status: string }>();
   const manualRows = await readManualLaunchChecks(database, siteId);
@@ -1041,9 +1081,10 @@ async function buildSiteLaunchChecks(database: D1DatabaseLike, siteId: string, c
     { key: "policies", label: "Shipping and returns copy", done: policiesReady, required: true, detail: policiesReady ? "The client delivery and returns policies are ready." : isClientSite ? "Replace the template shipping or returns copy." : "Confirm the client delivery and returns policies." },
     { key: "catalog", label: "At least one active product", done: catalogReady, required: true, detail: catalogReady ? "The client product catalog is ready." : isClientSite ? "Import the client catalog instead of publishing the template catalog." : "Import or activate at least one product." },
     { key: "commerce", label: "Active product commerce validation", done: catalogErrors.length === 0, required: true, detail: catalogErrors[0] || "All active products have valid variants, SKUs, prices and images." },
-    { key: "paypal", label: "PayPal runtime credentials", done: !isClientSite || readiness.paypal, required: isClientSite, detail: readiness.paypal ? "PayPal client credentials are present in the Sites runtime." : "Add PAYPAL_CLIENT_ID and PAYPAL_CLIENT_SECRET before publishing this client site." },
-    { key: "paypal-webhook", label: "PayPal webhook identity", done: !isClientSite || readiness.webhook, required: isClientSite, detail: readiness.webhook ? "PayPal webhook identity is present." : "Add PAYPAL_WEBHOOK_ID before publishing this client site." },
-    { key: "resend", label: "Resend email runtime credentials", done: !isClientSite || readiness.resend, required: isClientSite, detail: readiness.resend ? "Resend API key and sender are present in the Sites runtime." : "Add RESEND_API_KEY and RESEND_FROM_EMAIL before publishing this client site." },
+    { key: "secrets-key", label: "Tenant secrets encryption key", done: !isClientSite || readiness.encryptionKey, required: isClientSite, detail: readiness.encryptionKey ? "The shared encryption key is available to protect tenant credentials." : "Add CMS_SECRETS_KEY (32+ characters) in the Sites production environment." },
+    { key: "paypal", label: "PayPal site credentials", done: !isClientSite || readiness.paypal, required: isClientSite, detail: readiness.paypal ? "This tenant has encrypted PayPal credentials." : "Save this tenant's PayPal credentials in the configuration center." },
+    { key: "paypal-webhook", label: "PayPal site webhook identity", done: !isClientSite || readiness.webhook, required: isClientSite, detail: readiness.webhook ? "This tenant has an encrypted PayPal webhook identity." : "Save this tenant's PayPal webhook ID in the configuration center." },
+    { key: "resend", label: "Resend site credentials", done: !isClientSite || readiness.resend, required: isClientSite, detail: readiness.resend ? "This tenant has encrypted Resend credentials and a sender." : "Save this tenant's Resend API key and sender in the configuration center." },
     { key: "domain", label: "Custom domain mapping", done: !isClientSite || Boolean(domain?.hostname && (domain.status === "verified" || domain.status === "active")), required: isClientSite, detail: domain ? `${domain.hostname} is ${domain.status}.` : "Map and verify the client domain." },
     { key: "client-intake", label: "Client handoff intake approved", done: !isClientSite || intake?.status === "approved", required: isClientSite, detail: !isClientSite ? "Template site does not require client intake." : intake?.status === "approved" ? "Client delivery intake is approved." : "Collect and approve the client's brand, content, legal and domain details." },
     ...manualChecks,
@@ -1262,15 +1303,15 @@ export async function removeMember(siteId: string, memberUserId: string, actorId
   return { ok: true };
 }
 
-export async function readSnapshot(siteId: string, mode: CmsMode, user?: { userId: string; email: string }): Promise<CmsSnapshot> {
+export async function readSnapshot(siteId: string, mode: CmsMode, user?: { userId: string; email: string }, allowSharedDraft = false): Promise<CmsSnapshot> {
   const database = getD1();
   await ensureCmsSchema(database);
   await processDueScheduledPublishes(database);
   const site = siteId === DEFAULT_SITE_ID ? await ensureSite(siteId, database) : await getExistingSite(siteId, database);
   let role: CmsRole | undefined;
   if (mode === "draft") {
-    if (!user) throw new Error("AUTH_REQUIRED");
-    role = (await ensureMember(siteId, user.userId, user.email, database)).role;
+    if (!user && !allowSharedDraft) throw new Error("AUTH_REQUIRED");
+    if (user) role = (await ensureMember(siteId, user.userId, user.email, database)).role;
   }
   const settings = await database.prepare(`SELECT draft_config, published_config, updated_at, published_at
     FROM cms_site_settings WHERE site_id = ?1`).bind(siteId).first<SettingsRow>();

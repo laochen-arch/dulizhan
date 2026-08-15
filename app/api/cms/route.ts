@@ -1,5 +1,6 @@
 import { readSnapshot, resolveSiteByHost, writeDraft } from "../../../db/cms";
 import { attachLiveInventoryToCatalog } from "../../../db/commerce";
+import { validatePreviewShare } from "../../../db/v24";
 import type { Product } from "../../data/products";
 import type { SiteConfig } from "../../data/site-config";
 import { errorResponse, getSiteId, requireMember } from "./helpers";
@@ -32,8 +33,10 @@ export async function GET(request: Request) {
     const siteId = explicitSiteId && /^[a-zA-Z0-9_-]{2,80}$/.test(explicitSiteId)
       ? explicitSiteId
       : mode === "published" ? (await resolveSiteByHost(request.headers.get("host"))).id : getSiteId(request);
-    const access = mode === "draft" ? await requireMember(siteId, "viewer") : null;
-    let snapshot = await readSnapshot(siteId, mode, access ? { userId: access.user.userId, email: access.user.email } : undefined);
+    const shareToken = mode === "draft" ? url.searchParams.get("share") || "" : "";
+    const sharedDraft = Boolean(shareToken && await validatePreviewShare(siteId, shareToken));
+    const access = mode === "draft" && !sharedDraft ? await requireMember(siteId, "viewer") : null;
+    let snapshot = await readSnapshot(siteId, mode, access ? { userId: access.user.userId, email: access.user.email } : undefined, sharedDraft);
     if (mode === "published") snapshot = { ...snapshot, catalog: await attachLiveInventoryToCatalog(siteId, snapshot.catalog) };
     return Response.json(snapshot, { headers: { "Cache-Control": "no-store" } });
   } catch (error) {

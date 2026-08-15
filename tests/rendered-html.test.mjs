@@ -94,6 +94,7 @@ test("keeps client replacement content centralized", async () => {
 test("keeps V20 tenant boundaries and release gates in source", async () => {
   const cms = await readFile(new URL("../db/cms.ts", import.meta.url), "utf8");
   const commerce = await readFile(new URL("../db/commerce.ts", import.meta.url), "utf8");
+  const integrations = await readFile(new URL("../db/site-integrations.ts", import.meta.url), "utf8");
   const cart = await readFile(new URL("../app/components/cart-store.ts", import.meta.url), "utf8");
   const onboarding = await readFile(new URL("../app/api/cms/onboarding/route.ts", import.meta.url), "utf8");
   const layout = await readFile(new URL("../app/layout.tsx", import.meta.url), "utf8");
@@ -101,7 +102,7 @@ test("keeps V20 tenant boundaries and release gates in source", async () => {
 
   assert.match(cms, /cms_launch_checks/);
   assert.match(cms, /publish\.blocked/);
-  assert.match(cms, /PAYPAL_CLIENT_ID/);
+  assert.match(integrations, /PAYPAL_CLIENT_ID/);
   assert.match(cms, /manualChecks/);
   assert.match(commerce, /SET_FROM_PROVIDER/);
   assert.match(commerce, /getStoreCommerceProfile/);
@@ -151,4 +152,43 @@ test("keeps V22 production control and durable delivery wizard in source", async
   assert.match(admin, /V22 control/);
   assert.match(deliveryRoute, /updateDeliveryRun/);
   assert.match(operationsRoute, /resolveOperationEvent/);
+});
+
+test("keeps V23 tenant secrets and client self-service boundaries in source", async () => {
+  const integrations = await readFile(new URL("../db/site-integrations.ts", import.meta.url), "utf8");
+  const portal = await readFile(new URL("../db/v23.ts", import.meta.url), "utf8");
+  const configRoute = await readFile(new URL("../app/api/cms/integrations/route.ts", import.meta.url), "utf8");
+  const clientRoute = await readFile(new URL("../app/api/client/overview/route.ts", import.meta.url), "utf8");
+  const clientPage = await readFile(new URL("../app/client/client-portal.tsx", import.meta.url), "utf8");
+  assert.match(integrations, /AES-GCM/);
+  assert.match(integrations, /CMS_SECRETS_KEY/);
+  assert.match(integrations, /siteId/);
+  assert.match(portal, /client\.brand_updated/);
+  assert.match(portal, /client\.product_updated/);
+  assert.match(configRoute, /requireMember\(siteId, "owner"\)/);
+  assert.match(clientRoute, /requireMember\(siteId, "viewer"\)/);
+  assert.match(clientPage, /Save encrypted credentials/);
+});
+
+test("keeps V24 release approval and client operations in source", async () => {
+  const v24 = await readFile(new URL("../db/v24.ts", import.meta.url), "utf8");
+  const schema = await readFile(new URL("../drizzle/0011_v24_release_operations.sql", import.meta.url), "utf8");
+  const releases = await readFile(new URL("../app/api/cms/releases/route.ts", import.meta.url), "utf8");
+  const previewShare = await readFile(new URL("../app/api/cms/preview-share/route.ts", import.meta.url), "utf8");
+  const catalog = await readFile(new URL("../app/api/client/catalog/route.ts", import.meta.url), "utf8");
+  const portal = await readFile(new URL("../app/client/client-portal.tsx", import.meta.url), "utf8");
+  const admin = await readFile(new URL("../app/admin/v24-panels.tsx", import.meta.url), "utf8");
+
+  assert.match(v24, /release\.requested/);
+  assert.match(v24, /rollbackPublishedRevision/);
+  assert.match(v24, /cms_preview_tokens/);
+  assert.match(v24, /getClientOrderDetail/);
+  assert.match(schema, /cms_release_requests/);
+  assert.match(schema, /cms_preview_tokens/);
+  assert.match(releases, /reviewReleaseRequest/);
+  assert.match(previewShare, /createPreviewShare/);
+  assert.match(catalog, /previewClientImport/);
+  assert.match(portal, /Variant \/ SKU management/);
+  assert.match(portal, /Submit a verified after-sales case/);
+  assert.match(admin, /V24 \/ Production launch center/);
 });

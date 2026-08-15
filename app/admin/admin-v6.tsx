@@ -10,8 +10,10 @@ import { DeliveryPanel, LaunchSetupPanel } from "./launch-panels";
 import { formatMoney } from "../lib/format-money";
 import { BundleManager, V21OperationsPanel } from "./v21-panels";
 import { V22DeliveryWizard, V22OperationsPanel } from "./v22-panels";
+import { V23ConfigurationPanel } from "./v23-panels";
+import { V24OperationsPanel } from "./v24-panels";
 
-type AdminTab = "overview" | "setup" | "delivery" | "brand" | "content" | "products" | "media" | "access" | "team" | "domains" | "activity" | "release" | "commerce" | "versions" | "v21" | "v22";
+type AdminTab = "overview" | "setup" | "delivery" | "brand" | "content" | "products" | "media" | "access" | "team" | "domains" | "activity" | "release" | "commerce" | "versions" | "v21" | "v22" | "v23" | "v24";
 type Notice = { tone: "success" | "error" | "info"; text: string } | null;
 type CommerceConfiguration = { paypal: { clientId: boolean; clientSecret: boolean; webhookId: boolean; mode?: string }; resend: { apiKey: boolean; fromEmail: boolean; fromDomain?: string | null }; webhookEndpoint?: string; environmentKeys?: string[] };
 type OnboardingState = { domain?: { hostname: string; status: string } | null; checks: CmsLaunchCheck[]; manualChecks?: CmsManualLaunchCheck[]; replacements: CmsReplacementItem[]; progress: { done: number; total: number }; readiness?: { score: number; done: number; total: number } };
@@ -33,6 +35,8 @@ const tabs: Array<{ id: AdminTab; label: string }> = [
   { id: "versions", label: "Versions" },
   { id: "v21", label: "V21 operations" },
   { id: "v22", label: "V22 control" },
+  { id: "v23", label: "V23 configuration" },
+  { id: "v24", label: "V24 launch center" },
 ];
 
 function clone<T>(value: T): T {
@@ -784,6 +788,8 @@ export function AdminStudioV6() {
         {tab === "delivery" && <V22DeliveryWizard activeSiteId={activeSiteId} site={site} cmsRole={cmsRole} onboarding={onboarding} busy={busy} onRefresh={async () => { await refreshCms(); await loadWorkspaceData(); }} onNotice={(next) => setNotice(next)}><DeliveryPanel sites={sites} site={site} activeSiteId={activeSiteId} setActiveSiteId={setActiveSiteId} siteForm={siteForm} setSiteForm={setSiteForm} createClientSite={createClientSite} onboarding={onboarding} busy={busy} onRefresh={async () => { await refreshCms(); await loadWorkspaceData(); }} onNotice={(next) => setNotice(next)} /></V22DeliveryWizard>}
         {tab === "v21" && <><V21OperationsPanel activeSiteId={activeSiteId} cmsRole={cmsRole} config={config} updateConfig={updateConfig} onNotice={(next) => setNotice(next)} /><BundleManager activeSiteId={activeSiteId} cmsRole={cmsRole} onNotice={(next) => setNotice(next)} /></>}
         {tab === "v22" && <V22OperationsPanel activeSiteId={activeSiteId} cmsRole={cmsRole} onNotice={(next) => setNotice(next)} />}
+         {tab === "v23" && <V23ConfigurationPanel activeSiteId={activeSiteId} cmsRole={cmsRole || "viewer"} onNotice={setNotice} />}
+         {tab === "v24" && <V24OperationsPanel activeSiteId={activeSiteId} cmsRole={cmsRole || "viewer"} onNotice={setNotice} />}
 
         {tab === "overview" && onboarding && <section className="v6-card v6-onboarding-card"><div className="v6-card-heading"><div><p className="eyebrow">V20 delivery center</p><h2>{onboarding.progress.done}/{onboarding.progress.total} required checks ready.</h2></div><span>{onboarding.readiness?.score ?? Math.round(onboarding.progress.done / Math.max(1, onboarding.progress.total) * 100)}% ready</span></div><div className="v6-checks">{onboarding.checks.map((check) => <div className={check.done ? "done" : ""} key={check.key}><span>{check.done ? "OK" : "!"}</span>{check.label}<small>{check.detail}{check.required === false ? " Optional for this site." : ""}</small></div>)}</div><div className="v6-divider"><p className="eyebrow">Replacement checklist</p><div className="v6-version-list">{onboarding.replacements.map((item) => <article key={item.key}><div><strong>{item.label}</strong><span>{item.source}</span></div><span className={item.done ? "v6-status-chip is-ready" : "v6-status-chip is-missing"}>{item.done ? "Replaced" : item.required ? "Required" : "Optional"}</span></article>)}</div></div><div className="v6-divider"><p className="eyebrow">Batch import</p><p className="v6-muted">Upload a client JSON package or product CSV into this tenant draft.</p><button className="button button-outline" onClick={() => clientImportInput.current?.click()} disabled={busy}>Import client JSON / CSV <span>+</span></button><input ref={clientImportInput} type="file" accept=".csv,.json,text/csv,application/json" className="sr-only" onChange={(event) => void importClientFile(event)} /></div></section>}
 

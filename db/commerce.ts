@@ -1,5 +1,5 @@
-import { env } from "cloudflare:workers";
 import { readSnapshot, ensureCmsSchema, getCmsDatabase, recordAudit, type D1DatabaseLike, type D1Statement } from "./cms";
+import { getSiteIntegrationStatuses, getSiteProviderCredentials } from "./site-integrations";
 import type { Product, ProductVariant } from "../app/data/products";
 import type { SiteConfig } from "../app/data/site-config";
 import { formatMoney } from "../app/lib/format-money";
@@ -148,24 +148,11 @@ export type StoreCommerceProfile = {
   shipping: { standard: number; express: number; freeThreshold: number };
 };
 
-type WorkerEnv = {
-  PAYPAL_CLIENT_ID?: string;
-  PAYPAL_CLIENT_SECRET?: string;
-  PAYPAL_WEBHOOK_ID?: string;
-  PAYPAL_ENVIRONMENT?: string;
-  RESEND_API_KEY?: string;
-  RESEND_FROM_EMAIL?: string;
-};
-
 type InventoryRow = CmsInventoryRow;
 type OrderRow = Omit<CmsOrder, "shippingAddress"> & { shipping_address: string };
 type OrderItemRow = Omit<CmsOrderItem, "payload"> & { payload: string };
 type OrderNotificationRow = CmsOrderNotification;
 type RefundRow = Omit<CmsRefund, "restockItems"> & { restockItems: string | null };
-
-function workerEnv() {
-  return env as unknown as WorkerEnv;
-}
 
 function now() {
   return new Date().toISOString();
@@ -344,22 +331,23 @@ function orderNumber(prefix: string) {
   return `${prefix}-${date}-${crypto.randomUUID().slice(0, 6).toUpperCase()}`;
 }
 
-function paypalBaseUrl() {
-  return workerEnv().PAYPAL_ENVIRONMENT?.trim().toLowerCase() === "live" ? "https://api-m.paypal.com" : "https://api-m.sandbox.paypal.com";
+function paypalBaseUrl(environment = "sandbox") {
+  return environment.trim().toLowerCase() === "live" ? "https://api-m.paypal.com" : "https://api-m.sandbox.paypal.com";
 }
 
-async function getPayPalAccessToken() {
-  const clientId = workerEnv().PAYPAL_CLIENT_ID?.trim();
-  const clientSecret = workerEnv().PAYPAL_CLIENT_SECRET?.trim();
+async function getPayPalAccessToken(siteId: string) {
+  const credentials = await getSiteProviderCredentials(siteId, "paypal");
+  const clientId = credentials.clientId?.trim();
+  const clientSecret = credentials.clientSecret?.trim();
   if (!clientId || !clientSecret) throw new Error("PAYMENT_NOT_CONFIGURED");
-  const response = await fetch(`${paypalBaseUrl()}/v1/oauth2/token`, {
+  const response = await fetch(`${paypalBaseUrl(credentials.environment)}/v1/oauth2/token`, {
     method: "POST",
     headers: { Authorization: `Basic ${btoa(`${clientId}:${clientSecret}`)}`, "Content-Type": "application/x-www-form-urlencoded" },
     body: "grant_type=client_credentials",
   });
   const payload = await response.json().catch(() => ({})) as { access_token?: string; error_description?: string };
   if (!response.ok || !payload.access_token) throw new Error(payload.error_description || "PAYMENT_PROVIDER_ERROR");
-  return payload.access_token;
+  return { token: payload.access_token, environment: credentials.environment };
 }
 
 function paypalCountryCode(country: string) {
@@ -405,8 +393,8 @@ function paypalOrderBody(order: CmsOrder, items: CmsOrderItem[], origin: string,
 }
 
 async function createPayPalOrder(order: CmsOrder, items: CmsOrderItem[], origin: string, requestId: string, brandName: string) {
-  const token = await getPayPalAccessToken();
-  const response = await fetch(`${paypalBaseUrl()}/v2/checkout/orders`, { method: "POST", headers: { Authorization: `Bearer ${token}`, "Content-Type": "application/json", Prefer: "return=representation", "PayPal-Request-Id": requestId }, body: JSON.stringify(paypalOrderBody(order, items, origin, brandName)) });
+  const session = await getPayPalAccessToken(order.siteId);
+  const response = await fetch(`${paypalBaseUrl(session.environment)}/v2/checkout/orders`, { method: "POST", headers: { Authorization: `Bearer ${session.token}`, "Content-Type": "application/json", Prefer: "return=representation", "PayPal-Request-Id": requestId }, body: JSON.stringify(paypalOrderBody(order, items, origin, brandName)) });
   const payload = await response.json().catch(() => ({})) as { id?: string; links?: Array<{ rel?: string; href?: string }>; name?: string; message?: string; details?: Array<{ description?: string }> };
   const approval = payload.links?.find((link) => link.rel === "approve")?.href;
   if (!response.ok || !payload.id || !approval) throw new Error(payload.details?.[0]?.description || payload.message || payload.name || "PAYMENT_PROVIDER_ERROR");
@@ -513,8 +501,8 @@ function captureIdFromPayPalOrder(payload: { purchase_units?: Array<{ payments?:
   return payload.purchase_units?.[0]?.payments?.captures?.[0]?.id || null;
 }
 
-async function getPayPalOrder(paypalOrderId: string, token: string) {
-  const response = await fetch(`${paypalBaseUrl()}/v2/checkout/orders/${encodeURIComponent(paypalOrderId)}`, { headers: { Authorization: `Bearer ${token}`, "Content-Type": "application/json" } });
+async function getPayPalOrder(paypalOrderId: string, token: string, environment: "sandbox" | "live") {
+  const response = await fetch(`${paypalBaseUrl(environment)}/v2/checkout/orders/${encodeURIComponent(paypalOrderId)}`, { headers: { Authorization: `Bearer ${token}`, "Content-Type": "application/json" } });
   const payload = await response.json().catch(() => ({})) as { status?: string; name?: string; message?: string; purchase_units?: Array<{ payments?: { captures?: Array<{ id?: string; status?: string }> } }> };
   if (!response.ok) throw new Error(payload.message || payload.name || "PAYMENT_PROVIDER_ERROR");
   return payload;
@@ -526,12 +514,12 @@ export async function capturePayPalOrder(siteId: string, orderId: string, paypal
   const existing = await database.prepare("SELECT paypal_order_id AS paypalOrderId, payment_status AS paymentStatus FROM cms_orders WHERE id = ?1 AND site_id = ?2").bind(orderId, siteId).first<{ paypalOrderId: string | null; paymentStatus: string }>();
   if (!existing || existing.paypalOrderId !== paypalOrderId) throw new Error("ORDER_NOT_FOUND");
   if (existing.paymentStatus === "paid") return getCheckoutStatus(siteId, orderId, paypalOrderId);
-  const token = await getPayPalAccessToken();
-  const response = await fetch(`${paypalBaseUrl()}/v2/checkout/orders/${encodeURIComponent(paypalOrderId)}/capture`, { method: "POST", headers: { Authorization: `Bearer ${token}`, "Content-Type": "application/json", Prefer: "return=representation" }, body: "{}" });
+  const session = await getPayPalAccessToken(siteId);
+  const response = await fetch(`${paypalBaseUrl(session.environment)}/v2/checkout/orders/${encodeURIComponent(paypalOrderId)}/capture`, { method: "POST", headers: { Authorization: `Bearer ${session.token}`, "Content-Type": "application/json", Prefer: "return=representation" }, body: "{}" });
   const payload = await response.json().catch(() => ({})) as { status?: string; name?: string; message?: string; details?: Array<{ description?: string }>; purchase_units?: Array<{ payments?: { captures?: Array<{ id?: string; status?: string }> } }> };
   if (!response.ok) {
     if (payload.name === "ORDER_ALREADY_CAPTURED") {
-      const existingOrder = await getPayPalOrder(paypalOrderId, token);
+      const existingOrder = await getPayPalOrder(paypalOrderId, session.token, session.environment);
       const existingCaptureId = captureIdFromPayPalOrder(existingOrder);
       if (existingOrder.status === "COMPLETED") await finalizePaidOrder(database, orderId, siteId, existingCaptureId);
       return getCheckoutStatus(siteId, orderId, paypalOrderId);
@@ -544,38 +532,28 @@ export async function capturePayPalOrder(siteId: string, orderId: string, paypal
   return getCheckoutStatus(siteId, orderId, paypalOrderId);
 }
 
-export function getCommerceConfiguration() {
-  const values = workerEnv();
-  const clientId = values.PAYPAL_CLIENT_ID?.trim() || "";
-  const clientSecret = values.PAYPAL_CLIENT_SECRET?.trim() || "";
-  const resendFrom = values.RESEND_FROM_EMAIL?.trim() || "";
+export async function getCommerceConfiguration(siteId = "default") {
+  const statuses = await getSiteIntegrationStatuses(siteId);
+  const paypal = statuses.find((item) => item.provider === "paypal");
+  const resend = statuses.find((item) => item.provider === "resend");
   return {
-    paypal: {
-      clientId: Boolean(clientId),
-      clientSecret: Boolean(clientSecret),
-      webhookId: Boolean(values.PAYPAL_WEBHOOK_ID?.trim()),
-      mode: values.PAYPAL_ENVIRONMENT?.trim().toLowerCase() === "live" ? "live" : clientId || clientSecret ? "sandbox" : "unknown",
-    },
-    resend: {
-      apiKey: Boolean(values.RESEND_API_KEY?.trim()),
-      fromEmail: Boolean(values.RESEND_FROM_EMAIL?.trim()),
-      fromDomain: resendFrom.includes("@") ? resendFrom.split("@").pop() || null : null,
-    },
+    paypal: { clientId: Boolean(paypal?.clientId), clientSecret: Boolean(paypal?.clientSecret), webhookId: Boolean(paypal?.webhookId), mode: paypal?.environment || "unknown", source: paypal?.source || "missing", hasEncryptionKey: Boolean(paypal?.hasEncryptionKey) },
+    resend: { apiKey: Boolean(resend?.apiKey), fromEmail: Boolean(resend?.fromEmail), fromDomain: resend?.fromDomain || null, source: resend?.source || "missing", hasEncryptionKey: Boolean(resend?.hasEncryptionKey) },
   };
 }
 
-export async function probeCommerceProvider(provider: CommerceProvider): Promise<CommerceProbe> {
-  const values = workerEnv();
+export async function probeCommerceProvider(provider: CommerceProvider, siteId = "default"): Promise<CommerceProbe> {
   const checkedAt = now();
   if (provider === "paypal") {
-    const clientId = values.PAYPAL_CLIENT_ID?.trim() || "";
-    const clientSecret = values.PAYPAL_CLIENT_SECRET?.trim() || "";
-    const webhook = Boolean(values.PAYPAL_WEBHOOK_ID?.trim());
-    const mode = values.PAYPAL_ENVIRONMENT?.trim().toLowerCase() === "live" ? "live" : clientId || clientSecret ? "sandbox" : "unknown";
+    const credentials = await getSiteProviderCredentials(siteId, "paypal");
+    const clientId = credentials.clientId?.trim() || "";
+    const clientSecret = credentials.clientSecret?.trim() || "";
+    const webhook = Boolean(credentials.webhookId?.trim());
+    const mode = credentials.environment || "unknown";
     if (!clientId || !clientSecret || !webhook) return { provider, configured: false, reachable: false, status: "missing", detail: "PAYPAL_CLIENT_ID, PAYPAL_CLIENT_SECRET, and PAYPAL_WEBHOOK_ID are required.", checkedAt, mode };
     try {
-      const token = await getPayPalAccessToken();
-      const response = await fetch(`${paypalBaseUrl()}/v1/identity/oauth2/userinfo?schema=paypalv1.1`, { headers: { Authorization: `Bearer ${token}` } });
+      const session = await getPayPalAccessToken(siteId);
+      const response = await fetch(`${paypalBaseUrl(session.environment)}/v1/identity/oauth2/userinfo?schema=paypalv1.1`, { headers: { Authorization: `Bearer ${session.token}` } });
       const payload = await response.json().catch(() => ({})) as { user_id?: string; message?: string; error_description?: string };
       if (!response.ok) throw new Error(payload.message || payload.error_description || "PayPal rejected the credentials.");
       return { provider, configured: true, reachable: true, status: "ready", detail: `PayPal ${mode} account ${payload.user_id || "connected"} responded successfully.`, checkedAt, mode };
@@ -584,8 +562,9 @@ export async function probeCommerceProvider(provider: CommerceProvider): Promise
     }
   }
 
-  const apiKey = values.RESEND_API_KEY?.trim() || "";
-  const fromEmail = values.RESEND_FROM_EMAIL?.trim() || "";
+  const credentials = await getSiteProviderCredentials(siteId, "resend");
+  const apiKey = credentials.apiKey?.trim() || "";
+  const fromEmail = credentials.fromEmail?.trim() || "";
   if (!apiKey || !fromEmail) return { provider, configured: false, reachable: false, status: "missing", detail: "RESEND_API_KEY and RESEND_FROM_EMAIL are both required.", checkedAt };
   try {
     const response = await fetch("https://api.resend.com/domains", { headers: { Authorization: `Bearer ${apiKey}` } });
@@ -723,8 +702,16 @@ async function sendOrderNotification(database: D1DatabaseLike, order: CmsOrder, 
     notificationId = existing.id;
   }
   await database.prepare("UPDATE cms_order_notifications SET status = 'sending', attempts = attempts + 1, error = NULL, next_retry_at = NULL WHERE id = ?1").bind(notificationId).run();
-  const apiKey = workerEnv().RESEND_API_KEY?.trim();
-  const from = workerEnv().RESEND_FROM_EMAIL?.trim();
+  let apiKey = "";
+  let from = "";
+  try {
+    const resend = await getSiteProviderCredentials(order.siteId, "resend");
+    apiKey = resend.apiKey?.trim() || "";
+    from = resend.fromEmail?.trim() || "";
+  } catch (error) {
+    await database.prepare("UPDATE cms_order_notifications SET status = 'failed', error = ?1, next_retry_at = ?2 WHERE id = ?3").bind(error instanceof Error ? error.message : "RESEND_NOT_CONFIGURED", new Date(Date.now() + 15 * 60 * 1000).toISOString(), notificationId).run();
+    return;
+  }
   if (!apiKey || !from) {
     await database.prepare("UPDATE cms_order_notifications SET status = 'failed', error = ?1, next_retry_at = ?2 WHERE id = ?3").bind("RESEND_API_KEY and RESEND_FROM_EMAIL are not configured.", new Date(Date.now() + 15 * 60 * 1000).toISOString(), notificationId).run();
     return;
@@ -826,8 +813,7 @@ async function finalizePaidOrder(database: D1DatabaseLike, orderId: string, site
   return paid;
 }
 
-export async function verifyPayPalWebhook(payload: string, headers: Headers) {
-  if (!workerEnv().PAYPAL_WEBHOOK_ID?.trim()) return false;
+export async function verifyPayPalWebhook(siteId: string, payload: string, headers: Headers) {
   const transmissionId = headers.get("paypal-transmission-id");
   const transmissionTime = headers.get("paypal-transmission-time");
   const transmissionSig = headers.get("paypal-transmission-sig");
@@ -835,8 +821,10 @@ export async function verifyPayPalWebhook(payload: string, headers: Headers) {
   const authAlgo = headers.get("paypal-auth-algo");
   if (!transmissionId || !transmissionTime || !transmissionSig || !certUrl || !authAlgo) return false;
   try {
-    const token = await getPayPalAccessToken();
-    const response = await fetch(`${paypalBaseUrl()}/v1/notifications/verify-webhook-signature`, { method: "POST", headers: { Authorization: `Bearer ${token}`, "Content-Type": "application/json" }, body: JSON.stringify({ auth_algo: authAlgo, cert_url: certUrl, transmission_id: transmissionId, transmission_sig: transmissionSig, transmission_time: transmissionTime, webhook_id: workerEnv().PAYPAL_WEBHOOK_ID, webhook_event: JSON.parse(payload) }) });
+    const credentials = await getSiteProviderCredentials(siteId, "paypal");
+    if (!credentials.webhookId) return false;
+    const session = await getPayPalAccessToken(siteId);
+    const response = await fetch(`${paypalBaseUrl(session.environment)}/v1/notifications/verify-webhook-signature`, { method: "POST", headers: { Authorization: `Bearer ${session.token}`, "Content-Type": "application/json" }, body: JSON.stringify({ auth_algo: authAlgo, cert_url: certUrl, transmission_id: transmissionId, transmission_sig: transmissionSig, transmission_time: transmissionTime, webhook_id: credentials.webhookId, webhook_event: JSON.parse(payload) }) });
     const result = await response.json().catch(() => ({})) as { verification_status?: string };
     return response.ok && result.verification_status === "SUCCESS";
   } catch {
@@ -856,6 +844,18 @@ function paypalEventReference(event: PayPalEvent) {
   const captureId = event.event_type.startsWith("PAYMENT.CAPTURE.") && typeof resource.id === "string" ? resource.id : typeof purchaseUnit?.payments === "object" && purchaseUnit.payments && Array.isArray((purchaseUnit.payments as { captures?: unknown[] }).captures) ? (((purchaseUnit.payments as { captures: Array<{ id?: string }> }).captures[0]?.id) || null) : null;
   const paypalOrderId = relatedOrderId || (event.event_type.startsWith("CHECKOUT.ORDER.") && typeof resource.id === "string" ? resource.id : null);
   return { siteId: siteId || "", orderId: orderId || "", paypalOrderId, captureId };
+}
+
+export async function resolvePayPalWebhookSiteId(event: PayPalEvent) {
+  const reference = paypalEventReference(event);
+  if (reference.siteId) return reference.siteId;
+  if (reference.paypalOrderId) {
+    const database = getCmsDatabase();
+    await ensureCmsSchema(database);
+    const row = await database.prepare("SELECT site_id AS siteId FROM cms_orders WHERE paypal_order_id = ?1").bind(reference.paypalOrderId).first<{ siteId: string }>();
+    if (row?.siteId) return row.siteId;
+  }
+  return "default";
 }
 
 export async function processPayPalEvent(event: PayPalEvent) {
@@ -942,14 +942,14 @@ export async function retryDuePaymentEvents(siteId: string, userId: string, emai
 export async function reconcilePayPalOrders(siteId: string, userId: string, email: string) {
   const database = getCmsDatabase();
   await ensureCmsSchema(database);
-  const token = await getPayPalAccessToken();
+  const session = await getPayPalAccessToken(siteId);
   const rows = await database.prepare(`SELECT id, paypal_order_id AS paypalOrderId FROM cms_orders
     WHERE site_id = ?1 AND paypal_order_id IS NOT NULL AND payment_status IN ('pending', 'processing')
     ORDER BY created_at ASC LIMIT 50`).bind(siteId).all<{ id: string; paypalOrderId: string }>();
   const result = { checked: rows.results.length, paid: 0, failed: 0, errors: 0 };
   for (const row of rows.results) {
     try {
-      const remote = await getPayPalOrder(row.paypalOrderId, token);
+      const remote = await getPayPalOrder(row.paypalOrderId, session.token, session.environment);
       if (remote.status === "COMPLETED") { await finalizePaidOrder(database, row.id, siteId, captureIdFromPayPalOrder(remote)); result.paid += 1; }
       else if (["VOIDED", "DECLINED"].includes(remote.status || "")) { await transitionPendingOrder(database, siteId, row.id, "payment_failed", "failed"); result.failed += 1; }
     } catch { result.errors += 1; }
@@ -1022,13 +1022,9 @@ export async function createRefund(siteId: string, orderId: string, amountInput:
   const timestamp = now();
   await database.prepare(`INSERT INTO cms_refunds (id, site_id, order_id, paypal_refund_id, amount, currency, reason, status, restock_items, error, created_by, created_at, completed_at)
     VALUES (?1, ?2, ?3, NULL, ?4, ?5, ?6, 'pending', ?7, NULL, ?8, ?9, NULL)`).bind(refundId, siteId, orderId, amount, detail.order.currency, reason.trim() || null, JSON.stringify(restockItems), userId, timestamp).run();
-  if (!workerEnv().PAYPAL_CLIENT_ID?.trim() || !workerEnv().PAYPAL_CLIENT_SECRET?.trim()) {
-    await database.prepare("UPDATE cms_refunds SET status = 'failed', error = ?1 WHERE id = ?2").bind("PAYPAL_CLIENT_ID and PAYPAL_CLIENT_SECRET are not configured.", refundId).run();
-    throw new Error("PAYMENT_NOT_CONFIGURED");
-  }
   try {
-    const token = await getPayPalAccessToken();
-    const response = await fetch(`${paypalBaseUrl()}/v2/payments/captures/${encodeURIComponent(detail.order.paypalCaptureId)}/refund`, { method: "POST", headers: { Authorization: `Bearer ${token}`, "Content-Type": "application/json", Prefer: "return=representation" }, body: JSON.stringify({ amount: { value: amount.toFixed(2), currency_code: detail.order.currency.toUpperCase() }, note_to_payer: reason.trim() || undefined }) });
+    const session = await getPayPalAccessToken(siteId);
+    const response = await fetch(`${paypalBaseUrl(session.environment)}/v2/payments/captures/${encodeURIComponent(detail.order.paypalCaptureId)}/refund`, { method: "POST", headers: { Authorization: `Bearer ${session.token}`, "Content-Type": "application/json", Prefer: "return=representation" }, body: JSON.stringify({ amount: { value: amount.toFixed(2), currency_code: detail.order.currency.toUpperCase() }, note_to_payer: reason.trim() || undefined }) });
     const payload = await response.json().catch(() => ({})) as { id?: string; status?: string; name?: string; message?: string; details?: Array<{ description?: string }> };
     if (!response.ok || !payload.id) throw new Error(payload.details?.[0]?.description || payload.message || payload.name || "PayPal refund failed.");
     const completedAt = now();

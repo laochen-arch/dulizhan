@@ -124,7 +124,13 @@ async function fetchCmsPayload(siteId: string, mode: CmsMode): Promise<CmsPayloa
   const params = new URLSearchParams({ mode });
   // Public storefronts resolve the tenant from the request Host header.
   // Draft/admin workspaces keep an explicit site selection.
-  if (mode === "draft") params.set("siteId", siteId);
+  if (mode === "draft") {
+    params.set("siteId", siteId);
+    // A V24 preview share is a short-lived, server-validated capability. It
+    // lets a client review the draft without granting CMS membership.
+    const share = typeof window !== "undefined" ? new URLSearchParams(window.location.search).get("share") : null;
+    if (share) params.set("share", share);
+  }
   const response = await fetch(`/api/cms?${params.toString()}`, { cache: "no-store" });
   const payload = await response.json().catch(() => ({})) as CmsPayload & { error?: string; code?: string };
   if (!response.ok) {
