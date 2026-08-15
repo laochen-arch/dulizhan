@@ -10,8 +10,8 @@ export function SiteHeader() {
   const [menuOpen, setMenuOpen] = useState(false);
   const [searchOpen, setSearchOpen] = useState(false);
   const [query, setQuery] = useState("");
-  const { cartCount } = useStore();
-  const { config } = useSiteRuntime();
+  const { config, activeSiteId, site } = useSiteRuntime();
+  const { cartCount } = useStore(site?.id || activeSiteId);
   const pathname = usePathname();
   const brandParts = config.brand.name.trim().split(/\s+/);
 

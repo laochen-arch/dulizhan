@@ -12,17 +12,31 @@ export type CartLine = Product & {
 };
 
 type StoreState = { cart: CartLine[]; hydrated: boolean };
-const CART_KEY = "northline-cart";
+type PersistedCartLine = Partial<CartLine> & Product & { quantity: number };
+const CART_PREFIX = "northline-cart-v20";
 const serverState: StoreState = { cart: [], hydrated: false };
-let state: StoreState = serverState;
-const listeners = new Set<() => void>();
+const stores = new Map<string, StoreState>();
+const listeners = new Map<string, Set<() => void>>();
 
-function emit() {
-  listeners.forEach((listener) => listener());
+function storageKey(scope: string) {
+  const host = typeof window === "undefined" ? "server" : window.location.hostname || "local";
+  return `${CART_PREFIX}:${encodeURIComponent(scope)}:${host}`;
 }
 
-function persist() {
-  if (typeof window !== "undefined") window.localStorage.setItem(CART_KEY, JSON.stringify(state.cart));
+function getStore(key: string) {
+  const existing = stores.get(key);
+  if (existing) return existing;
+  const created: StoreState = { cart: [], hydrated: false };
+  stores.set(key, created);
+  return created;
+}
+
+function emit(key: string) {
+  listeners.get(key)?.forEach((listener) => listener());
+}
+
+function persist(key: string, cart: CartLine[]) {
+  if (typeof window !== "undefined") window.localStorage.setItem(key, JSON.stringify(cart));
 }
 
 function defaultVariant(product: Product): ProductVariant {
@@ -36,7 +50,7 @@ function defaultVariant(product: Product): ProductVariant {
   };
 }
 
-function normalizeCart(items: Array<Partial<CartLine> & Product & { quantity: number }>): CartLine[] {
+function normalizeCart(items: PersistedCartLine[]): CartLine[] {
   return items.map((item) => {
     const variant = item.variants?.find((candidate) => candidate.id === item.variantId) ?? defaultVariant(item as Product);
     const variantId = item.variantId ?? variant.id;
@@ -51,55 +65,71 @@ function normalizeCart(items: Array<Partial<CartLine> & Product & { quantity: nu
   });
 }
 
-function hydrate() {
-  if (state.hydrated || typeof window === "undefined") return;
+function hydrate(key: string) {
+  const current = getStore(key);
+  if (current.hydrated || typeof window === "undefined") return;
   try {
-    const saved = window.localStorage.getItem(CART_KEY);
-    state = { cart: normalizeCart(saved ? JSON.parse(saved) : []), hydrated: true };
+    const saved = window.localStorage.getItem(key);
+    const parsed = saved ? JSON.parse(saved) : [];
+    stores.set(key, { cart: Array.isArray(parsed) ? normalizeCart(parsed as PersistedCartLine[]) : [], hydrated: true });
   } catch {
-    window.localStorage.removeItem(CART_KEY);
-    state = { cart: [], hydrated: true };
+    window.localStorage.removeItem(key);
+    stores.set(key, { cart: [], hydrated: true });
   }
-  emit();
+  emit(key);
 }
 
-function subscribe(listener: () => void) {
-  listeners.add(listener);
-  return () => listeners.delete(listener);
+function subscribe(key: string, listener: () => void) {
+  const bucket = listeners.get(key) ?? new Set<() => void>();
+  bucket.add(listener);
+  listeners.set(key, bucket);
+  return () => bucket.delete(listener);
 }
 
-export function useStore() {
-  const snapshot = useSyncExternalStore(subscribe, () => state, () => serverState);
-  useEffect(hydrate, []);
+export function useStore(scope = "default") {
+  const key = storageKey(scope);
+  const snapshot = useSyncExternalStore(
+    (listener) => subscribe(key, listener),
+    () => getStore(key),
+    () => serverState,
+  );
+  useEffect(() => hydrate(key), [key]);
 
   return {
     ...snapshot,
     cartCount: snapshot.cart.reduce((total, item) => total + item.quantity, 0),
     subtotal: snapshot.cart.reduce((total, item) => total + item.variantPrice * item.quantity, 0),
     addToCart: (product: Product, options: { variantId?: string; quantity?: number } = {}) => {
+      const current = getStore(key);
       const quantity = options.quantity ?? 1;
       const variant = product.variants.find((candidate) => candidate.id === options.variantId) ?? defaultVariant(product);
       const lineId = `${product.id}:${variant.id}`;
-      const existing = state.cart.find((item) => item.lineId === lineId);
+      const existing = current.cart.find((item) => item.lineId === lineId);
       const line: CartLine = { ...product, quantity, lineId, variantId: variant.id, variantLabel: variant.label, variantPrice: variant.price ?? product.price };
-      state = { ...state, cart: existing ? state.cart.map((item) => item.lineId === lineId ? { ...item, quantity: item.quantity + quantity } : item) : [...state.cart, line] };
-      persist();
-      emit();
+      const cart = existing ? current.cart.map((item) => item.lineId === lineId ? { ...item, quantity: item.quantity + quantity } : item) : [...current.cart, line];
+      stores.set(key, { ...current, cart });
+      persist(key, cart);
+      emit(key);
     },
     updateQuantity: (lineId: string, quantity: number) => {
-      state = { ...state, cart: quantity <= 0 ? state.cart.filter((item) => item.lineId !== lineId) : state.cart.map((item) => item.lineId === lineId ? { ...item, quantity } : item) };
-      persist();
-      emit();
+      const current = getStore(key);
+      const cart = quantity <= 0 ? current.cart.filter((item) => item.lineId !== lineId) : current.cart.map((item) => item.lineId === lineId ? { ...item, quantity } : item);
+      stores.set(key, { ...current, cart });
+      persist(key, cart);
+      emit(key);
     },
     removeFromCart: (lineId: string) => {
-      state = { ...state, cart: state.cart.filter((item) => item.lineId !== lineId) };
-      persist();
-      emit();
+      const current = getStore(key);
+      const cart = current.cart.filter((item) => item.lineId !== lineId);
+      stores.set(key, { ...current, cart });
+      persist(key, cart);
+      emit(key);
     },
     clearCart: () => {
-      state = { ...state, cart: [] };
-      persist();
-      emit();
+      const current = getStore(key);
+      stores.set(key, { ...current, cart: [] });
+      persist(key, []);
+      emit(key);
     },
   };
 }

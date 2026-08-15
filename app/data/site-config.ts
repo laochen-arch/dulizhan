@@ -113,6 +113,15 @@ export const siteConfig = {
     description: "Premium travel and outdoor essentials made for early starts, open roads, and the long way around.",
     keywords: "travel gear, outdoor essentials, packing cubes, backpacks, hydration",
   },
+  commerce: {
+    currency: "USD",
+    orderPrefix: "NL",
+    shipping: {
+      standard: 8,
+      express: 18,
+      freeThreshold: 100,
+    },
+  },
   b2b: {
     templateRole: "White-label independent ecommerce storefront",
     replacementMode: "Replace config, catalog, media, and legal copy per client",

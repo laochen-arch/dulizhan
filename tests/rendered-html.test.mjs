@@ -90,3 +90,25 @@ test("keeps client replacement content centralized", async () => {
   assert.match(guide, /B 端客户首次提供资料后/);
   await assert.rejects(access(new URL("../app/_sites-preview/SkeletonPreview.tsx", import.meta.url)));
 });
+
+test("keeps V20 tenant boundaries and release gates in source", async () => {
+  const cms = await readFile(new URL("../db/cms.ts", import.meta.url), "utf8");
+  const commerce = await readFile(new URL("../db/commerce.ts", import.meta.url), "utf8");
+  const cart = await readFile(new URL("../app/components/cart-store.ts", import.meta.url), "utf8");
+  const onboarding = await readFile(new URL("../app/api/cms/onboarding/route.ts", import.meta.url), "utf8");
+  const layout = await readFile(new URL("../app/layout.tsx", import.meta.url), "utf8");
+  const money = await readFile(new URL("../app/lib/format-money.ts", import.meta.url), "utf8");
+
+  assert.match(cms, /cms_launch_checks/);
+  assert.match(cms, /publish\.blocked/);
+  assert.match(cms, /PAYPAL_CLIENT_ID/);
+  assert.match(cms, /manualChecks/);
+  assert.match(commerce, /SET_FROM_PROVIDER/);
+  assert.match(commerce, /getStoreCommerceProfile/);
+  assert.doesNotMatch(commerce, /brand_name: "Northline Supply"/);
+  assert.match(cart, /northline-cart-v20/);
+  assert.match(cart, /encodeURIComponent\(scope\)/);
+  assert.match(onboarding, /updateLaunchCheck/);
+  assert.match(layout, /generateMetadata/);
+  assert.match(money, /Intl\.NumberFormat/);
+});

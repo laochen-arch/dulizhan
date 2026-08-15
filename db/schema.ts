@@ -136,6 +136,15 @@ export const cmsSiteDomains = sqliteTable("cms_site_domains", {
   createdAt: text("created_at").notNull(),
 }, (table) => [uniqueIndex("cms_site_domains_hostname_unique").on(table.hostname), index("cms_site_domains_site_idx").on(table.siteId)]);
 
+export const cmsLaunchChecks = sqliteTable("cms_launch_checks", {
+  siteId: text("site_id").notNull(),
+  checkKey: text("check_key").notNull(),
+  completed: integer("completed", { mode: "boolean" }).notNull().default(false),
+  note: text("note"),
+  updatedAt: text("updated_at").notNull(),
+  updatedBy: text("updated_by").notNull(),
+}, (table) => [primaryKey({ columns: [table.siteId, table.checkKey] }), index("cms_launch_checks_site_idx").on(table.siteId, table.updatedAt)]);
+
 export const cmsInventory = sqliteTable("cms_inventory", {
   siteId: text("site_id").notNull(),
   productId: text("product_id").notNull(),

@@ -24,7 +24,7 @@ export function ProductDetailView({ slug, fallback }: { slug: string; fallback: 
     offers: product.variants.map((variant) => ({
       "@type": "Offer",
       sku: variant.sku,
-      priceCurrency: "USD",
+      priceCurrency: config.commerce.currency.toUpperCase(),
       price: variant.price ?? product.price,
       availability: variant.available !== false && (variant.stock ?? product.stock) > 0 ? "https://schema.org/InStock" : "https://schema.org/OutOfStock",
       url: `/products/${product.slug}`,

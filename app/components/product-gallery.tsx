@@ -11,7 +11,7 @@ export function ProductGallery({ product }: { product: Product }) {
   return (
     <div className="detail-gallery" aria-label={`${product.name} product images`}>
       <div className="detail-image-wrap">
-        <span className="product-badge">{product.badge || "Northline essential"}</span>
+        <span className="product-badge">{product.badge || "Essential"}</span>
         <img src={images[activeIndex]} alt={product.alt} className="detail-image" />
         {images.length > 1 && <div className="gallery-controls"><button type="button" onClick={previous} aria-label="Previous product image">←</button><span aria-live="polite">{activeIndex + 1} / {images.length}</span><button type="button" onClick={next} aria-label="Next product image">→</button></div>}
       </div>

@@ -108,7 +108,18 @@ export type CmsLaunchCheck = {
   label: string;
   done: boolean;
   detail: string;
+  required: boolean;
+  manual?: boolean;
 };
+
+export type CmsManualLaunchCheck = CmsLaunchCheck & { manual: true };
+
+export const V20_MANUAL_LAUNCH_CHECKS = [
+  { key: "test.paypal-order", label: "Sandbox PayPal order completed", detail: "Create a sandbox order and confirm the return URL capture." },
+  { key: "test.paypal-webhook", label: "PayPal webhook event processed", detail: "Deliver a signed event and confirm it is visible as processed in the event log." },
+  { key: "test.refund-inventory", label: "Refund and inventory rule verified", detail: "Complete a full or partial refund and verify the selected items are restocked only once." },
+  { key: "test.resend-email", label: "Resend payment and shipping email delivered", detail: "Confirm the customer and operator messages arrive and retry records are clear." },
+] as const;
 
 export type CmsReplacementItem = {
   key: string;
@@ -337,6 +348,15 @@ export async function ensureCmsSchema(database: D1DatabaseLike) {
       last_checked_at TEXT,
       created_at TEXT NOT NULL
     )`),
+    database.prepare(`CREATE TABLE IF NOT EXISTS cms_launch_checks (
+      site_id TEXT NOT NULL,
+      check_key TEXT NOT NULL,
+      completed INTEGER NOT NULL DEFAULT 0,
+      note TEXT,
+      updated_at TEXT NOT NULL,
+      updated_by TEXT NOT NULL,
+      PRIMARY KEY (site_id, check_key)
+    )`),
     database.prepare(`CREATE TABLE IF NOT EXISTS cms_inventory (
       site_id TEXT NOT NULL,
       product_id TEXT NOT NULL,
@@ -451,6 +471,7 @@ export async function ensureCmsSchema(database: D1DatabaseLike) {
     database.prepare("CREATE INDEX IF NOT EXISTS cms_audit_site_idx ON cms_audit_logs(site_id, created_at)"),
     database.prepare("CREATE INDEX IF NOT EXISTS cms_schedules_site_idx ON cms_scheduled_publishes(site_id, status, scheduled_at)"),
     database.prepare("CREATE INDEX IF NOT EXISTS cms_site_domains_site_idx ON cms_site_domains(site_id)"),
+    database.prepare("CREATE INDEX IF NOT EXISTS cms_launch_checks_site_idx ON cms_launch_checks(site_id, updated_at)"),
     database.prepare("CREATE INDEX IF NOT EXISTS cms_inventory_site_sku_idx ON cms_inventory(site_id, sku)"),
     database.prepare("CREATE INDEX IF NOT EXISTS cms_inventory_tx_site_idx ON cms_inventory_transactions(site_id, created_at)"),
     database.prepare("CREATE INDEX IF NOT EXISTS cms_orders_site_status_idx ON cms_orders(site_id, status, created_at)"),
@@ -478,7 +499,9 @@ export async function ensureCmsSchema(database: D1DatabaseLike) {
 
 function parseConfig(value: string): SiteConfig {
   try {
-    return JSON.parse(value) as SiteConfig;
+    // Merge new white-label defaults into older tenant records so a V20
+    // deployment can read and publish sites created by earlier versions.
+    return mergeRecords(clone(siteConfig), JSON.parse(value)) as SiteConfig;
   } catch {
     return clone(siteConfig);
   }
@@ -782,32 +805,100 @@ export async function importClientData(siteId: string, payload: ClientImportPayl
   return { config, catalog, importedProducts: catalog.length, assetBindings: bindings.size, revisionId };
 }
 
+function runtimeLaunchReadiness() {
+  const values = env as unknown as Record<string, string | undefined>;
+  return {
+    paypal: Boolean(values.PAYPAL_CLIENT_ID?.trim() && values.PAYPAL_CLIENT_SECRET?.trim()),
+    webhook: Boolean(values.PAYPAL_WEBHOOK_ID?.trim()),
+    resend: Boolean(values.RESEND_API_KEY?.trim() && values.RESEND_FROM_EMAIL?.trim()),
+  };
+}
+
+async function readManualLaunchChecks(database: D1DatabaseLike, siteId: string) {
+  const rows = await database.prepare(`SELECT check_key AS checkKey, completed, note, updated_at AS updatedAt, updated_by AS updatedBy
+    FROM cms_launch_checks WHERE site_id = ?1`).bind(siteId).all<{ checkKey: string; completed: number; note: string | null; updatedAt: string; updatedBy: string }>();
+  return new Map(rows.results.map((row) => [row.checkKey, row]));
+}
+
+async function buildSiteLaunchChecks(database: D1DatabaseLike, siteId: string, config: SiteConfig, catalog: Product[]) {
+  const domain = await database.prepare("SELECT status, hostname FROM cms_site_domains WHERE site_id = ?1 ORDER BY created_at DESC LIMIT 1").bind(siteId).first<{ status: CmsDomain["status"]; hostname: string }>();
+  const catalogErrors = getCatalogValidationErrors(catalog);
+  const readiness = runtimeLaunchReadiness();
+  const isClientSite = siteId !== DEFAULT_SITE_ID;
+  const manualRows = await readManualLaunchChecks(database, siteId);
+  const brandReady = Boolean(config.brand.name.trim() && config.brand.mark.trim() && (!isClientSite || config.brand.mark !== siteConfig.brand.mark));
+  const heroReady = Boolean(config.assets.hero.trim() && (!isClientSite || config.assets.hero !== siteConfig.assets.hero));
+  const seoReady = Boolean(config.seo.title.trim() && config.seo.description.trim() && (!isClientSite || config.seo.title !== siteConfig.seo.title || config.seo.description !== siteConfig.seo.description));
+  const policiesReady = Boolean(config.content.policies.shippingLead.trim() && config.content.policies.returnsLead.trim() && (!isClientSite || config.content.policies.shippingLead !== siteConfig.content.policies.shippingLead || config.content.policies.returnsLead !== siteConfig.content.policies.returnsLead));
+  const catalogReady = catalog.some((product) => product.status === "active") && (!isClientSite || JSON.stringify(catalog) !== JSON.stringify(defaultProducts));
+  const manualChecks: CmsManualLaunchCheck[] = V20_MANUAL_LAUNCH_CHECKS.map((definition) => ({
+    ...definition,
+    done: manualRows.get(definition.key)?.completed === 1,
+    required: isClientSite,
+    manual: true,
+  }));
+  const checks: CmsLaunchCheck[] = [
+    { key: "brand", label: "Brand name and logo mark", done: brandReady, required: true, detail: brandReady ? "The client brand identity is ready." : isClientSite ? "Replace the template logo mark with the client's mark." : "Add the client brand name and logo mark." },
+    { key: "hero", label: "Hero media", done: heroReady, required: true, detail: heroReady ? "The client hero image is ready." : isClientSite ? "Replace the template hero image with a client asset." : "Bind a hero image from the client media library." },
+    { key: "seo", label: "SEO title and description", done: seoReady, required: true, detail: seoReady ? "The client SEO metadata is ready." : isClientSite ? "Replace the template SEO title or description." : "Complete the storefront SEO fields." },
+    { key: "contact", label: "Customer contact email", done: Boolean(config.content.contact.email.trim()), required: true, detail: "Add the operational customer email." },
+    { key: "policies", label: "Shipping and returns copy", done: policiesReady, required: true, detail: policiesReady ? "The client delivery and returns policies are ready." : isClientSite ? "Replace the template shipping or returns copy." : "Confirm the client delivery and returns policies." },
+    { key: "catalog", label: "At least one active product", done: catalogReady, required: true, detail: catalogReady ? "The client product catalog is ready." : isClientSite ? "Import the client catalog instead of publishing the template catalog." : "Import or activate at least one product." },
+    { key: "commerce", label: "Active product commerce validation", done: catalogErrors.length === 0, required: true, detail: catalogErrors[0] || "All active products have valid variants, SKUs, prices and images." },
+    { key: "paypal", label: "PayPal runtime credentials", done: !isClientSite || readiness.paypal, required: isClientSite, detail: readiness.paypal ? "PayPal client credentials are present in the Sites runtime." : "Add PAYPAL_CLIENT_ID and PAYPAL_CLIENT_SECRET before publishing this client site." },
+    { key: "paypal-webhook", label: "PayPal webhook identity", done: !isClientSite || readiness.webhook, required: isClientSite, detail: readiness.webhook ? "PayPal webhook identity is present." : "Add PAYPAL_WEBHOOK_ID before publishing this client site." },
+    { key: "resend", label: "Resend email runtime credentials", done: !isClientSite || readiness.resend, required: isClientSite, detail: readiness.resend ? "Resend API key and sender are present in the Sites runtime." : "Add RESEND_API_KEY and RESEND_FROM_EMAIL before publishing this client site." },
+    { key: "domain", label: "Custom domain mapping", done: !isClientSite || Boolean(domain?.hostname && (domain.status === "verified" || domain.status === "active")), required: isClientSite, detail: domain ? `${domain.hostname} is ${domain.status}.` : "Map and verify the client domain." },
+    ...manualChecks,
+  ];
+  const replacements: CmsReplacementItem[] = [
+    { key: "brand.name", label: "Brand name", source: config.brand.name, required: true, done: config.brand.name !== siteConfig.brand.name },
+    { key: "brand.mark", label: "Logo / mark", source: config.brand.mark, required: true, done: config.brand.mark !== siteConfig.brand.mark },
+    { key: "theme.colors", label: "Theme palette", source: "theme.colors", required: false, done: JSON.stringify(config.theme.colors) !== JSON.stringify(siteConfig.theme.colors) },
+    { key: "assets.hero", label: "Hero image", source: config.assets.hero, required: true, done: config.assets.hero !== siteConfig.assets.hero },
+    { key: "catalog", label: "Client product catalog", source: `${catalog.length} products`, required: true, done: JSON.stringify(catalog) !== JSON.stringify(defaultProducts) },
+    { key: "policies", label: "Shipping / returns policy", source: config.content.policies.returnsLead, required: true, done: config.content.policies.returnsLead !== siteConfig.content.policies.returnsLead },
+    { key: "seo", label: "SEO metadata", source: config.seo.title, required: true, done: config.seo.title !== siteConfig.seo.title },
+  ];
+  const requiredChecks = checks.filter((check) => check.required);
+  return {
+    domain,
+    checks,
+    manualChecks,
+    replacements,
+    readiness: {
+      score: requiredChecks.length ? Math.round(requiredChecks.filter((check) => check.done).length / requiredChecks.length * 100) : 100,
+      done: requiredChecks.filter((check) => check.done).length,
+      total: requiredChecks.length,
+    },
+  };
+}
+
 export async function getSiteLaunchChecks(siteId: string, userId: string, email: string) {
   const database = getD1();
   await ensureCmsSchema(database);
   const snapshot = await readSnapshot(siteId, "draft", { userId, email });
-  const domain = await database.prepare("SELECT status, hostname FROM cms_site_domains WHERE site_id = ?1 ORDER BY created_at DESC LIMIT 1").bind(siteId).first<{ status: CmsDomain["status"]; hostname: string }>();
-  const catalogErrors = getCatalogValidationErrors(snapshot.catalog);
-  const checks: CmsLaunchCheck[] = [
-    { key: "brand", label: "Brand name and logo mark", done: Boolean(snapshot.config.brand.name.trim() && snapshot.config.brand.mark.trim()), detail: "Add the client brand name and logo mark." },
-    { key: "hero", label: "Hero media", done: Boolean(snapshot.config.assets.hero.trim()), detail: "Bind a hero image from the client media library." },
-    { key: "seo", label: "SEO title and description", done: Boolean(snapshot.config.seo.title.trim() && snapshot.config.seo.description.trim()), detail: "Complete the storefront SEO fields." },
-    { key: "contact", label: "Customer contact email", done: Boolean(snapshot.config.content.contact.email.trim()), detail: "Add the operational customer email." },
-    { key: "policies", label: "Shipping and returns copy", done: Boolean(snapshot.config.content.policies.shippingLead.trim() && snapshot.config.content.policies.returnsLead.trim()), detail: "Confirm the client delivery and returns policies." },
-    { key: "catalog", label: "At least one active product", done: snapshot.catalog.some((product) => product.status === "active"), detail: "Import or activate at least one product." },
-    { key: "commerce", label: "Active product commerce validation", done: catalogErrors.length === 0, detail: catalogErrors[0] || "All active products have valid variants, SKUs, prices and images." },
-    { key: "domain", label: "Custom domain mapping", done: Boolean(domain?.hostname && (domain.status === "verified" || domain.status === "active")), detail: domain ? `${domain.hostname} is ${domain.status}.` : "Map and verify the client domain." },
-  ];
-  const replacements: CmsReplacementItem[] = [
-    { key: "brand.name", label: "Brand name", source: snapshot.config.brand.name, required: true, done: snapshot.config.brand.name !== siteConfig.brand.name },
-    { key: "brand.mark", label: "Logo / mark", source: snapshot.config.brand.mark, required: true, done: snapshot.config.brand.mark !== siteConfig.brand.mark },
-    { key: "theme.colors", label: "Theme palette", source: "theme.colors", required: false, done: JSON.stringify(snapshot.config.theme.colors) !== JSON.stringify(siteConfig.theme.colors) },
-    { key: "assets.hero", label: "Hero image", source: snapshot.config.assets.hero, required: true, done: snapshot.config.assets.hero !== siteConfig.assets.hero },
-    { key: "catalog", label: "Client product catalog", source: `${snapshot.catalog.length} products`, required: true, done: JSON.stringify(snapshot.catalog) !== JSON.stringify(defaultProducts) },
-    { key: "policies", label: "Shipping / returns policy", source: snapshot.config.content.policies.returnsLead, required: true, done: snapshot.config.content.policies.returnsLead !== siteConfig.content.policies.returnsLead },
-    { key: "seo", label: "SEO metadata", source: snapshot.config.seo.title, required: true, done: snapshot.config.seo.title !== siteConfig.seo.title },
-  ];
-  return { domain, checks, replacements, progress: { done: checks.filter((check) => check.done).length, total: checks.length } };
+  const result = await buildSiteLaunchChecks(database, siteId, snapshot.config, snapshot.catalog);
+  return { ...result, progress: result.readiness };
+}
+
+async function getSiteLaunchFailures(database: D1DatabaseLike, siteId: string, config: SiteConfig, catalog: Product[]) {
+  const result = await buildSiteLaunchChecks(database, siteId, config, catalog);
+  return result.checks.filter((check) => check.required && !check.done).map((check) => check.label);
+}
+
+export async function updateLaunchCheck(siteId: string, checkKey: string, completed: boolean, userId: string, email: string) {
+  const database = getD1();
+  await ensureCmsSchema(database);
+  const member = await ensureMember(siteId, userId, email, database);
+  if (member.role === "viewer") throw new Error("VIEWER_READ_ONLY");
+  if (!V20_MANUAL_LAUNCH_CHECKS.some((check) => check.key === checkKey)) throw new Error("INVALID_LAUNCH_CHECK");
+  const timestamp = now();
+  await database.prepare(`INSERT INTO cms_launch_checks (site_id, check_key, completed, note, updated_at, updated_by)
+    VALUES (?1, ?2, ?3, NULL, ?4, ?5)
+    ON CONFLICT(site_id, check_key) DO UPDATE SET completed = excluded.completed, updated_at = excluded.updated_at, updated_by = excluded.updated_by`).bind(siteId, checkKey, completed ? 1 : 0, timestamp, userId).run();
+  await recordAudit(database, siteId, { userId, email }, "launch_check.updated", "launch_check", checkKey, { completed });
+  return getSiteLaunchChecks(siteId, userId, email);
 }
 
 async function ensureMember(siteId: string, userId: string, email: string, database: D1DatabaseLike): Promise<CmsMember> {
@@ -1055,8 +1146,11 @@ export async function publishDraft(siteId: string, label: string, userId: string
   const member = await ensureMember(siteId, userId, userEmail, database);
   if (member.role === "viewer") throw new Error("VIEWER_READ_ONLY");
   const draft = await readSnapshot(siteId, "draft", { userId, email: userEmail });
-  const failures = validateSnapshot(draft.config, draft.catalog);
-  if (failures.length) throw new Error(`PUBLISH_CHECKS:${JSON.stringify(failures)}`);
+  const failures = await getSiteLaunchFailures(database, siteId, draft.config, draft.catalog);
+  if (failures.length) {
+    await recordAudit(database, siteId, { userId, email: userEmail }, "publish.blocked", "release", siteId, { failures });
+    throw new Error(`PUBLISH_CHECKS:${JSON.stringify(failures)}`);
+  }
   const timestamp = now();
   const revisionId = `rev_${crypto.randomUUID()}`;
   const snapshot = JSON.stringify({ config: draft.config, catalog: draft.catalog });
@@ -1203,7 +1297,7 @@ async function publishStoredDraft(database: D1DatabaseLike, schedule: CmsSchedul
   const rows = await database.prepare("SELECT draft_payload FROM cms_site_products WHERE site_id = ?1 ORDER BY product_id ASC").bind(schedule.siteId).all<{ draft_payload: string }>();
   const catalog = rows.results.map((row) => parseProduct(row.draft_payload)).filter(Boolean) as Product[];
   const config = parseConfig(settings.draft_config);
-  const failures = validateSnapshot(config, catalog);
+  const failures = await getSiteLaunchFailures(database, schedule.siteId, config, catalog);
   if (failures.length) throw new Error(`PUBLISH_CHECKS:${JSON.stringify(failures)}`);
   const timestamp = now();
   const revisionId = `rev_${crypto.randomUUID()}`;

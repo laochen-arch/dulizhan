@@ -1,7 +1,7 @@
 "use client";
 
-import { useState, type ChangeEvent, type Dispatch, type FormEvent, type SetStateAction } from "react";
-import type { CmsDomain, CmsLaunchCheck, CmsReplacementItem, CmsSite } from "../../db/cms";
+import { useEffect, useState, type ChangeEvent, type Dispatch, type FormEvent, type SetStateAction } from "react";
+import type { CmsDomain, CmsLaunchCheck, CmsManualLaunchCheck, CmsReplacementItem, CmsSite } from "../../db/cms";
 
 type NoticeSetter = (notice: { tone: "success" | "error" | "info"; text: string }) => void;
 type CommerceConfiguration = {
@@ -10,11 +10,16 @@ type CommerceConfiguration = {
   webhookEndpoint?: string;
   environmentKeys?: string[];
 };
-type OnboardingState = { domain?: { hostname: string; status: string } | null; checks: CmsLaunchCheck[]; replacements: CmsReplacementItem[]; progress: { done: number; total: number } };
+type OnboardingState = { domain?: { hostname: string; status: string } | null; checks: CmsLaunchCheck[]; manualChecks?: CmsManualLaunchCheck[]; replacements: CmsReplacementItem[]; progress: { done: number; total: number }; readiness?: { score: number; done: number; total: number } };
 type SiteForm = { name: string; slug: string; templateSiteId: string };
 type Probe = { provider: "paypal" | "resend"; configured: boolean; reachable: boolean; status: "ready" | "missing" | "error"; detail: string; checkedAt: string; mode?: string };
 type ImportPreview = { valid: boolean; errors: string[]; warnings: string[]; summary: { configChanged: boolean; totalProducts: number; activeProducts: number; importedProducts: number; assetBindings: number } };
-const productionTests = ["Sandbox PayPal order created", "Return URL capture completed", "PayPal webhook event is processed", "Full or partial refund completed", "Refund inventory rule verified", "Resend payment and shipping mail delivered", "Live credentials and domain checked"];
+const productionTests = [
+  { key: "test.paypal-order", label: "Sandbox PayPal order completed" },
+  { key: "test.paypal-webhook", label: "PayPal webhook event processed" },
+  { key: "test.refund-inventory", label: "Refund and inventory rule verified" },
+  { key: "test.resend-email", label: "Resend payment and shipping email delivered" },
+];
 
 function StatusPill({ status }: { status: string }) {
   return <span className={`v13-status-pill ${status}`}>{status === "ready" ? "Ready" : status === "missing" ? "Needs setup" : status === "error" ? "Needs attention" : status}</span>;
@@ -44,6 +49,26 @@ export function LaunchSetupPanel({ activeSiteId, commerceConfiguration, domains,
   const [testChecklist, setTestChecklist] = useState<Record<string, boolean>>({});
   const endpoint = commerceConfiguration?.webhookEndpoint || `${typeof window === "undefined" ? "" : window.location.origin}/api/paypal/webhook`;
   const environmentKeys = commerceConfiguration?.environmentKeys || ["PAYPAL_CLIENT_ID", "PAYPAL_CLIENT_SECRET", "PAYPAL_WEBHOOK_ID", "PAYPAL_ENVIRONMENT", "RESEND_API_KEY", "RESEND_FROM_EMAIL"];
+
+  useEffect(() => {
+    // The persisted onboarding record is the external source of truth for this local control state.
+    // eslint-disable-next-line react-hooks/set-state-in-effect
+    setTestChecklist(Object.fromEntries((onboarding?.manualChecks || []).map((check) => [check.key, check.done])));
+  }, [onboarding]);
+
+  async function updateTestCheck(key: string, completed: boolean) {
+    const previous = Boolean(testChecklist[key]);
+    setTestChecklist((current) => ({ ...current, [key]: completed }));
+    try {
+      const response = await fetch("/api/cms/onboarding", { method: "PATCH", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ siteId: activeSiteId, key, completed }) });
+      const payload = await response.json().catch(() => ({})) as { error?: string };
+      if (!response.ok) throw new Error(payload.error || "Unable to save the launch check.");
+      await onRefresh();
+    } catch (error) {
+      setTestChecklist((current) => ({ ...current, [key]: previous }));
+      onNotice({ tone: "error", text: error instanceof Error ? error.message : "Unable to save the launch check." });
+    }
+  }
 
   async function check(provider: "paypal" | "resend" | "all") {
     setChecking(provider);
@@ -115,7 +140,7 @@ export function LaunchSetupPanel({ activeSiteId, commerceConfiguration, domains,
       <article className="v6-card"><div className="v6-card-heading"><div><p className="eyebrow">Webhook endpoint</p><h3>PayPal event delivery</h3></div><StatusPill status={commerceConfiguration?.paypal.webhookId ? "ready" : "missing"} /></div><p className="v6-muted">Copy this URL into PayPal Developer Dashboard → Webhooks. The handler records duplicate events and supports retries.</p><code className="v13-copy-field">{endpoint}</code><button className="text-button" onClick={() => copyText(endpoint, onNotice)}>Copy webhook URL</button></article>
       <article className="v6-card"><div className="v6-card-heading"><div><p className="eyebrow">Custom domain</p><h3>Client routing</h3></div><StatusPill status={domainReady ? "ready" : "missing"} /></div><p className="v6-muted">Map the hostname in the Domains tab, add the DNS record in the client provider, then verify the Sites custom-domain binding.</p>{domains.length ? domains.map((domain) => <div className="v13-domain-row" key={domain.id}><span><strong>{domain.hostname}</strong><small>{domain.status} {domain.lastCheckedAt ? `· checked ${new Date(domain.lastCheckedAt).toLocaleString()}` : "· not checked"}</small></span><span className="v13-domain-actions"><button className="text-button" onClick={() => void checkDomain(domain.id)} disabled={checkingDomain !== null}>{checkingDomain === domain.id ? "Checking..." : "Check routing"}</button><button className="text-button" onClick={() => copyText(domain.verificationToken || "", onNotice)} disabled={!domain.verificationToken}>Copy token</button></span></div>) : <p className="v6-empty">No custom domain mapping has been added.</p>}</article>
     </div>
-    <div className="v13-provider-grid"><article className="v6-card"><div className="v6-card-heading"><div><p className="eyebrow">Operations recovery</p><h3>Release and retry queue</h3></div><span>Manual safety controls</span></div><p className="v6-muted">Expired pending orders release reserved inventory. Failed Resend messages retry when their backoff window is due.</p><div className="v6-actions"><button className="button button-outline" onClick={() => void releaseExpired()} disabled={busy}>Release expired inventory</button><button className="button button-outline" onClick={() => void retryDueEmails()} disabled={busy}>Retry due emails</button></div></article><article className="v6-card"><div className="v6-card-heading"><div><p className="eyebrow">Production test checklist</p><h3>Record the go-live evidence.</h3></div><span>{Object.values(testChecklist).filter(Boolean).length}/{productionTests.length}</span></div><div className="v13-checklist">{productionTests.map((label) => <label className={testChecklist[label] ? "done" : ""} key={label}><input type="checkbox" checked={Boolean(testChecklist[label])} onChange={(event) => setTestChecklist((current) => ({ ...current, [label]: event.target.checked }))} /><span>{testChecklist[label] ? "OK" : "!"}</span><div><strong>{label}</strong><small>Complete this step after the matching provider or storefront action.</small></div></label>)}</div></article></div>
+    <div className="v13-provider-grid"><article className="v6-card"><div className="v6-card-heading"><div><p className="eyebrow">Operations recovery</p><h3>Release and retry queue</h3></div><span>Manual safety controls</span></div><p className="v6-muted">Expired pending orders release reserved inventory. Failed Resend messages retry when their backoff window is due.</p><div className="v6-actions"><button className="button button-outline" onClick={() => void releaseExpired()} disabled={busy}>Release expired inventory</button><button className="button button-outline" onClick={() => void retryDueEmails()} disabled={busy}>Retry due emails</button></div></article><article className="v6-card"><div className="v6-card-heading"><div><p className="eyebrow">Production test checklist</p><h3>Record the go-live evidence.</h3></div><span>{productionTests.filter((item) => testChecklist[item.key]).length}/{productionTests.length}</span></div><p className="v6-help">These checks are saved to the selected client site and are required before its first formal publish.</p><div className="v13-checklist">{productionTests.map((item) => <label className={testChecklist[item.key] ? "done" : ""} key={item.key}><input type="checkbox" checked={Boolean(testChecklist[item.key])} onChange={(event) => void updateTestCheck(item.key, event.target.checked)} /><span>{testChecklist[item.key] ? "OK" : "!"}</span><div><strong>{item.label}</strong><small>Complete this step after the matching provider or storefront action.</small></div></label>)}</div></article></div>
     <div className="v6-card v13-env-card"><div className="v6-card-heading"><div><p className="eyebrow">Runtime variables</p><h3>Configure these in the Sites environment</h3></div><button className="text-button" onClick={() => copyText(environmentKeys.join("\n"), onNotice)}>Copy names</button></div><div className="v13-env-list">{environmentKeys.map((key) => <code key={key}>{key}</code>)}</div><p className="v6-help">Values are intentionally never shown in the client CMS. After updating them, return here and run the provider checks again.</p><button className="text-button" onClick={() => void onRefresh()}>Refresh configuration status</button></div>
   </section>;
 }

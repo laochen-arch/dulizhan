@@ -1,6 +1,8 @@
 import { env } from "cloudflare:workers";
 import { readSnapshot, ensureCmsSchema, getCmsDatabase, recordAudit, type D1DatabaseLike, type D1Statement } from "./cms";
 import type { Product, ProductVariant } from "../app/data/products";
+import type { SiteConfig } from "../app/data/site-config";
+import { formatMoney } from "../app/lib/format-money";
 
 export type CheckoutItemInput = { productId: string; variantId?: string; quantity: number };
 
@@ -132,6 +134,12 @@ export type CommerceProbe = {
   mode?: "sandbox" | "live" | "unknown";
 };
 
+export type StoreCommerceProfile = {
+  currency: string;
+  orderPrefix: string;
+  shipping: { standard: number; express: number; freeThreshold: number };
+};
+
 type WorkerEnv = {
   PAYPAL_CLIENT_ID?: string;
   PAYPAL_CLIENT_SECRET?: string;
@@ -157,6 +165,24 @@ function now() {
 
 function clone<T>(value: T): T {
   return JSON.parse(JSON.stringify(value)) as T;
+}
+
+export function getStoreCommerceProfile(config: SiteConfig, siteId: string): StoreCommerceProfile {
+  const raw = (config as SiteConfig & { commerce?: Partial<StoreCommerceProfile> }).commerce;
+  const currency = typeof raw?.currency === "string" && /^[A-Za-z]{3}$/.test(raw.currency) ? raw.currency.toLowerCase() : "usd";
+  const prefixCandidate = typeof raw?.orderPrefix === "string" ? raw.orderPrefix.toUpperCase().replace(/[^A-Z0-9]/g, "").slice(0, 8) : "";
+  const fallbackPrefix = siteId === "default" ? "NL" : siteId.replace(/[^A-Za-z0-9]/g, "").slice(-6).toUpperCase() || "SITE";
+  const shipping = raw?.shipping || {};
+  const numberOr = (value: unknown, fallback: number) => typeof value === "number" && Number.isFinite(value) && value >= 0 ? Math.round(value * 100) / 100 : fallback;
+  return {
+    currency,
+    orderPrefix: prefixCandidate || fallbackPrefix,
+    shipping: {
+      standard: numberOr(shipping.standard, 8),
+      express: numberOr(shipping.express, 18),
+      freeThreshold: numberOr(shipping.freeThreshold, 100),
+    },
+  };
 }
 
 function variantFor(product: Product, variantId?: string): ProductVariant {
@@ -290,9 +316,9 @@ async function reserveItems(database: D1DatabaseLike, siteId: string, items: Arr
   }
 }
 
-function orderNumber() {
+function orderNumber(prefix: string) {
   const date = new Date().toISOString().slice(0, 10).replaceAll("-", "");
-  return `NL-${date}-${crypto.randomUUID().slice(0, 6).toUpperCase()}`;
+  return `${prefix}-${date}-${crypto.randomUUID().slice(0, 6).toUpperCase()}`;
 }
 
 function paypalBaseUrl() {
@@ -313,14 +339,31 @@ async function getPayPalAccessToken() {
   return payload.access_token;
 }
 
-function paypalOrderBody(order: CmsOrder, items: CmsOrderItem[], origin: string) {
+function paypalCountryCode(country: string) {
+  const normalized = country.trim().toLowerCase();
+  const codes: Record<string, string> = { "united states": "US", usa: "US", canada: "CA", "united kingdom": "GB", uk: "GB", australia: "AU" };
+  return codes[normalized] || (country.trim().toUpperCase().match(/^[A-Z]{2}$/)?.[0] || "US");
+}
+
+function paypalOrderBody(order: CmsOrder, items: CmsOrderItem[], origin: string, brandName: string) {
   const currency = order.currency.toUpperCase();
+  const address = order.shippingAddress;
   return {
     intent: "CAPTURE",
     purchase_units: [{
       reference_id: order.id,
       custom_id: `${order.siteId}:${order.id}`,
-      description: `Northline order ${order.orderNumber}`,
+      description: `${brandName} order ${order.orderNumber}`.slice(0, 127),
+      shipping: {
+        name: { full_name: order.customerName.slice(0, 300) },
+        address: {
+          address_line_1: address.address.slice(0, 300),
+          admin_area_2: address.city.slice(0, 120),
+          admin_area_1: address.region.slice(0, 120),
+          postal_code: address.zip.slice(0, 60),
+          country_code: paypalCountryCode(address.country),
+        },
+      },
       amount: {
         currency_code: currency,
         value: order.total.toFixed(2),
@@ -329,18 +372,18 @@ function paypalOrderBody(order: CmsOrder, items: CmsOrderItem[], origin: string)
       items: items.map((item) => ({ name: `${item.name} / ${item.variantLabel}`.slice(0, 127), sku: item.sku.slice(0, 127), quantity: String(item.quantity), category: "PHYSICAL_GOODS", unit_amount: { currency_code: currency, value: item.unitPrice.toFixed(2) } })),
     }],
     application_context: {
-      brand_name: "Northline Supply",
+      brand_name: brandName.slice(0, 127),
       user_action: "PAY_NOW",
-      shipping_preference: "NO_SHIPPING",
+      shipping_preference: "SET_FROM_PROVIDER",
       return_url: `${origin}/checkout?order_id=${encodeURIComponent(order.id)}&paypal_return=1`,
       cancel_url: `${origin}/checkout?order_id=${encodeURIComponent(order.id)}&cancelled=1`,
     },
   };
 }
 
-async function createPayPalOrder(order: CmsOrder, items: CmsOrderItem[], origin: string, requestId: string) {
+async function createPayPalOrder(order: CmsOrder, items: CmsOrderItem[], origin: string, requestId: string, brandName: string) {
   const token = await getPayPalAccessToken();
-  const response = await fetch(`${paypalBaseUrl()}/v2/checkout/orders`, { method: "POST", headers: { Authorization: `Bearer ${token}`, "Content-Type": "application/json", Prefer: "return=representation", "PayPal-Request-Id": requestId }, body: JSON.stringify(paypalOrderBody(order, items, origin)) });
+  const response = await fetch(`${paypalBaseUrl()}/v2/checkout/orders`, { method: "POST", headers: { Authorization: `Bearer ${token}`, "Content-Type": "application/json", Prefer: "return=representation", "PayPal-Request-Id": requestId }, body: JSON.stringify(paypalOrderBody(order, items, origin, brandName)) });
   const payload = await response.json().catch(() => ({})) as { id?: string; links?: Array<{ rel?: string; href?: string }>; name?: string; message?: string; details?: Array<{ description?: string }> };
   const approval = payload.links?.find((link) => link.rel === "approve")?.href;
   if (!response.ok || !payload.id || !approval) throw new Error(payload.details?.[0]?.description || payload.message || payload.name || "PAYMENT_PROVIDER_ERROR");
@@ -352,6 +395,7 @@ export async function createCheckout(siteId: string, payload: CheckoutPayload, o
   await ensureCmsSchema(database);
   await expirePendingOrders(siteId);
   const snapshot = await readSnapshot(siteId, "published");
+  const profile = getStoreCommerceProfile(snapshot.config, siteId);
   const catalog = snapshot.catalog.filter((product) => product.status === "active");
   await ensureInventoryRows(database, siteId, catalog);
   const requested = new Map<string, number>();
@@ -377,7 +421,7 @@ export async function createCheckout(siteId: string, payload: CheckoutPayload, o
   if (!/^\S+@\S+\.\S+$/.test(email)) throw new Error("INVALID_CHECKOUT");
   if (![payload.firstName, payload.lastName, payload.address, payload.city, payload.region, payload.zip, payload.country, payload.deliveryMethod].every((value) => typeof value === "string" && value.trim())) throw new Error("INVALID_CHECKOUT");
   const subtotal = lineItems.reduce((sum, item) => sum + item.unitPrice * item.quantity, 0);
-  const shipping = payload.deliveryMethod.toLowerCase().includes("express") ? 18 : subtotal >= 100 ? 0 : 8;
+  const shipping = payload.deliveryMethod.toLowerCase().includes("express") ? profile.shipping.express : subtotal >= profile.shipping.freeThreshold ? 0 : profile.shipping.standard;
   const timestamp = now();
   const normalizedIdempotencyKey = idempotencyKey.trim().slice(0, 160);
   if (normalizedIdempotencyKey) {
@@ -388,7 +432,7 @@ export async function createCheckout(siteId: string, payload: CheckoutPayload, o
       return { order: existing.order, items: existing.items, checkoutUrl: previous.paypalApprovalUrl };
     }
   }
-  const order: CmsOrder = { id: `order_${crypto.randomUUID()}`, siteId, orderNumber: orderNumber(), email, customerName: `${payload.firstName.trim()} ${payload.lastName.trim()}`.trim(), currency: "usd", subtotal, shipping, tax: 0, total: subtotal + shipping, status: "pending", paymentStatus: "pending", fulfillmentStatus: "unfulfilled", paypalOrderId: null, paypalApprovalUrl: null, paypalCaptureId: null, shippingAddress: { address: payload.address.trim(), city: payload.city.trim(), region: payload.region.trim(), zip: payload.zip.trim(), country: payload.country.trim() }, trackingNumber: null, createdAt: timestamp, updatedAt: timestamp, paidAt: null, shippedAt: null, adminNote: null, refundTotal: 0, refundedAt: null };
+  const order: CmsOrder = { id: `order_${crypto.randomUUID()}`, siteId, orderNumber: orderNumber(profile.orderPrefix), email, customerName: `${payload.firstName.trim()} ${payload.lastName.trim()}`.trim(), currency: profile.currency, subtotal, shipping, tax: 0, total: subtotal + shipping, status: "pending", paymentStatus: "pending", fulfillmentStatus: "unfulfilled", paypalOrderId: null, paypalApprovalUrl: null, paypalCaptureId: null, shippingAddress: { address: payload.address.trim(), city: payload.city.trim(), region: payload.region.trim(), zip: payload.zip.trim(), country: payload.country.trim() }, trackingNumber: null, createdAt: timestamp, updatedAt: timestamp, paidAt: null, shippedAt: null, adminNote: null, refundTotal: 0, refundedAt: null };
   lineItems.forEach((item) => { item.orderId = order.id; });
   await database.batch([
     database.prepare(`INSERT INTO cms_orders (id, site_id, order_number, email, customer_name, currency, subtotal, shipping, tax, total, status, payment_status, fulfillment_status, paypal_order_id, paypal_approval_url, paypal_capture_id, checkout_idempotency_key, shipping_address, tracking_number, created_at, updated_at, paid_at, shipped_at)
@@ -400,7 +444,7 @@ export async function createCheckout(siteId: string, payload: CheckoutPayload, o
   try {
     await reserveItems(database, siteId, lineItems.map((item) => ({ productId: item.productId, variantId: item.variantId, quantity: item.quantity })));
     reserved = true;
-    const paypalOrder = await createPayPalOrder(order, lineItems, origin, normalizedIdempotencyKey || order.id);
+    const paypalOrder = await createPayPalOrder(order, lineItems, origin, normalizedIdempotencyKey || order.id, snapshot.config.brand.name);
     await database.prepare("UPDATE cms_orders SET paypal_order_id = ?1, paypal_approval_url = ?2, updated_at = ?3 WHERE id = ?4 AND site_id = ?5").bind(paypalOrder.id, paypalOrder.url, now(), order.id, siteId).run();
     return { order: { ...order, paypalOrderId: paypalOrder.id, paypalApprovalUrl: paypalOrder.url }, items: lineItems, checkoutUrl: paypalOrder.url };
   } catch (error) {
@@ -649,13 +693,23 @@ async function sendOrderNotification(database: D1DatabaseLike, order: CmsOrder, 
     await database.prepare("UPDATE cms_order_notifications SET status = 'not_configured', error = ?1, next_retry_at = NULL WHERE id = ?2").bind("No recipient email is configured for this notification.", notificationId).run();
     return;
   }
+  let brandName = "Storefront";
+  let supportEmail = "";
+  try {
+    const snapshot = await readSnapshot(order.siteId, "published");
+    brandName = snapshot.config.brand.name.trim() || brandName;
+    supportEmail = snapshot.config.content.contact.email.trim();
+  } catch {
+    // Notification delivery should still be traceable if a tenant's CMS data
+    // is temporarily unavailable.
+  }
   const subject = type === "paid" ? `Order ${order.orderNumber} confirmed` : type === "shipped" ? `Order ${order.orderNumber} is on the way` : `New paid order ${order.orderNumber}`;
-  const rows = items.map((item) => `<li>${escapeHtml(item.name)} / ${escapeHtml(item.variantLabel)} x ${item.quantity} — $${(item.unitPrice * item.quantity).toFixed(2)}</li>`).join("");
+  const rows = items.map((item) => `<li>${escapeHtml(item.name)} / ${escapeHtml(item.variantLabel)} x ${item.quantity} — ${escapeHtml(formatMoney(item.unitPrice * item.quantity, order.currency))}</li>`).join("");
   const greeting = type === "admin_new_order" ? "A new order has been paid." : `Hi ${escapeHtml(order.customerName || "there")},`;
   const message = type === "paid" ? "Thanks for your order. Payment has been confirmed." : type === "shipped" ? "Your order has shipped." : "Review the order in your commerce dashboard.";
-  const html = `<p>${greeting}</p><p>${message}</p><p><strong>${escapeHtml(order.orderNumber)}</strong></p><p>${escapeHtml(order.email)}</p><ul>${rows}</ul>${order.trackingNumber ? `<p>Tracking: ${escapeHtml(order.trackingNumber)}</p>` : ""}`;
+  const html = `<p><strong>${escapeHtml(brandName)}</strong></p><p>${greeting}</p><p>${message}</p><p><strong>${escapeHtml(order.orderNumber)}</strong></p><p>${escapeHtml(order.email)}</p><ul>${rows}</ul>${order.trackingNumber ? `<p>Tracking: ${escapeHtml(order.trackingNumber)}</p>` : ""}${supportEmail ? `<p>Questions? Reply to ${escapeHtml(supportEmail)}.</p>` : ""}`;
   try {
-    const response = await fetch("https://api.resend.com/emails", { method: "POST", headers: { Authorization: `Bearer ${apiKey}`, "Content-Type": "application/json" }, body: JSON.stringify({ from, to: [recipient], subject, html }) });
+    const response = await fetch("https://api.resend.com/emails", { method: "POST", headers: { Authorization: `Bearer ${apiKey}`, "Content-Type": "application/json" }, body: JSON.stringify({ from, to: [recipient], reply_to: supportEmail ? [supportEmail] : undefined, subject, html }) });
     const payload = await response.json().catch(() => ({})) as { id?: string; message?: string };
     if (!response.ok) throw new Error(payload.message || "Email provider rejected the message.");
     await database.prepare("UPDATE cms_order_notifications SET status = 'sent', provider_id = ?1, sent_at = ?2, error = NULL, next_retry_at = NULL WHERE id = ?3").bind(payload.id || null, now(), notificationId).run();

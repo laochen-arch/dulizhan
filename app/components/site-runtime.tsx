@@ -19,6 +19,10 @@ export const SITE_CONFIG_STORAGE_KEY = "northline-site-config-v3";
 export const PRODUCT_CATALOG_STORAGE_KEY = "northline-product-catalog-v3";
 export const ACTIVE_SITE_STORAGE_KEY = "northline-active-site-v6";
 
+function scopedStorageKey(prefix: string, siteId: string) {
+  return `${prefix}:${siteId}`;
+}
+
 type CmsPayload = {
   site: CmsSite;
   config: SiteConfig;
@@ -102,16 +106,16 @@ function normalizeProduct(input: Partial<Product>): Product | null {
   };
 }
 
-function readStoredCatalog(): Product[] {
+function readStoredCatalog(siteId: string): Product[] {
   try {
-    const saved = window.localStorage.getItem(PRODUCT_CATALOG_STORAGE_KEY);
+    const saved = window.localStorage.getItem(scopedStorageKey(PRODUCT_CATALOG_STORAGE_KEY, siteId));
     if (!saved) return clone(products);
     const parsed = JSON.parse(saved) as unknown;
     if (!Array.isArray(parsed)) return clone(products);
     const normalized = parsed.map((item) => normalizeProduct(item as Partial<Product>)).filter(Boolean) as Product[];
     return normalized.length ? normalized : clone(products);
   } catch {
-    window.localStorage.removeItem(PRODUCT_CATALOG_STORAGE_KEY);
+    window.localStorage.removeItem(scopedStorageKey(PRODUCT_CATALOG_STORAGE_KEY, siteId));
     return clone(products);
   }
 }
@@ -168,8 +172,8 @@ export function SiteRuntimeProvider({ children }: { children: React.ReactNode })
     setSite(payload.site);
     setCmsRole(payload.role);
     cmsDirty.current = false;
-    window.localStorage.setItem(SITE_CONFIG_STORAGE_KEY, JSON.stringify(nextConfig));
-    window.localStorage.setItem(PRODUCT_CATALOG_STORAGE_KEY, JSON.stringify(nextCatalog));
+    window.localStorage.setItem(scopedStorageKey(SITE_CONFIG_STORAGE_KEY, payload.site.id), JSON.stringify(nextConfig));
+    window.localStorage.setItem(scopedStorageKey(PRODUCT_CATALOG_STORAGE_KEY, payload.site.id), JSON.stringify(nextCatalog));
   }, []);
 
   const refreshCms = useCallback(async () => {
@@ -190,16 +194,19 @@ export function SiteRuntimeProvider({ children }: { children: React.ReactNode })
 
   useEffect(() => {
     try {
-      const savedConfig = window.localStorage.getItem(SITE_CONFIG_STORAGE_KEY);
+      const configKey = scopedStorageKey(SITE_CONFIG_STORAGE_KEY, activeSiteId);
+      const savedConfig = window.localStorage.getItem(configKey);
+      // A site switch must not briefly render the previous tenant's cached data.
+      // eslint-disable-next-line react-hooks/set-state-in-effect
+      setConfig(defaultConfig());
       if (savedConfig) {
         // Hydrate the last known storefront while the authoritative CMS is loading.
-        // eslint-disable-next-line react-hooks/set-state-in-effect
         setConfig(mergeConfig(defaultConfig(), JSON.parse(savedConfig)));
       }
-      setCatalog(readStoredCatalog());
+      setCatalog(readStoredCatalog(activeSiteId));
     } catch {
-      window.localStorage.removeItem(SITE_CONFIG_STORAGE_KEY);
-      window.localStorage.removeItem(PRODUCT_CATALOG_STORAGE_KEY);
+      window.localStorage.removeItem(scopedStorageKey(SITE_CONFIG_STORAGE_KEY, activeSiteId));
+      window.localStorage.removeItem(scopedStorageKey(PRODUCT_CATALOG_STORAGE_KEY, activeSiteId));
     }
     setHydrated(true);
     void refreshCms();
@@ -246,10 +253,10 @@ export function SiteRuntimeProvider({ children }: { children: React.ReactNode })
     if (cmsReady && cmsMode === "draft") setCmsStatus("saving");
     setConfig((current) => {
       const next = updater(clone(current));
-      window.localStorage.setItem(SITE_CONFIG_STORAGE_KEY, JSON.stringify(next));
+      window.localStorage.setItem(scopedStorageKey(SITE_CONFIG_STORAGE_KEY, activeSiteId), JSON.stringify(next));
       return next;
     });
-  }, [cmsMode, cmsReady]);
+  }, [activeSiteId, cmsMode, cmsReady]);
 
   const updateCatalog = useCallback((updater: (current: Product[]) => Product[]) => {
     cmsDirty.current = true;
@@ -257,26 +264,26 @@ export function SiteRuntimeProvider({ children }: { children: React.ReactNode })
     if (cmsReady && cmsMode === "draft") setCmsStatus("saving");
     setCatalog((current) => {
       const next = updater(clone(current)).map((product) => normalizeProduct(product)).filter(Boolean) as Product[];
-      window.localStorage.setItem(PRODUCT_CATALOG_STORAGE_KEY, JSON.stringify(next));
+      window.localStorage.setItem(scopedStorageKey(PRODUCT_CATALOG_STORAGE_KEY, activeSiteId), JSON.stringify(next));
       return next;
     });
-  }, [cmsMode, cmsReady]);
+  }, [activeSiteId, cmsMode, cmsReady]);
 
   const resetConfig = useCallback(() => {
     cmsDirty.current = true;
     changeVersion.current += 1;
     if (cmsReady && cmsMode === "draft") setCmsStatus("saving");
-    window.localStorage.removeItem(SITE_CONFIG_STORAGE_KEY);
+    window.localStorage.removeItem(scopedStorageKey(SITE_CONFIG_STORAGE_KEY, activeSiteId));
     setConfig(defaultConfig());
-  }, [cmsMode, cmsReady]);
+  }, [activeSiteId, cmsMode, cmsReady]);
 
   const resetCatalog = useCallback(() => {
     cmsDirty.current = true;
     changeVersion.current += 1;
     if (cmsReady && cmsMode === "draft") setCmsStatus("saving");
-    window.localStorage.removeItem(PRODUCT_CATALOG_STORAGE_KEY);
+    window.localStorage.removeItem(scopedStorageKey(PRODUCT_CATALOG_STORAGE_KEY, activeSiteId));
     setCatalog(clone(products));
-  }, [cmsMode, cmsReady]);
+  }, [activeSiteId, cmsMode, cmsReady]);
 
   const setActiveSiteId = useCallback((siteId: string) => {
     if (!/^[a-zA-Z0-9_-]{2,80}$/.test(siteId)) return;

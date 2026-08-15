@@ -44,7 +44,7 @@ export function errorResponse(error: unknown) {
   if (["ORDER_NOT_FOUND", "PRODUCT_NOT_FOUND", "PAYMENT_EVENT_NOT_FOUND", "NOTIFICATION_NOT_FOUND"].includes(message)) return Response.json({ error: "The requested commerce record was not found.", code: message }, { status: 404, headers: { "Cache-Control": "no-store" } });
   if (["INVALID_INVITATION", "INVITATION_NOT_ACTIVE", "INVITATION_EMAIL_MISMATCH"].includes(message)) return Response.json({ error: "This invitation cannot be accepted by the current account.", code: message }, { status: 400, headers: { "Cache-Control": "no-store" } });
   if (["LAST_OWNER", "CANNOT_REMOVE_SELF", "DOMAIN_IN_USE"].includes(message)) return Response.json({ error: "This access or domain change is not allowed.", code: message }, { status: 400, headers: { "Cache-Control": "no-store" } });
-  if (["INVALID_SITE", "INVALID_MEMBER", "INVALID_SCHEDULE"].includes(message)) return Response.json({ error: "The submitted CMS fields are invalid.", code: message }, { status: 400, headers: { "Cache-Control": "no-store" } });
+  if (["INVALID_SITE", "INVALID_MEMBER", "INVALID_SCHEDULE", "INVALID_LAUNCH_CHECK"].includes(message)) return Response.json({ error: "The submitted CMS fields are invalid.", code: message }, { status: 400, headers: { "Cache-Control": "no-store" } });
   if (message === "INVALID_IMPORT") return Response.json({ error: "The import file must include a header row and at least one product row.", code: message }, { status: 400, headers: { "Cache-Control": "no-store" } });
   if (message.startsWith("INVALID_IMPORT:")) {
     try {

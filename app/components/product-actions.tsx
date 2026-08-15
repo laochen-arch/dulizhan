@@ -5,7 +5,9 @@ import { useState } from "react";
 import type { Product, ProductVariant } from "../data/products";
 import { variantOptionValues } from "../data/products";
 import { useStore } from "./cart-store";
+import { useSiteRuntime } from "./site-runtime";
 import { showToast } from "./toast";
+import { formatMoney } from "../lib/format-money";
 
 function fallbackVariant(product: Product): ProductVariant {
   return product.variants[0] ?? {
@@ -27,7 +29,8 @@ function isSellable(product: Product, variant?: ProductVariant) {
 }
 
 export function AddToCartButton({ product, compact = false, variantId, quantity = 1 }: { product: Product; compact?: boolean; variantId?: string; quantity?: number }) {
-  const { addToCart } = useStore();
+  const { activeSiteId, site, config } = useSiteRuntime();
+  const { addToCart } = useStore(site?.id || activeSiteId);
   const [added, setAdded] = useState(false);
   const selected = product.variants.find((variant) => variant.id === variantId) ?? fallbackVariant(product);
   const unavailable = !isSellable(product, selected);
@@ -45,20 +48,22 @@ export function AddToCartButton({ product, compact = false, variantId, quantity 
         window.setTimeout(() => setAdded(false), 1800);
       }}
     >
-      {unavailable ? "Currently unavailable" : added ? "Added to bag" : compact ? "Add to bag" : `Add to bag - $${price}`}
+      {unavailable ? "Currently unavailable" : added ? "Added to bag" : compact ? "Add to bag" : `Add to bag - ${formatMoney(price, config.commerce.currency)}`}
     </button>
   );
 }
 
 export function BuyNowButton({ product, variantId, quantity = 1 }: { product: Product; variantId?: string; quantity?: number }) {
-  const { addToCart } = useStore();
+  const { activeSiteId, site } = useSiteRuntime();
+  const { addToCart } = useStore(site?.id || activeSiteId);
   const selected = product.variants.find((variant) => variant.id === variantId) ?? fallbackVariant(product);
   if (!isSellable(product, selected)) return <button type="button" disabled className="button button-outline button-wide">Currently unavailable</button>;
   return <Link href="/checkout" className="button button-outline button-wide" onClick={() => addToCart(product, { variantId: selected.id, quantity: Math.min(quantity, availableStock(product, selected)) })}>Buy now</Link>;
 }
 
 export function QuantityControl({ id, quantity }: { id: string; quantity: number }) {
-  const { updateQuantity } = useStore();
+  const { activeSiteId, site } = useSiteRuntime();
+  const { updateQuantity } = useStore(site?.id || activeSiteId);
   return <div className="quantity-control" aria-label="Quantity"><button type="button" disabled={quantity <= 1} onClick={() => updateQuantity(id, quantity - 1)} aria-label="Decrease quantity">-</button><span>{quantity}</span><button type="button" onClick={() => updateQuantity(id, quantity + 1)} aria-label="Increase quantity">+</button></div>;
 }
 
@@ -74,6 +79,7 @@ function optionGroups(product: Product) {
 }
 
 export function ProductPurchase({ product }: { product: Product }) {
+  const { config } = useSiteRuntime();
   const initialVariant = product.variants[0] ?? fallbackVariant(product);
   const [variantId, setVariantId] = useState(initialVariant.id);
   const [selection, setSelection] = useState<Record<string, string>>(variantOptionValues(initialVariant));
@@ -99,7 +105,7 @@ export function ProductPurchase({ product }: { product: Product }) {
   }
 
   return <>
-    <div className="detail-price">${price}{product.compareAt && <del>${product.compareAt}</del>}</div>
+    <div className="detail-price">{formatMoney(price, config.commerce.currency)}{product.compareAt && <del>{formatMoney(product.compareAt, config.commerce.currency)}</del>}</div>
     <p className="detail-sku">SKU {selected.sku} · {stock > 0 ? `${stock} in stock` : "Out of stock"}</p>
     {groups.map((group) => <div className="product-option-group" key={group.name}>
       <div className="detail-label">{group.name} <span className="selected-option">{selectedValues[group.name] || selection[group.name] || "Select"}</span></div>

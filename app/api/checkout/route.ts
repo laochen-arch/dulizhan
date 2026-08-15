@@ -7,7 +7,8 @@ export async function POST(request: Request) {
   try {
     const payload = await request.json() as CheckoutPayload;
     const site = await resolveSiteByHost(request.headers.get("host"));
-    const result = await createCheckout(site.id, payload, new URL(request.url).origin);
+    const idempotencyKey = request.headers.get("x-idempotency-key") || "";
+    const result = await createCheckout(site.id, payload, new URL(request.url).origin, idempotencyKey);
     return Response.json({ ok: true, ...result }, { headers: { "Cache-Control": "no-store" } });
   } catch (error) {
     const code = checkoutErrorCode(error);
