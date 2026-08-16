@@ -1,5 +1,6 @@
 import { createCheckout, checkoutErrorCode, type CheckoutPayload } from "../../../db/commerce";
 import { resolveSiteByHost } from "../../../db/cms";
+import { subscribeToNewsletter } from "../../../db/v28";
 
 export const dynamic = "force-dynamic";
 
@@ -9,6 +10,7 @@ export async function POST(request: Request) {
     const site = await resolveSiteByHost(request.headers.get("host"));
     const idempotencyKey = request.headers.get("x-idempotency-key") || "";
     const result = await createCheckout(site.id, payload, new URL(request.url).origin, idempotencyKey);
+    if (payload.newsletterOptIn) void subscribeToNewsletter(site.id, payload.email || "", "checkout").catch(() => undefined);
     return Response.json({ ok: true, ...result }, { headers: { "Cache-Control": "no-store" } });
   } catch (error) {
     const code = checkoutErrorCode(error);

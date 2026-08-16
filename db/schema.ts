@@ -415,3 +415,27 @@ export const storeWishlists = sqliteTable("store_wishlists", {
   productId: text("product_id").notNull(),
   createdAt: text("created_at").notNull(),
 }, (table) => [primaryKey({ columns: [table.siteId, table.userId, table.productId] }), index("store_wishlists_user_idx").on(table.siteId, table.userId, table.createdAt)]);
+
+export const storeNewsletterSubscribers = sqliteTable("store_newsletter_subscribers", {
+  siteId: text("site_id").notNull(),
+  email: text("email").notNull(),
+  status: text("status").notNull().default("subscribed"),
+  source: text("source").notNull().default("storefront"),
+  consentAt: text("consent_at").notNull(),
+  lastEmailStatus: text("last_email_status").notNull().default("not_sent"),
+  lastError: text("last_error"),
+  createdAt: text("created_at").notNull(),
+  updatedAt: text("updated_at").notNull(),
+}, (table) => [primaryKey({ columns: [table.siteId, table.email] }), index("store_newsletter_site_status_idx").on(table.siteId, table.status, table.updatedAt)]);
+
+export const storeStockAlerts = sqliteTable("store_stock_alerts", {
+  id: text("id").primaryKey(),
+  siteId: text("site_id").notNull(),
+  email: text("email").notNull(),
+  productId: text("product_id").notNull(),
+  variantId: text("variant_id").notNull(),
+  status: text("status").notNull().default("active"),
+  createdAt: text("created_at").notNull(),
+  updatedAt: text("updated_at").notNull(),
+  notifiedAt: text("notified_at"),
+}, (table) => [uniqueIndex("store_stock_alerts_unique").on(table.siteId, table.email, table.productId, table.variantId), index("store_stock_alerts_product_idx").on(table.siteId, table.productId, table.variantId, table.status)]);

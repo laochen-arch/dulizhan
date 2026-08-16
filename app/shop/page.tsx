@@ -7,6 +7,7 @@ import { BundleStrip } from "../components/bundles";
 import { RecentlyViewed } from "../components/recently-viewed";
 
 const sortOptions = ["Featured", "Price: low to high", "Price: high to low"];
+const priceOptions = ["Any price", "Under $50", "$50 - $150", "Over $150"];
 
 export default function ShopPage() {
   const { catalog, config } = useSiteRuntime();
@@ -15,6 +16,8 @@ export default function ShopPage() {
   const [category, setCategory] = useState("All gear");
   const [query, setQuery] = useState("");
   const [sort, setSort] = useState("Featured");
+  const [priceFilter, setPriceFilter] = useState("Any price");
+  const [availability, setAvailability] = useState("All items");
   const [filtersOpen, setFiltersOpen] = useState(false);
 
   // URL parameters initialize the controlled filter state after mount.
@@ -23,6 +26,8 @@ export default function ShopPage() {
     const urlCategory = params.get("category");
     const urlSearch = params.get("search") || params.get("q");
     const urlSort = params.get("sort");
+    const urlPrice = params.get("price");
+    const urlAvailability = params.get("availability");
     if (urlCategory && categories.includes(urlCategory)) {
       // eslint-disable-next-line react-hooks/set-state-in-effect
       setCategory(urlCategory);
@@ -33,6 +38,8 @@ export default function ShopPage() {
     if (urlSort && sortOptions.includes(urlSort)) {
       setSort(urlSort);
     }
+    if (urlPrice && priceOptions.includes(urlPrice)) setPriceFilter(urlPrice);
+    if (urlAvailability === "In stock" || urlAvailability === "Out of stock") setAvailability(urlAvailability);
   }, [categories]);
 
   useEffect(() => {
@@ -42,32 +49,42 @@ export default function ShopPage() {
     return () => { document.body.style.overflow = previousOverflow; };
   }, [filtersOpen]);
 
-  function syncUrl(next: { category?: string; search?: string; sort?: string }) {
+  function syncUrl(next: { category?: string; search?: string; sort?: string; price?: string; availability?: string }) {
     const params = new URLSearchParams();
     if (next.category && next.category !== "All gear") params.set("category", next.category);
     if (next.search) params.set("search", next.search);
     if (next.sort && next.sort !== "Featured") params.set("sort", next.sort);
+    if (next.price && next.price !== "Any price") params.set("price", next.price);
+    if (next.availability && next.availability !== "All items") params.set("availability", next.availability);
     window.history.replaceState({}, "", `/shop${params.toString() ? `?${params.toString()}` : ""}`);
   }
 
   function chooseCategory(next: string) {
     setCategory(next);
-    syncUrl({ category: next, search: query, sort });
+    syncUrl({ category: next, search: query, sort, price: priceFilter, availability });
   }
+
+  function choosePrice(next: string) { setPriceFilter(next); syncUrl({ category, search: query, sort, price: next, availability }); }
+  function chooseAvailability(next: string) { setAvailability(next); syncUrl({ category, search: query, sort, price: priceFilter, availability: next }); }
 
   const filteredProducts = useMemo(() => {
     const normalized = query.toLowerCase();
-    const list = activeProducts.filter((product) => (category === "All gear" || product.category === category) && `${product.name} ${product.description} ${product.sku} ${product.tags.join(" ")}`.toLowerCase().includes(normalized));
+    const list = activeProducts.filter((product) => {
+      const priceMatch = priceFilter === "Any price" || (priceFilter === "Under $50" && product.price < 50) || (priceFilter === "$50 - $150" && product.price >= 50 && product.price <= 150) || (priceFilter === "Over $150" && product.price > 150);
+      const stock = Math.max(0, product.variants.reduce((total, variant) => total + (variant.stock ?? product.stock), 0) || product.stock);
+      const availabilityMatch = availability === "All items" || (availability === "In stock" && stock > 0) || (availability === "Out of stock" && stock <= 0);
+      return priceMatch && availabilityMatch && (category === "All gear" || product.category === category) && `${product.name} ${product.description} ${product.sku} ${product.tags.join(" ")}`.toLowerCase().includes(normalized);
+    });
     if (sort === "Price: low to high") return [...list].sort((a, b) => a.price - b.price);
     if (sort === "Price: high to low") return [...list].sort((a, b) => b.price - a.price);
     return list;
-  }, [activeProducts, category, query, sort]);
+  }, [activeProducts, category, query, sort, priceFilter, availability]);
 
   function reset() {
-    setQuery(""); setCategory("All gear"); setSort("Featured"); syncUrl({});
+    setQuery(""); setCategory("All gear"); setSort("Featured"); setPriceFilter("Any price"); setAvailability("All items"); syncUrl({});
   }
 
-  const hasActiveFilters = category !== "All gear" || Boolean(query.trim()) || sort !== "Featured";
+  const hasActiveFilters = category !== "All gear" || Boolean(query.trim()) || sort !== "Featured" || priceFilter !== "Any price" || availability !== "All items";
 
   return <div className="storefront-appstore appstore-shop-page shop-page container section-pad">
     <div className="appstore-shop-intro"><p className="appstore-kicker">{config.brand.name} <span>/</span> Store</p><h1>Everything you need.<br /><em>Nothing you don&apos;t.</em></h1><p>Thoughtful essentials for the way you move through the world.</p></div>
@@ -75,10 +92,10 @@ export default function ShopPage() {
     <div className="appstore-shop-toolbar">
       <button type="button" className="mobile-filter-toggle" onClick={() => setFiltersOpen(true)} aria-expanded={filtersOpen}>Filters <span>+</span></button>
       <div className="category-tabs" role="tablist" aria-label="Product categories">{categories.map((item) => <button type="button" key={item} className={category === item ? "is-active" : ""} aria-selected={category === item} role="tab" onClick={() => chooseCategory(item)}>{item}</button>)}</div>
-      <div className="shop-controls"><label className="search-field"><span aria-hidden="true">⌕</span><span className="sr-only">Search products</span><input value={query} onChange={(event) => { setQuery(event.target.value); syncUrl({ category, search: event.target.value, sort }); }} placeholder="Search gear" /></label><label className="sort-field"><span className="sr-only">Sort products</span><select value={sort} onChange={(event) => { setSort(event.target.value); syncUrl({ category, search: query, sort: event.target.value }); }}>{sortOptions.map((option) => <option key={option}>{option}</option>)}</select></label></div>
+      <div className="shop-controls"><label className="search-field"><span aria-hidden="true">⌕</span><span className="sr-only">Search products</span><input value={query} onChange={(event) => { setQuery(event.target.value); syncUrl({ category, search: event.target.value, sort, price: priceFilter, availability }); }} placeholder="Search gear" /></label><label className="shop-filter-select"><span className="sr-only">Price range</span><select value={priceFilter} onChange={(event) => choosePrice(event.target.value)}>{priceOptions.map((option) => <option key={option}>{option}</option>)}</select></label><label className="shop-filter-select"><span className="sr-only">Availability</span><select value={availability} onChange={(event) => chooseAvailability(event.target.value)}><option>All items</option><option>In stock</option><option>Out of stock</option></select></label><label className="sort-field"><span className="sr-only">Sort products</span><select value={sort} onChange={(event) => { setSort(event.target.value); syncUrl({ category, search: query, sort: event.target.value, price: priceFilter, availability }); }}>{sortOptions.map((option) => <option key={option}>{option}</option>)}</select></label></div>
     </div>
-    {hasActiveFilters && <div className="shop-active-filters" aria-label="Active filters"><span className="shop-active-label">Active filters</span>{category !== "All gear" && <button type="button" className="shop-filter-chip" onClick={() => chooseCategory("All gear")}>Category: {category}<span aria-hidden="true">×</span></button>}{query.trim() && <button type="button" className="shop-filter-chip" onClick={() => { setQuery(""); syncUrl({ category, sort }); }}>Search: {query}<span aria-hidden="true">×</span></button>}{sort !== "Featured" && <button type="button" className="shop-filter-chip" onClick={() => { setSort("Featured"); syncUrl({ category, search: query }); }}>Sort: {sort}<span aria-hidden="true">×</span></button>}<button type="button" className="shop-clear-filters" onClick={reset}>Clear all</button></div>}
-    {filtersOpen && <div className="mobile-filter-layer"><button type="button" className="mobile-filter-backdrop" onClick={() => setFiltersOpen(false)} aria-label="Close filters" /><aside className="mobile-filter-panel" role="dialog" aria-modal="true" aria-labelledby="mobile-filter-title"><header><div><p className="eyebrow">Refine the collection</p><h2 id="mobile-filter-title">Find your gear.</h2></div><button type="button" className="cart-drawer-close" onClick={() => setFiltersOpen(false)} aria-label="Close filters">×</button></header><div className="mobile-filter-group"><span className="detail-label">Category</span>{categories.map((item) => <button type="button" key={item} className={category === item ? "is-active" : ""} onClick={() => chooseCategory(item)}>{item}<span>{category === item ? "✓" : ""}</span></button>)}</div><label className="mobile-filter-sort"><span className="detail-label">Sort by</span><select value={sort} onChange={(event) => { setSort(event.target.value); syncUrl({ category, search: query, sort: event.target.value }); }}>{sortOptions.map((option) => <option key={option}>{option}</option>)}</select></label><button type="button" className="button button-dark button-wide" onClick={() => setFiltersOpen(false)}>Show {filteredProducts.length} results</button></aside></div>}
+    {hasActiveFilters && <div className="shop-active-filters" aria-label="Active filters"><span className="shop-active-label">Active filters</span>{category !== "All gear" && <button type="button" className="shop-filter-chip" onClick={() => chooseCategory("All gear")}>Category: {category}<span aria-hidden="true">×</span></button>}{query.trim() && <button type="button" className="shop-filter-chip" onClick={() => { setQuery(""); syncUrl({ category, sort, price: priceFilter, availability }); }}>Search: {query}<span aria-hidden="true">×</span></button>}{priceFilter !== "Any price" && <button type="button" className="shop-filter-chip" onClick={() => choosePrice("Any price")}>Price: {priceFilter}<span aria-hidden="true">×</span></button>}{availability !== "All items" && <button type="button" className="shop-filter-chip" onClick={() => chooseAvailability("All items")}>Stock: {availability}<span aria-hidden="true">×</span></button>}{sort !== "Featured" && <button type="button" className="shop-filter-chip" onClick={() => { setSort("Featured"); syncUrl({ category, search: query, price: priceFilter, availability }); }}>Sort: {sort}<span aria-hidden="true">×</span></button>}<button type="button" className="shop-clear-filters" onClick={reset}>Clear all</button></div>}
+    {filtersOpen && <div className="mobile-filter-layer"><button type="button" className="mobile-filter-backdrop" onClick={() => setFiltersOpen(false)} aria-label="Close filters" /><aside className="mobile-filter-panel" role="dialog" aria-modal="true" aria-labelledby="mobile-filter-title"><header><div><p className="eyebrow">Refine the collection</p><h2 id="mobile-filter-title">Find your gear.</h2></div><button type="button" className="cart-drawer-close" onClick={() => setFiltersOpen(false)} aria-label="Close filters">×</button></header><div className="mobile-filter-group"><span className="detail-label">Category</span>{categories.map((item) => <button type="button" key={item} className={category === item ? "is-active" : ""} onClick={() => chooseCategory(item)}>{item}<span>{category === item ? "✓" : ""}</span></button>)}</div><label className="mobile-filter-sort"><span className="detail-label">Price</span><select value={priceFilter} onChange={(event) => choosePrice(event.target.value)}>{priceOptions.map((option) => <option key={option}>{option}</option>)}</select></label><label className="mobile-filter-sort"><span className="detail-label">Availability</span><select value={availability} onChange={(event) => chooseAvailability(event.target.value)}><option>All items</option><option>In stock</option><option>Out of stock</option></select></label><label className="mobile-filter-sort"><span className="detail-label">Sort by</span><select value={sort} onChange={(event) => { setSort(event.target.value); syncUrl({ category, search: query, sort: event.target.value, price: priceFilter, availability }); }}>{sortOptions.map((option) => <option key={option}>{option}</option>)}</select></label><button type="button" className="button button-dark button-wide" onClick={() => setFiltersOpen(false)}>Show {filteredProducts.length} results</button></aside></div>}
     <div className="shop-meta" aria-live="polite"><span>{filteredProducts.length} {filteredProducts.length === 1 ? "piece" : "pieces"}</span><span>{query ? `Results for "${query}"` : "Designed for the long way around"}</span></div>
     {filteredProducts.length ? <div className="product-grid shop-product-grid appstore-shop-grid">{filteredProducts.map((product) => <ProductCard key={product.id} product={product} />)}</div> : <div className="empty-state"><span className="empty-mark">O</span><h2>Nothing found.</h2><p>Try another search or browse all of our gear.</p><button type="button" className="button button-dark" onClick={reset}>Reset filters</button></div>}
     <RecentlyViewed />

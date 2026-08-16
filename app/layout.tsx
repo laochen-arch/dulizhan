@@ -13,6 +13,7 @@ import { AnalyticsTracker } from "./components/analytics-tracker";
 import { TrackingScripts } from "./components/tracking-scripts";
 import { WishlistProvider } from "./components/wishlist-context";
 import { CartDrawer } from "./components/cart-drawer";
+import { ConsentBanner } from "./components/consent-banner";
 
 const geistSans = Geist({ variable: "--font-geist-sans", subsets: ["latin"] });
 const geistMono = Geist_Mono({ variable: "--font-geist-mono", subsets: ["latin"] });
@@ -84,6 +85,7 @@ export default async function RootLayout({ children }: Readonly<{ children: Reac
             <main>{children}</main>
             <SiteFooter />
             <ToastViewport />
+            <ConsentBanner />
           </WishlistProvider>
         </SiteRuntimeProvider>
       </body>

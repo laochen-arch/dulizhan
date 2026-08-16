@@ -9,6 +9,7 @@ import { useSiteRuntime } from "./site-runtime";
 import { showToast } from "./toast";
 import { formatMoney } from "../lib/format-money";
 import { trackAnalytics } from "./analytics-tracker";
+import { StockAlertForm } from "./stock-alert-form";
 
 function fallbackVariant(product: Product): ProductVariant {
   return product.variants[0] ?? {
@@ -125,6 +126,7 @@ export function ProductPurchase({ product }: { product: Product }) {
       </div>
     </div>)}
     <div className="product-quantity-row"><span className="detail-label">Quantity <small className="stock-note">{stock > 0 ? `${stock} available` : "Currently unavailable"}</small></span><div className="quantity-control product-quantity"><button type="button" disabled={quantity <= 1} onClick={() => setQuantity((current) => Math.max(1, current - 1))} aria-label="Decrease quantity">-</button><span aria-live="polite">{quantity}</span><button type="button" disabled={quantity >= stock} onClick={() => setQuantity((current) => Math.min(stock, current + 1))} aria-label="Increase quantity">+</button></div></div>
+    {stock <= 0 && <StockAlertForm productId={product.id} variantId={selected.id} />}
     <div className="detail-actions"><AddToCartButton product={product} variantId={selected.id} quantity={quantity} /><BuyNowButton product={product} variantId={selected.id} quantity={quantity} /></div>
   </>;
 }

@@ -254,3 +254,31 @@ test("keeps V27 storefront discovery and repeat-purchase paths in source", async
   assert.match(shop, /shop-active-filters/);
   assert.match(detail, /ProductShare/);
 });
+
+test("keeps V28 recovery, retention and storefront trust paths in source", async () => {
+  const v28 = await readFile(new URL("../db/v28.ts", import.meta.url), "utf8");
+  const schema = await readFile(new URL("../drizzle/0013_curved_odin.sql", import.meta.url), "utf8");
+  const commerce = await readFile(new URL("../db/commerce.ts", import.meta.url), "utf8");
+  const checkout = await readFile(new URL("../app/checkout/page.tsx", import.meta.url), "utf8");
+  const orders = await readFile(new URL("../app/orders/page.tsx", import.meta.url), "utf8");
+  const cart = await readFile(new URL("../app/components/cart-coupon.tsx", import.meta.url), "utf8");
+  const account = await readFile(new URL("../app/components/reorder-button.tsx", import.meta.url), "utf8");
+  const consent = await readFile(new URL("../app/components/consent-banner.tsx", import.meta.url), "utf8");
+  assert.match(v28, /store_newsletter_subscribers/);
+  assert.match(v28, /store_stock_alerts/);
+  assert.match(v28, /sendResendMessage/);
+  assert.match(schema, /store_newsletter_subscribers/);
+  assert.match(schema, /store_stock_alerts/);
+  assert.match(commerce, /retryPayPalCheckout/);
+  assert.match(commerce, /accessToken/);
+  assert.match(checkout, /Try PayPal again/);
+  assert.match(checkout, /\/orders\?token=/);
+  assert.match(orders, /after-sales-status/);
+  assert.match(orders, /trackingUrl/);
+  assert.match(cart, /\/api\/checkout\/quote/);
+  assert.match(account, /Buy again/);
+  assert.match(consent, /northline-consent-v28/);
+  assert.equal((await render("/privacy")).status, 200);
+  assert.equal((await render("/terms")).status, 200);
+  assert.equal((await render("/accessibility")).status, 200);
+});

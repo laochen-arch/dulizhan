@@ -6,6 +6,7 @@ import { useStore } from "./cart-store";
 import { useSiteRuntime } from "./site-runtime";
 import { showToast } from "./toast";
 import { trackAnalytics } from "./analytics-tracker";
+import { readStoredCoupon, writeStoredCoupon } from "../lib/coupon";
 
 export type CheckoutValues = {
   email: string;
@@ -44,7 +45,14 @@ export function CheckoutForm({ onComplete, onQuoteChange }: { onComplete: () => 
   const [quote, setQuote] = useState<CheckoutQuote | null>(null);
   const [quotePending, setQuotePending] = useState(false);
   const [quoteError, setQuoteError] = useState("");
+  const [newsletterOptIn, setNewsletterOptIn] = useState(false);
   const idempotencyKey = useRef<string | null>(null);
+
+  useEffect(() => {
+    const storedCoupon = readStoredCoupon(site?.id || activeSiteId);
+    const timer = window.setTimeout(() => { if (storedCoupon) setValues((current) => ({ ...current, couponCode: current.couponCode || storedCoupon })); }, 0);
+    return () => window.clearTimeout(timer);
+  }, [activeSiteId, site?.id]);
 
   useEffect(() => {
     let active = true;
@@ -104,6 +112,7 @@ export function CheckoutForm({ onComplete, onQuoteChange }: { onComplete: () => 
 
   function update(field: keyof CheckoutValues, value: string) {
     setValues((current) => ({ ...current, [field]: value }));
+    if (field === "couponCode") writeStoredCoupon(site?.id || activeSiteId, value);
     setErrors((current) => ({ ...current, [field]: undefined }));
   }
 
@@ -125,7 +134,7 @@ export function CheckoutForm({ onComplete, onQuoteChange }: { onComplete: () => 
     showToast("Preparing secure checkout...", "info");
     trackAnalytics("checkout_started", { payload: { itemCount: cart.length, total: quote.total } });
     void fetch("/api/checkout/abandon", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ email: values.email, cart, subtotal: quote.subtotal, currency: config.commerce.currency }) }).catch(() => undefined);
-    void fetch("/api/checkout", { method: "POST", headers: { "Content-Type": "application/json", "x-idempotency-key": idempotencyKey.current || "" }, body: JSON.stringify({ ...values, items: quoteItems }) }).then(async (response) => {
+    void fetch("/api/checkout", { method: "POST", headers: { "Content-Type": "application/json", "x-idempotency-key": idempotencyKey.current || "" }, body: JSON.stringify({ ...values, newsletterOptIn, items: quoteItems }) }).then(async (response) => {
       const payload = await response.json().catch(() => ({})) as { checkoutUrl?: string; error?: string };
       if (!response.ok || !payload.checkoutUrl) throw new Error(payload.error || "Unable to start payment.");
       onComplete(); window.location.assign(payload.checkoutUrl);
@@ -135,7 +144,7 @@ export function CheckoutForm({ onComplete, onQuoteChange }: { onComplete: () => 
   return <form className="checkout-form" onSubmit={submit} noValidate>
     <div className="checkout-heading"><p className="eyebrow">{config.brand.name} / Checkout</p><h1>Let&apos;s get you<br /><em>on your way.</em></h1><p>Secure payment is handled by PayPal. Your payment details never touch this storefront.</p></div>
     {serverError && <div className="form-error" role="alert">{serverError}<button type="button" className="text-button" onClick={() => setServerError("")}>Dismiss</button></div>}
-    <fieldset><legend>Contact</legend><Field id="checkout-email" label="Email address" value={values.email} error={errors.email} type="email" placeholder="you@example.com" onChange={(value) => update("email", value)} /><label className="checkbox-label"><input type="checkbox" /> Email me with field notes and new gear</label></fieldset>
+    <fieldset><legend>Contact</legend><Field id="checkout-email" label="Email address" value={values.email} error={errors.email} type="email" placeholder="you@example.com" onChange={(value) => update("email", value)} /><label className="checkbox-label"><input type="checkbox" checked={newsletterOptIn} onChange={(event) => setNewsletterOptIn(event.target.checked)} /> Email me with field notes and new gear</label></fieldset>
     <fieldset><legend>Delivery</legend><div className="form-two"><Field id="checkout-first-name" label="First name" value={values.firstName} error={errors.firstName} placeholder="First name" onChange={(value) => update("firstName", value)} /><Field id="checkout-last-name" label="Last name" value={values.lastName} error={errors.lastName} placeholder="Last name" onChange={(value) => update("lastName", value)} /></div><Field id="checkout-address" label="Address" value={values.address} error={errors.address} placeholder="Street address" onChange={(value) => update("address", value)} /><div className="form-three"><Field id="checkout-city" label="City" value={values.city} error={errors.city} placeholder="City" onChange={(value) => update("city", value)} /><Field id="checkout-region" label="State / region" value={values.region} error={errors.region} placeholder="State" onChange={(value) => update("region", value)} /><Field id="checkout-zip" label="ZIP code" value={values.zip} error={errors.zip} placeholder="ZIP" onChange={(value) => update("zip", value)} /></div><SelectField id="checkout-country" label="Country" value={values.country} options={["United States", "Canada", "United Kingdom", "Australia"]} onChange={(value) => update("country", value)} /><SelectField id="checkout-delivery" label="Delivery method" value={values.deliveryMethod} options={["Standard delivery", "Express delivery"]} onChange={(value) => update("deliveryMethod", value)} /><Field id="checkout-coupon" label="Coupon code (optional)" value={values.couponCode} placeholder="WELCOME10" onChange={(value) => update("couponCode", value.toUpperCase())} />{quotePending && <p className="quote-status" role="status">Updating your order total...</p>}{quoteError && <p className="quote-status is-error" role="alert">{quoteError}</p>}{quote && values.couponCode && <p className={`quote-status ${quote.couponApplied ? "is-success" : "is-error"}`}>{quote.couponApplied ? `Coupon ${quote.couponCode} applied.` : "That coupon is not valid for this order."}</p>}{quote && quote.freeShippingThreshold > 0 && <p className="quote-status">{quote.shipping === 0 ? "Free shipping unlocked." : `Add ${formatMoney(quote.freeShippingThreshold - quote.subtotal + quote.discount, config.commerce.currency)} more to unlock free shipping.`}</p>}</fieldset>
     <fieldset><legend>Payment</legend><div className="payment-placeholder"><span>PayPal secure checkout</span><p>You&apos;ll be redirected to PayPal to approve the payment.</p></div></fieldset>
     <button className="button button-dark button-wide" type="submit" disabled={submitting || quotePending}>{submitting ? "Preparing secure checkout..." : quotePending ? "Updating total..." : "Continue to PayPal ->"}</button>
