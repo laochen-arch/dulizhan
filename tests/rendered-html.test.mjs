@@ -235,3 +235,22 @@ test("keeps V26 storefront conversion and account continuity paths in source", a
   assert.match(recent, /Recently/);
   assert.match(shop, /mobile-filter-toggle/);
 });
+
+test("keeps V27 storefront discovery and repeat-purchase paths in source", async () => {
+  const account = await readFile(new URL("../app/account/account-page.tsx", import.meta.url), "utf8");
+  const card = await readFile(new URL("../app/components/product-card.tsx", import.meta.url), "utf8");
+  const share = await readFile(new URL("../app/components/product-share.tsx", import.meta.url), "utf8");
+  const cart = await readFile(new URL("../app/cart/page.tsx", import.meta.url), "utf8");
+  const shop = await readFile(new URL("../app/shop/page.tsx", import.meta.url), "utf8");
+  const detail = await readFile(new URL("../app/products/[slug]/product-detail-view.tsx", import.meta.url), "utf8");
+
+  assert.match(account, /Saved gear/);
+  assert.match(account, /useWishlist/);
+  assert.match(card, /requiresOptions/);
+  assert.match(card, /Choose options/);
+  assert.match(share, /navigator\.share/);
+  assert.match(cart, /cart-shipping-progress/);
+  assert.match(cart, /hasStaleStock/);
+  assert.match(shop, /shop-active-filters/);
+  assert.match(detail, /ProductShare/);
+});

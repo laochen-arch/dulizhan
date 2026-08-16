@@ -2,6 +2,9 @@
 
 import { FormEvent, useEffect, useState } from "react";
 import { formatMoney } from "../lib/format-money";
+import { ProductCard } from "../components/product-card";
+import { useSiteRuntime } from "../components/site-runtime";
+import { useWishlist } from "../components/wishlist-context";
 
 type Access = {
   authenticated: boolean;
@@ -16,12 +19,14 @@ type Address = { id: string; label: string; firstName: string; lastName: string;
 const emptyAddress = { label: "Shipping address", firstName: "", lastName: "", address: "", city: "", region: "", zip: "", country: "United States", phone: "", isDefault: false };
 
 export function AccountPage() {
+  const { catalog } = useSiteRuntime();
+  const { ids: wishlistIds, hydrated: wishlistHydrated } = useWishlist();
   const [access, setAccess] = useState<Access | null>(null);
   const [profile, setProfile] = useState<Profile | null>(null);
   const [orders, setOrders] = useState<Order[]>([]);
   const [addresses, setAddresses] = useState<Address[]>([]);
   const [address, setAddress] = useState(emptyAddress);
-  const [tab, setTab] = useState<"overview" | "orders" | "addresses" | "profile">("overview");
+  const [tab, setTab] = useState<"overview" | "orders" | "addresses" | "saved" | "profile">("overview");
   const [busy, setBusy] = useState(false);
   const [message, setMessage] = useState("");
   const [error, setError] = useState("");
@@ -98,6 +103,8 @@ export function AccountPage() {
     finally { setBusy(false); }
   }
 
+  const savedProducts = catalog.filter((product) => wishlistIds.includes(product.id) && product.status === "active");
+
   if (!access) return <main className="account-shell container"><section className="account-loading"><p className="eyebrow">Your account</p><h1>Loading your space.</h1></section></main>;
 
   if (!access.authenticated) return <main className="account-shell container"><section className="account-signin"><p className="eyebrow">Northline account</p><h1>Keep your orders<br /><em>in one place.</em></h1><p>Sign in to view orders, delivery status and saved addresses. This hosted version uses the secure workspace sign-in supplied by the site platform.</p><a className="button button-dark" href="/signin-with-chatgpt?return_to=%2Faccount">Sign in to continue <span>→</span></a><p className="account-note">Guest checkout and order lookup remain available from <a href="/orders">Track order</a>.</p></section></main>;
@@ -106,10 +113,12 @@ export function AccountPage() {
     <header className="account-header"><div><p className="eyebrow">{access.site.name} / Account</p><h1>Welcome back,<br /><em>{profile?.displayName || access.user?.displayName || "traveler"}.</em></h1></div><a className="text-link" href="/signout-with-chatgpt?return_to=%2F">Sign out →</a></header>
     {(error || message) && <p className={error ? "form-error" : "form-help"} role={error ? "alert" : "status"}>{error || message}</p>}
     <nav className="account-tabs" aria-label="Account sections">
-      {([["overview", "Overview"], ["orders", "Orders"], ["addresses", "Addresses"], ["profile", "Profile"]] as const).map(([key, label]) => <button type="button" key={key} className={tab === key ? "is-active" : ""} onClick={() => { setTab(key); setMessage(""); setError(""); }}>{label}</button>)}
+      {([["overview", "Overview"], ["orders", "Orders"], ["addresses", "Addresses"], ["saved", "Saved"], ["profile", "Profile"]] as const).map(([key, label]) => <button type="button" key={key} className={tab === key ? "is-active" : ""} onClick={() => { setTab(key); setMessage(""); setError(""); }}>{label}</button>)}
     </nav>
 
-    {tab === "overview" && <section className="account-dashboard"><div className="account-stat-grid"><button type="button" onClick={() => setTab("orders")}><span>Orders</span><strong>{orders.length}</strong><small>View order history →</small></button><button type="button" onClick={() => setTab("addresses")}><span>Saved addresses</span><strong>{addresses.length}</strong><small>Manage delivery details →</small></button><div><span>Account email</span><strong className="account-stat-email">{profile?.email}</strong><small>Used for order updates</small></div></div><div className="account-split"><article><p className="eyebrow">Latest order</p>{orders[0] ? <><h2>{orders[0].orderNumber}</h2><p>{orders[0].paymentStatus} · {orders[0].fulfillmentStatus}</p><a className="text-link" href={`/account/orders/${encodeURIComponent(orders[0].id)}`}>View order details →</a></> : <><h2>No orders yet.</h2><p>Your next trip can start with the collection.</p><a className="text-link" href="/shop">Browse products →</a></>}</article><article className="account-dark-card"><p className="eyebrow">Need order support?</p><h2>Track a guest order.</h2><p>Use the order number and checkout email to access delivery and after-sales support.</p><a className="button button-light" href="/orders">Track order <span>→</span></a></article></div></section>}
+    {tab === "overview" && <section className="account-dashboard"><div className="account-stat-grid"><button type="button" onClick={() => setTab("orders")}><span>Orders</span><strong>{orders.length}</strong><small>View order history →</small></button><button type="button" onClick={() => setTab("addresses")}><span>Saved addresses</span><strong>{addresses.length}</strong><small>Manage delivery details →</small></button><button type="button" onClick={() => setTab("saved")}><span>Saved gear</span><strong>{wishlistIds.length}</strong><small>Revisit your shortlist →</small></button><div><span>Account email</span><strong className="account-stat-email">{profile?.email}</strong><small>Used for order updates</small></div></div><div className="account-split"><article><p className="eyebrow">Latest order</p>{orders[0] ? <><h2>{orders[0].orderNumber}</h2><p>{orders[0].paymentStatus} · {orders[0].fulfillmentStatus}</p><a className="text-link" href={`/account/orders/${encodeURIComponent(orders[0].id)}`}>View order details →</a></> : <><h2>No orders yet.</h2><p>Your next trip can start with the collection.</p><a className="text-link" href="/shop">Browse products →</a></>}</article><article className="account-dark-card"><p className="eyebrow">Need order support?</p><h2>Track a guest order.</h2><p>Use the order number and checkout email to access delivery and after-sales support.</p><a className="button button-light" href="/orders">Track order <span>→</span></a></article></div></section>}
+
+    {tab === "saved" && <section className="account-panel account-saved-panel"><div className="account-panel-heading"><div><p className="eyebrow">Your shortlist</p><h2>Saved gear.</h2></div><a className="text-link" href="/shop">Keep browsing →</a></div>{!wishlistHydrated ? <div className="account-empty"><h3>Loading your saved gear.</h3><p>Your shortlist is syncing across this device and your account.</p></div> : savedProducts.length ? <div className="product-grid account-saved-grid">{savedProducts.map((product) => <ProductCard key={product.id} product={product} />)}</div> : <div className="account-empty"><h3>No saved products yet.</h3><p>Tap Save on a product card to keep a shortlist for your next trip.</p><a className="button button-dark" href="/shop">Browse products <span>→</span></a></div>}</section>}
 
     {tab === "orders" && <section className="account-panel"><div className="account-panel-heading"><div><p className="eyebrow">Order history</p><h2>Your orders.</h2></div><a className="text-link" href="/shop">Shop the collection →</a></div>{orders.length ? <div className="account-order-list">{orders.map((order) => <a href={`/account/orders/${encodeURIComponent(order.id)}`} key={order.id}><span><strong>{order.orderNumber}</strong><small>{new Date(order.createdAt).toLocaleDateString()} · {order.paymentStatus}</small></span><span><strong>{formatMoney(order.total, order.currency)}</strong><small>{order.trackingNumber ? `Tracking ${order.trackingNumber}` : order.fulfillmentStatus}</small></span><span aria-hidden="true">↗</span></a>)}</div> : <div className="account-empty"><h3>No account orders yet.</h3><p>Orders placed with this email will appear here after payment confirmation.</p></div>}</section>}
 

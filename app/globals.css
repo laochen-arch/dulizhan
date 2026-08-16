@@ -1268,3 +1268,32 @@ button:disabled, .button:disabled { cursor: not-allowed; opacity: .45; }
   .nav-actions { gap: 11px; }
   .access-menu-link { font-size: 8px; }
 }
+
+.shop-active-filters { display: flex; align-items: center; flex-wrap: wrap; gap: 8px; border-bottom: 1px solid var(--line); padding: 0 0 18px; }
+.shop-active-label { margin-right: 5px; color: var(--muted); font-size: 9px; letter-spacing: .12em; text-transform: uppercase; }
+.shop-filter-chip { display: inline-flex; align-items: center; gap: 10px; border: 1px solid var(--line); background: var(--white); padding: 8px 10px; color: var(--ink); font-size: 10px; }
+.shop-filter-chip:hover, .shop-filter-chip:focus-visible { border-color: var(--ink); outline: 0; }
+.shop-filter-chip span { color: var(--rust); font-size: 15px; line-height: .7; }
+.shop-clear-filters { border: 0; background: transparent; padding: 8px 4px; color: var(--muted); font-size: 10px; text-decoration: underline; text-underline-offset: 3px; }
+.cart-shipping-progress { display: grid; gap: 18px; margin: 0 0 28px; border: 1px solid var(--line); background: var(--white); padding: 18px 20px; }
+.cart-shipping-progress > div:first-child { display: grid; gap: 5px; }
+.cart-shipping-progress strong { font-size: 14px; font-weight: 500; }
+.cart-shipping-progress span { color: var(--muted); font-size: 11px; }
+.cart-shipping-progress-bar { height: 5px; overflow: hidden; background: var(--warm); }
+.cart-shipping-progress-bar span { display: block; height: 100%; background: var(--ink); transition: width .25s ease; }
+.cart-summary .button:disabled { cursor: not-allowed; opacity: .5; }
+.cart-continue { display: inline-flex; justify-content: center; gap: 8px; margin-top: 14px; color: var(--muted); font-size: 11px; text-decoration: underline; text-underline-offset: 3px; }
+.account-saved-panel { min-width: 0; }
+.account-saved-grid { margin-top: 10px; }
+.product-card-choose { display: flex; align-items: center; justify-content: center; gap: 7px; text-decoration: none; }
+.product-card-choose span { font-size: 14px; line-height: 1; }
+.product-share { display: inline-flex; align-items: center; gap: 8px; margin-top: 18px; border: 0; background: transparent; padding: 0; color: var(--muted); font-size: 10px; letter-spacing: .08em; text-transform: uppercase; }
+.product-share:hover, .product-share:focus-visible { color: var(--ink); outline: 0; }
+.product-share span { color: var(--rust); font-size: 16px; }
+
+@media (max-width: 620px) {
+  .shop-active-filters { align-items: flex-start; }
+  .shop-active-label { width: 100%; }
+  .cart-shipping-progress { padding: 16px; }
+  .account-saved-grid { grid-template-columns: 1fr 1fr; }
+}
