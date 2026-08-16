@@ -1205,7 +1205,7 @@ export async function getPublicOrderByNumber(siteId: string, orderNumberValue: s
   const detail = await readOrder(database, row.id, siteId);
   const access = await issuePublicOrderAccessToken(siteId, row.id, email);
   return {
-    order: { ...detail.order, shippingAddress: undefined, paypalOrderId: undefined, paypalApprovalUrl: undefined, paypalCaptureId: undefined, adminNote: undefined },
+    order: { ...detail.order, shippingAddress: undefined, shippingSummary: { city: detail.order.shippingAddress.city, region: detail.order.shippingAddress.region, country: detail.order.shippingAddress.country }, paypalOrderId: undefined, paypalApprovalUrl: undefined, paypalCaptureId: undefined, adminNote: undefined },
     items: detail.items.map((item) => ({ id: item.id, name: item.name, variantLabel: item.variantLabel, quantity: item.quantity, unitPrice: item.unitPrice })),
     accessToken: access.token,
     accessExpiresAt: access.expiresAt,
@@ -1224,7 +1224,7 @@ export async function getPublicOrderByAccessToken(siteId: string, token: string)
   await database.prepare("UPDATE cms_order_access_tokens SET last_used_at = ?1, request_count = request_count + 1 WHERE site_id = ?2 AND token_hash = ?3").bind(now(), siteId, tokenHash).run();
   const detail = await readOrder(database, row.orderId, siteId);
   return {
-    order: { ...detail.order, shippingAddress: undefined, paypalOrderId: undefined, paypalApprovalUrl: undefined, paypalCaptureId: undefined, adminNote: undefined },
+    order: { ...detail.order, shippingAddress: undefined, shippingSummary: { city: detail.order.shippingAddress.city, region: detail.order.shippingAddress.region, country: detail.order.shippingAddress.country }, paypalOrderId: undefined, paypalApprovalUrl: undefined, paypalCaptureId: undefined, adminNote: undefined },
     items: detail.items.map((item) => ({ id: item.id, productId: item.productId, name: item.name, variantLabel: item.variantLabel, quantity: item.quantity, unitPrice: item.unitPrice })),
   };
 }

@@ -1367,3 +1367,40 @@ button:disabled, .button:disabled { cursor: not-allowed; opacity: .45; }
   .stock-alert form { display: grid; }
   .stock-alert .button { width: 100%; }
 }
+
+/* V29 storefront conversion and state surfaces. */
+.access-menu-user { max-width: 120px; overflow: hidden; color: var(--ink); font-size: 10px; text-overflow: ellipsis; white-space: nowrap; }
+.access-menu-signout { color: var(--muted); }
+.detail-image-button { display: block; width: 100%; height: 100%; border: 0; background: transparent; padding: 0; cursor: zoom-in; }
+.detail-image-button:focus-visible { outline: 2px solid var(--ink); outline-offset: -5px; }
+.gallery-zoom-layer { position: fixed; z-index: 80; inset: 0; display: grid; place-items: center; padding: 30px; }
+.gallery-zoom-backdrop { position: absolute; inset: 0; border: 0; background: rgba(20, 22, 19, .84); cursor: zoom-out; }
+.gallery-zoom-content { position: relative; z-index: 1; display: grid; max-width: min(92vw, 1100px); max-height: 90vh; place-items: center; }
+.gallery-zoom-content img { display: block; max-width: 100%; max-height: 86vh; object-fit: contain; }
+.gallery-zoom-close { position: absolute; z-index: 2; top: -18px; right: -18px; display: grid; width: 38px; height: 38px; place-items: center; border: 1px solid rgba(251,250,247,.45); border-radius: 50%; background: var(--ink); color: var(--white); cursor: pointer; font-size: 23px; line-height: 1; }
+.product-purchase { scroll-margin-top: 95px; }
+.product-delivery-note { margin: 22px 0 0; border-top: 1px solid var(--line); padding-top: 15px; color: var(--muted); font-size: 11px; line-height: 1.6; }
+.product-delivery-note strong { color: var(--ink); font-weight: 500; }
+.mobile-purchase-bar { display: none; }
+.shop-load-more { display: flex; width: fit-content; margin: 34px auto 0; }
+.checkout-steps { display: grid; grid-template-columns: repeat(3, 1fr); gap: 9px; margin: 32px 0 0; padding: 0; list-style: none; }
+.checkout-steps li { display: flex; align-items: center; gap: 8px; border-top: 1px solid var(--line); padding-top: 11px; color: var(--muted); font-size: 9px; letter-spacing: .1em; text-transform: uppercase; }
+.checkout-steps li span { display: grid; width: 20px; height: 20px; place-items: center; border: 1px solid var(--line); border-radius: 50%; font-size: 9px; }
+.checkout-steps li.is-active, .checkout-steps li.is-complete { border-color: var(--ink); color: var(--ink); }
+.checkout-steps li.is-complete span { border-color: var(--ink); background: var(--ink); color: var(--white); }
+.checkout-pending-actions { display: grid; justify-items: center; gap: 9px; margin-top: 20px; }
+.checkout-pending-actions .button { margin-top: 0; }
+
+@media (max-width: 620px) {
+  .access-menu-user { display: none; }
+  .gallery-zoom-layer { padding: 18px; }
+  .gallery-zoom-close { top: -12px; right: -4px; }
+  .mobile-purchase-bar { position: fixed; z-index: 40; right: 0; bottom: 0; left: 0; display: flex; align-items: center; justify-content: space-between; gap: 12px; border-top: 1px solid var(--line); background: rgba(251,250,247,.96); padding: 11px 16px calc(11px + env(safe-area-inset-bottom)); box-shadow: 0 -8px 25px rgba(29,31,28,.08); backdrop-filter: blur(12px); }
+  .mobile-purchase-bar > span { display: grid; min-width: 0; gap: 3px; }
+  .mobile-purchase-bar small { overflow: hidden; color: var(--muted); font-size: 8px; letter-spacing: .1em; text-overflow: ellipsis; text-transform: uppercase; white-space: nowrap; }
+  .mobile-purchase-bar strong { overflow: hidden; max-width: 48vw; font-size: 12px; font-weight: 500; text-overflow: ellipsis; white-space: nowrap; }
+  .mobile-purchase-bar .button { flex: 0 0 auto; margin: 0; padding: 12px 13px; font-size: 9px; }
+  .appstore-product-page { padding-bottom: 105px; }
+  .checkout-steps { gap: 5px; }
+  .checkout-steps li { align-items: flex-start; flex-direction: column; gap: 5px; font-size: 8px; }
+}

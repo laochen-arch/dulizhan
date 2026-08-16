@@ -14,7 +14,7 @@ export function ProductCard({ product, variant = "default" }: { product: Product
     <article className={`product-card ${variant === "rail" ? "product-card-rail" : ""}`}>
       <Link href={`/products/${product.slug}`} className="product-image-wrap">
         {product.badge && <span className="product-badge">{product.badge}</span>}
-        <img src={product.images[0] || product.image} alt={product.alt} className="product-image" loading="lazy" decoding="async" />
+        <img src={product.images[0] || product.image} alt={product.alt} className="product-image" loading="lazy" decoding="async" sizes="(max-width: 620px) 50vw, (max-width: 980px) 33vw, 25vw" />
         <span className="product-view">Open details ↗</span>
       </Link>
       <div className="product-card-info">

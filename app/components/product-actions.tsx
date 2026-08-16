@@ -108,7 +108,7 @@ export function ProductPurchase({ product }: { product: Product }) {
     }
   }
 
-  return <>
+  return <div id="product-purchase" className="product-purchase" tabIndex={-1}>
     <div className="detail-price">{formatMoney(price, config.commerce.currency)}{product.compareAt && <del>{formatMoney(product.compareAt, config.commerce.currency)}</del>}</div>
     <p className="detail-sku">SKU {selected.sku} · {stock > 0 ? `${stock} in stock` : "Out of stock"}</p>
     {groups.map((group) => <div className="product-option-group" key={group.name}>
@@ -127,6 +127,7 @@ export function ProductPurchase({ product }: { product: Product }) {
     </div>)}
     <div className="product-quantity-row"><span className="detail-label">Quantity <small className="stock-note">{stock > 0 ? `${stock} available` : "Currently unavailable"}</small></span><div className="quantity-control product-quantity"><button type="button" disabled={quantity <= 1} onClick={() => setQuantity((current) => Math.max(1, current - 1))} aria-label="Decrease quantity">-</button><span aria-live="polite">{quantity}</span><button type="button" disabled={quantity >= stock} onClick={() => setQuantity((current) => Math.min(stock, current + 1))} aria-label="Increase quantity">+</button></div></div>
     {stock <= 0 && <StockAlertForm productId={product.id} variantId={selected.id} />}
+    <p className="product-delivery-note"><strong>Ready for the road.</strong> Dispatches in 1–2 business days. Free standard delivery is calculated at checkout.</p>
     <div className="detail-actions"><AddToCartButton product={product} variantId={selected.id} quantity={quantity} /><BuyNowButton product={product} variantId={selected.id} quantity={quantity} /></div>
-  </>;
+  </div>;
 }

@@ -285,3 +285,30 @@ test("keeps V28 recovery, retention and storefront trust paths in source", async
   assert.equal((await render("/terms")).status, 200);
   assert.equal((await render("/accessibility")).status, 200);
 });
+
+test("keeps V29 P0 storefront navigation, purchase and payment recovery paths", async () => {
+  const header = await readFile(new URL("../app/components/site-header.tsx", import.meta.url), "utf8");
+  const access = await readFile(new URL("../app/components/storefront-access-menu.tsx", import.meta.url), "utf8");
+  const gallery = await readFile(new URL("../app/components/product-gallery.tsx", import.meta.url), "utf8");
+  const purchase = await readFile(new URL("../app/components/product-actions.tsx", import.meta.url), "utf8");
+  const detail = await readFile(new URL("../app/products/[slug]/product-detail-view.tsx", import.meta.url), "utf8");
+  const checkout = await readFile(new URL("../app/components/checkout-form.tsx", import.meta.url), "utf8");
+  const checkoutPage = await readFile(new URL("../app/checkout/page.tsx", import.meta.url), "utf8");
+  const orders = await readFile(new URL("../app/orders/page.tsx", import.meta.url), "utf8");
+  const commerce = await readFile(new URL("../db/commerce.ts", import.meta.url), "utf8");
+  const shop = await readFile(new URL("../app/shop/page.tsx", import.meta.url), "utf8");
+
+  assert.match(header, /Category navigation belongs to the collection filter rail/);
+  assert.match(access, /signout-with-chatgpt/);
+  assert.match(access, /capabilities/);
+  assert.match(access, /sessionRequest/);
+  assert.match(gallery, /gallery-zoom-layer/);
+  assert.match(purchase, /product-purchase/);
+  assert.match(purchase, /product-delivery-note/);
+  assert.match(detail, /mobile-purchase-bar/);
+  assert.match(checkout, /checkout-steps/);
+  assert.match(checkoutPage, /Refresh payment status/);
+  assert.match(orders, /shippingSummary/);
+  assert.match(commerce, /shippingSummary/);
+  assert.match(shop, /Load more products/);
+});

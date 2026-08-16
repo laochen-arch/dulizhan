@@ -17,6 +17,19 @@ export function SiteHeader() {
   const pathname = usePathname();
   const brandParts = config.brand.name.trim().split(/\s+/);
   const searchHistoryKey = `northline-search-v28:${encodeURIComponent(site?.id || activeSiteId)}:${typeof window === "undefined" ? "server" : window.location.hostname || "local"}`;
+  const navigation = useMemo(() => {
+    const seen = new Set<string>();
+    return config.navigation.filter((item) => {
+      // Category navigation belongs to the collection filter rail. Keeping it
+      // out of the global header prevents the storefront from repeating the
+      // same product taxonomy in two places.
+      if (item.href.startsWith("/shop?category=")) return false;
+      if (["/orders", "/wishlist", "/account", "/manage", "/admin"].includes(item.href)) return false;
+      if (seen.has(item.href)) return false;
+      seen.add(item.href);
+      return true;
+    });
+  }, [config.navigation]);
   useEffect(() => {
     const timer = window.setTimeout(() => {
       try {
@@ -64,9 +77,9 @@ export function SiteHeader() {
           <span>{brandParts[0]} <em>{brandParts.slice(1).join(" ")}</em></span>
         </Link>
         <nav className={`main-nav ${menuOpen ? "is-open" : ""}`} aria-label="Main navigation">
-          {config.navigation.map((item) => <Link key={item.href} href={item.href} className={isActive(item.href) ? "is-active" : ""} aria-current={isActive(item.href) ? "page" : undefined} onClick={() => setMenuOpen(false)}>{item.label}</Link>)}
+          {navigation.map((item) => <Link key={item.href} href={item.href} className={isActive(item.href) ? "is-active" : ""} aria-current={isActive(item.href) ? "page" : undefined} onClick={() => setMenuOpen(false)}>{item.label}</Link>)}
           <Link href="/orders" className={isActive("/orders") ? "is-active" : ""} aria-current={isActive("/orders") ? "page" : undefined} onClick={() => setMenuOpen(false)}>Track order</Link>
-          <Link href="/wishlist" className={isActive("/wishlist") ? "is-active" : ""} onClick={() => setMenuOpen(false)}>Wishlist</Link>
+          <Link href="/wishlist" className={isActive("/wishlist") ? "is-active" : ""} aria-current={isActive("/wishlist") ? "page" : undefined} onClick={() => setMenuOpen(false)}>Wishlist</Link>
         </nav>
         <div className="nav-actions">
           <StorefrontAccessMenu />
