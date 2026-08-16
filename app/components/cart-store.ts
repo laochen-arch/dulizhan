@@ -11,10 +11,10 @@ export type CartLine = Product & {
   variantPrice: number;
 };
 
-type StoreState = { cart: CartLine[]; hydrated: boolean; drawerOpen: boolean };
+type StoreState = { cart: CartLine[]; saved: CartLine[]; hydrated: boolean; drawerOpen: boolean };
 type PersistedCartLine = Partial<CartLine> & Product & { quantity: number };
 const CART_PREFIX = "northline-cart-v20";
-const serverState: StoreState = { cart: [], hydrated: false, drawerOpen: false };
+const serverState: StoreState = { cart: [], saved: [], hydrated: false, drawerOpen: false };
 const stores = new Map<string, StoreState>();
 const listeners = new Map<string, Set<() => void>>();
 
@@ -23,10 +23,14 @@ function storageKey(scope: string) {
   return `${CART_PREFIX}:${encodeURIComponent(scope)}:${host}`;
 }
 
+function savedStorageKey(key: string) {
+  return `${key}:saved`;
+}
+
 function getStore(key: string) {
   const existing = stores.get(key);
   if (existing) return existing;
-  const created: StoreState = { cart: [], hydrated: false, drawerOpen: false };
+  const created: StoreState = { cart: [], saved: [], hydrated: false, drawerOpen: false };
   stores.set(key, created);
   return created;
 }
@@ -70,11 +74,19 @@ function hydrate(key: string) {
   if (current.hydrated || typeof window === "undefined") return;
   try {
     const saved = window.localStorage.getItem(key);
+    const savedForLater = window.localStorage.getItem(savedStorageKey(key));
     const parsed = saved ? JSON.parse(saved) : [];
-    stores.set(key, { ...current, cart: Array.isArray(parsed) ? normalizeCart(parsed as PersistedCartLine[]) : [], hydrated: true });
+    const parsedSaved = savedForLater ? JSON.parse(savedForLater) : [];
+    stores.set(key, {
+      ...current,
+      cart: Array.isArray(parsed) ? normalizeCart(parsed as PersistedCartLine[]) : [],
+      saved: Array.isArray(parsedSaved) ? normalizeCart(parsedSaved as PersistedCartLine[]) : [],
+      hydrated: true,
+    });
   } catch {
     window.localStorage.removeItem(key);
-    stores.set(key, { cart: [], hydrated: true });
+    window.localStorage.removeItem(savedStorageKey(key));
+    stores.set(key, { cart: [], saved: [], hydrated: true, drawerOpen: current.drawerOpen });
   }
   emit(key);
 }
@@ -98,6 +110,7 @@ export function useStore(scope = "default") {
   return {
     ...snapshot,
     cartCount: snapshot.cart.reduce((total, item) => total + item.quantity, 0),
+    savedCount: snapshot.saved.reduce((total, item) => total + item.quantity, 0),
     subtotal: snapshot.cart.reduce((total, item) => total + item.variantPrice * item.quantity, 0),
     addToCart: (product: Product, options: { variantId?: string; quantity?: number } = {}) => {
       const current = getStore(key);
@@ -133,6 +146,44 @@ export function useStore(scope = "default") {
       const cart = current.cart.filter((item) => item.lineId !== lineId);
       stores.set(key, { ...current, cart });
       persist(key, cart);
+      emit(key);
+    },
+    saveForLater: (lineId: string) => {
+      const current = getStore(key);
+      const line = current.cart.find((item) => item.lineId === lineId);
+      if (!line) return false;
+      const cart = current.cart.filter((item) => item.lineId !== lineId);
+      const saved = [...current.saved.filter((item) => item.lineId !== lineId), line];
+      stores.set(key, { ...current, cart, saved });
+      persist(key, cart);
+      persist(savedStorageKey(key), saved);
+      emit(key);
+      return true;
+    },
+    moveToCart: (lineId: string) => {
+      const current = getStore(key);
+      const line = current.saved.find((item) => item.lineId === lineId);
+      if (!line) return false;
+      const variant = line.variants.find((candidate) => candidate.id === line.variantId);
+      const stock = Math.max(0, variant?.stock ?? line.stock);
+      if (variant?.available === false || stock < 1) return false;
+      const existing = current.cart.find((item) => item.lineId === lineId);
+      const quantity = Math.min(stock, Math.max(1, line.quantity) + (existing?.quantity || 0));
+      const cart = existing
+        ? current.cart.map((item) => item.lineId === lineId ? { ...item, quantity } : item)
+        : [...current.cart, { ...line, quantity: Math.min(stock, Math.max(1, line.quantity)) }];
+      const saved = current.saved.filter((item) => item.lineId !== lineId);
+      stores.set(key, { ...current, cart, saved });
+      persist(key, cart);
+      persist(savedStorageKey(key), saved);
+      emit(key);
+      return true;
+    },
+    removeSaved: (lineId: string) => {
+      const current = getStore(key);
+      const saved = current.saved.filter((item) => item.lineId !== lineId);
+      stores.set(key, { ...current, saved });
+      persist(savedStorageKey(key), saved);
       emit(key);
     },
     clearCart: () => {

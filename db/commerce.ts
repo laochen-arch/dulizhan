@@ -1287,7 +1287,7 @@ export async function getPublicOrderByNumber(siteId: string, orderNumberValue: s
   const access = await issuePublicOrderAccessToken(siteId, row.id, email);
   return {
     order: { ...detail.order, customerUserId: null, shippingAddress: undefined, shippingSummary: { city: detail.order.shippingAddress.city, region: detail.order.shippingAddress.region, country: detail.order.shippingAddress.country }, paypalOrderId: undefined, paypalApprovalUrl: undefined, paypalCaptureId: undefined, adminNote: undefined },
-    items: detail.items.map((item) => ({ id: item.id, name: item.name, variantLabel: item.variantLabel, quantity: item.quantity, unitPrice: item.unitPrice })),
+    items: detail.items.map((item) => ({ id: item.id, productId: item.productId, name: item.name, variantLabel: item.variantLabel, quantity: item.quantity, unitPrice: item.unitPrice })),
     accessToken: access.token,
     accessExpiresAt: access.expiresAt,
   };

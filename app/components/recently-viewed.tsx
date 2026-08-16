@@ -4,6 +4,7 @@ import { useEffect, useState } from "react";
 import type { Product } from "../data/products";
 import { useSiteRuntime } from "./site-runtime";
 import { ProductCard } from "./product-card";
+import { trackAnalytics } from "./analytics-tracker";
 
 const RECENT_PREFIX = "northline-recent-v26";
 
@@ -33,6 +34,7 @@ export function RecentlyViewedTracker({ productId }: { productId: string }) {
   useEffect(() => {
     const ids = readRecent(siteId);
     writeRecent(siteId, [productId, ...ids.filter((id) => id !== productId)]);
+    trackAnalytics("product_viewed", { payload: { productId } });
   }, [productId, siteId]);
   return null;
 }

@@ -386,3 +386,40 @@ test("keeps V31 P0 storefront checkout, account cart and mobile continuity paths
   assert.equal((await render("/cart")).status, 200);
   assert.equal((await render("/checkout")).status, 200);
 });
+
+test("keeps V31 P1 storefront discovery, retention and post-purchase paths", async () => {
+  const shop = await readFile(new URL("../app/shop/page.tsx", import.meta.url), "utf8");
+  const header = await readFile(new URL("../app/components/site-header.tsx", import.meta.url), "utf8");
+  const cartStore = await readFile(new URL("../app/components/cart-store.ts", import.meta.url), "utf8");
+  const saved = await readFile(new URL("../app/components/saved-for-later.tsx", import.meta.url), "utf8");
+  const cart = await readFile(new URL("../app/cart/page.tsx", import.meta.url), "utf8");
+  const recommendations = await readFile(new URL("../app/components/cart-recommendations.tsx", import.meta.url), "utf8");
+  const orders = await readFile(new URL("../app/orders/page.tsx", import.meta.url), "utf8");
+  const accountOrder = await readFile(new URL("../app/account/orders/[orderId]/page.tsx", import.meta.url), "utf8");
+  const reviews = await readFile(new URL("../app/components/reviews.tsx", import.meta.url), "utf8");
+  const trust = await readFile(new URL("../app/components/storefront-trust-bar.tsx", import.meta.url), "utf8");
+  const orderStatus = await readFile(new URL("../app/lib/order-status.ts", import.meta.url), "utf8");
+  const commerce = await readFile(new URL("../db/commerce.ts", import.meta.url), "utf8");
+
+  assert.match(shop, /popstate/);
+  assert.match(shop, /shop-empty-suggestions/);
+  assert.match(shop, /search_submitted/);
+  assert.match(header, /No matching gear yet/);
+  assert.match(header, /search_suggestion_clicked/);
+  assert.match(cartStore, /savedStorageKey/);
+  assert.match(cartStore, /saveForLater/);
+  assert.match(cartStore, /moveToCart/);
+  assert.match(saved, /Saved for later/);
+  assert.match(cart, /CartRecommendations/);
+  assert.match(recommendations, /Complete the kit/);
+  assert.match(orders, /after_sales_submitted/);
+  assert.match(orders, /Review product/);
+  assert.match(accountOrder, /Review this product/);
+  assert.match(reviews, /id="reviews"/);
+  assert.match(reviews, /review_submitted/);
+  assert.match(trust, /Secure PayPal checkout/);
+  assert.match(orderStatus, /canReviewOrder/);
+  assert.match(commerce, /productId: item\.productId/);
+  assert.equal((await render("/shop")).status, 200);
+  assert.equal((await render("/orders")).status, 200);
+});
