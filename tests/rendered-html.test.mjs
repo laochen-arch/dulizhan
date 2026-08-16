@@ -312,3 +312,38 @@ test("keeps V29 P0 storefront navigation, purchase and payment recovery paths", 
   assert.match(commerce, /shippingSummary/);
   assert.match(shop, /Load more products/);
 });
+
+test("keeps V30 identity binding and canonical commerce recovery paths", async () => {
+  const commerce = await readFile(new URL("../db/commerce.ts", import.meta.url), "utf8");
+  const v25 = await readFile(new URL("../db/v25.ts", import.meta.url), "utf8");
+  const schema = await readFile(new URL("../db/schema.ts", import.meta.url), "utf8");
+  const cms = await readFile(new URL("../db/cms.ts", import.meta.url), "utf8");
+  const migration = await readFile(new URL("../drizzle/0014_v30_customer_binding.sql", import.meta.url), "utf8");
+  const checkout = await readFile(new URL("../app/api/checkout/route.ts", import.meta.url), "utf8");
+  const accountOrders = await readFile(new URL("../app/api/account/orders/route.ts", import.meta.url), "utf8");
+  const recovery = await readFile(new URL("../app/api/cms/commerce/ops/route.ts", import.meta.url), "utf8");
+  const refunds = await readFile(new URL("../app/api/cms/commerce/refunds/route.ts", import.meta.url), "utf8");
+  const admin = await readFile(new URL("../app/admin/admin-v6.tsx", import.meta.url), "utf8");
+  const workerSource = await readFile(new URL("../worker/index.ts", import.meta.url), "utf8");
+
+  assert.match(schema, /customerUserId: text\("customer_user_id"\)/);
+  assert.match(cms, /ensureColumn\(database, "cms_orders", "customer_user_id"/);
+  assert.match(cms, /cms_orders_site_customer_idx/);
+  assert.match(migration, /customer_user_id/);
+  assert.match(checkout, /getChatGPTUser/);
+  assert.match(checkout, /user\?\.userId/);
+  assert.match(accountOrders, /user\.userId/);
+  assert.match(v25, /claimGuestOrders/);
+  assert.match(v25, /customer_user_id = \?2/);
+  assert.match(commerce, /PAYMENT_CAPTURE_NOT_CONFIRMED/);
+  assert.match(commerce, /CHECKOUT\.ORDER\.COMPLETED.*Boolean\(reference\.captureId\)/);
+  assert.match(commerce, /type === "refunded"/);
+  assert.match(commerce, /reconcilePayPalRefunds/);
+  assert.match(commerce, /runCommerceRecovery/);
+  assert.match(recovery, /runCommerceRecovery/);
+  assert.match(refunds, /reconcilePayPalRefunds/);
+  assert.match(workerSource, /runCommerceRecovery/);
+  assert.match(admin, /const selectTab/);
+  assert.match(admin, /admin-workspace-status/);
+  assert.match(admin, /cmsRole === "viewer"/);
+});

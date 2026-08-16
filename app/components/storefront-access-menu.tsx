@@ -15,16 +15,18 @@ type SessionPayload = {
   };
 };
 
-let sessionRequest: Promise<SessionPayload["access"] | undefined> | null = null;
+const sessionRequest = new Map<string, Promise<SessionPayload["access"] | undefined>>();
 
 function loadSession() {
-  if (!sessionRequest) {
-    sessionRequest = fetch("/api/account/session", { cache: "no-store" }).then(async (response) => {
+  const scope = typeof window === "undefined" ? "server" : window.location.host;
+  const existing = sessionRequest.get(scope);
+  if (existing) return existing;
+  const request = fetch("/api/account/session", { cache: "no-store" }).then(async (response) => {
       const payload = await response.json().catch(() => ({})) as SessionPayload;
       return payload.access;
     }).catch(() => undefined);
-  }
-  return sessionRequest;
+  sessionRequest.set(scope, request);
+  return request;
 }
 
 export function StorefrontAccessMenu() {

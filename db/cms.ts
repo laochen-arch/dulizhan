@@ -492,6 +492,7 @@ async function initializeCmsSchema(database: D1DatabaseLike) {
       site_id TEXT NOT NULL,
       order_number TEXT NOT NULL UNIQUE,
       email TEXT NOT NULL,
+      customer_user_id TEXT,
       customer_name TEXT NOT NULL,
       currency TEXT NOT NULL DEFAULT 'usd',
       subtotal REAL NOT NULL,
@@ -811,6 +812,8 @@ async function initializeCmsSchema(database: D1DatabaseLike) {
   await ensureColumn(database, "cms_orders", "refunded_at", "TEXT");
   await ensureColumn(database, "cms_orders", "discount", "REAL NOT NULL DEFAULT 0");
   await ensureColumn(database, "cms_orders", "coupon_code", "TEXT");
+  await ensureColumn(database, "cms_orders", "customer_user_id", "TEXT");
+  await database.prepare("CREATE INDEX IF NOT EXISTS cms_orders_site_customer_idx ON cms_orders(site_id, customer_user_id)").run();
   await ensureColumn(database, "cms_payment_events", "attempts", "INTEGER NOT NULL DEFAULT 0");
   await ensureColumn(database, "cms_payment_events", "last_error", "TEXT");
   await ensureColumn(database, "cms_payment_events", "next_retry_at", "TEXT");

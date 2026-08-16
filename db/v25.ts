@@ -411,25 +411,33 @@ export async function deleteCustomerAddress(siteId: string, userId: string, addr
   return { ok: true };
 }
 
-export async function listCustomerOrders(siteId: string, email: string): Promise<AccountOrderSummary[]> {
+async function claimGuestOrders(database: D1DatabaseLike, siteId: string, userId: string, email: string) {
+  if (!userId || !email.trim()) return;
+  await database.prepare(`UPDATE cms_orders SET customer_user_id = ?1
+    WHERE site_id = ?2 AND customer_user_id IS NULL AND lower(email) = lower(?3)`).bind(userId, siteId, email.trim()).run();
+}
+
+export async function listCustomerOrders(siteId: string, userId: string, email: string): Promise<AccountOrderSummary[]> {
   const database = getCmsDatabase();
   await ensureV25Schema(database);
+  await claimGuestOrders(database, siteId, userId, email);
   const rows = await database.prepare(`SELECT id, order_number AS orderNumber, customer_name AS customerName, email, currency,
       total, status, payment_status AS paymentStatus, fulfillment_status AS fulfillmentStatus,
       tracking_number AS trackingNumber, created_at AS createdAt, paid_at AS paidAt, shipped_at AS shippedAt,
       refunded_at AS refundedAt, refund_total AS refundTotal
-    FROM cms_orders WHERE site_id = ?1 AND lower(email) = lower(?2) ORDER BY created_at DESC LIMIT 100`).bind(siteId, email.trim()).all<AccountOrderSummary>();
+    FROM cms_orders WHERE site_id = ?1 AND (customer_user_id = ?2 OR (customer_user_id IS NULL AND lower(email) = lower(?3))) ORDER BY created_at DESC LIMIT 100`).bind(siteId, userId, email.trim()).all<AccountOrderSummary>();
   return rows.results;
 }
 
-export async function getCustomerOrder(siteId: string, orderId: string, email: string): Promise<AccountOrderDetail> {
+export async function getCustomerOrder(siteId: string, orderId: string, userId: string, email: string): Promise<AccountOrderDetail> {
   const database = getCmsDatabase();
   await ensureV25Schema(database);
-  const owner = await database.prepare("SELECT id FROM cms_orders WHERE id = ?1 AND site_id = ?2 AND lower(email) = lower(?3)").bind(orderId, siteId, email.trim()).first<{ id: string }>();
+  const owner = await database.prepare("SELECT id, customer_user_id AS customerUserId FROM cms_orders WHERE id = ?1 AND site_id = ?2 AND (customer_user_id = ?3 OR (customer_user_id IS NULL AND lower(email) = lower(?4)))").bind(orderId, siteId, userId, email.trim()).first<{ id: string; customerUserId: string | null }>();
   if (!owner) throw new Error("ORDER_NOT_FOUND");
+  if (!owner.customerUserId) await database.prepare("UPDATE cms_orders SET customer_user_id = ?1 WHERE id = ?2 AND site_id = ?3 AND customer_user_id IS NULL").bind(userId, orderId, siteId).run();
   const detail = await readOrder(database, orderId, siteId);
   return {
-    order: { ...detail.order, paypalOrderId: null, paypalApprovalUrl: null, paypalCaptureId: null, adminNote: null },
+    order: { ...detail.order, customerUserId: null, paypalOrderId: null, paypalApprovalUrl: null, paypalCaptureId: null, adminNote: null },
     items: detail.items,
     refunds: detail.refunds,
     stateEvents: detail.stateEvents,

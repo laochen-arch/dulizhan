@@ -584,6 +584,7 @@ button:disabled, .button:disabled { cursor: not-allowed; opacity: .45; }
 .v6-status.synced, .v6-status.saved { color: #506a4a; border-color: rgba(80,106,74,.3); }
 .v6-tabs { margin-bottom: 30px; }
 .v6-tabs > span { color: var(--muted); font-size: 10px; }
+.admin-workspace-status { margin: 14px 0 30px; border: 1px solid #c9d9e8; border-radius: 6px; background: #f7fbff; color: #5f7890; padding: 10px 12px; font-size: 10px; letter-spacing: .06em; text-transform: uppercase; }
 .v6-notice { display: flex; justify-content: space-between; gap: 15px; border: 1px solid var(--line); padding: 13px 16px; margin: 16px 0; font-size: 12px; line-height: 1.45; }
 .v6-notice.success { background: rgba(137,144,128,.16); }
 .v6-notice.error { background: rgba(173,78,48,.1); color: var(--rust); }

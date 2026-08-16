@@ -228,6 +228,7 @@ export const cmsOrders = sqliteTable("cms_orders", {
   siteId: text("site_id").notNull(),
   orderNumber: text("order_number").notNull(),
   email: text("email").notNull(),
+  customerUserId: text("customer_user_id"),
   customerName: text("customer_name").notNull(),
   currency: text("currency").notNull().default("usd"),
   subtotal: real("subtotal").notNull(),
@@ -252,7 +253,7 @@ export const cmsOrders = sqliteTable("cms_orders", {
   refundedAt: text("refunded_at"),
   discount: real("discount").notNull().default(0),
   couponCode: text("coupon_code"),
-}, (table) => [uniqueIndex("cms_orders_number_unique").on(table.orderNumber), uniqueIndex("cms_orders_paypal_order_unique").on(table.paypalOrderId), uniqueIndex("cms_orders_checkout_idempotency_unique").on(table.checkoutIdempotencyKey), index("cms_orders_site_status_idx").on(table.siteId, table.status, table.createdAt), index("cms_orders_site_email_idx").on(table.siteId, table.email)]);
+}, (table) => [uniqueIndex("cms_orders_number_unique").on(table.orderNumber), uniqueIndex("cms_orders_paypal_order_unique").on(table.paypalOrderId), uniqueIndex("cms_orders_checkout_idempotency_unique").on(table.checkoutIdempotencyKey), index("cms_orders_site_status_idx").on(table.siteId, table.status, table.createdAt), index("cms_orders_site_email_idx").on(table.siteId, table.email), index("cms_orders_site_customer_idx").on(table.siteId, table.customerUserId)]);
 
 export const cmsOrderItems = sqliteTable("cms_order_items", {
   id: text("id").primaryKey(),
