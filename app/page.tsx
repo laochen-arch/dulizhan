@@ -11,8 +11,10 @@ export default function Home() {
   const brandName = config.brand.name.trim().split(/\s+/)[0];
   const modules = new Set(config.content.home.modules);
   const categories = Array.from(new Set(activeProducts.map((product) => product.category).filter(Boolean)));
-  const featuredProducts = activeProducts.filter((product) => product.featured);
-  const discoveryProducts = activeProducts.filter((product) => !product.featured);
+  const featuredProducts = activeProducts.filter((product) => product.featured).slice(0, 4);
+  const primaryProducts = featuredProducts.length ? featuredProducts : activeProducts.slice(0, 4);
+  const primaryIds = new Set(primaryProducts.map((product) => product.id));
+  const discoveryProducts = activeProducts.filter((product) => !primaryIds.has(product.id)).slice(0, 4);
 
   return <div className="storefront-appstore appstore-home">
     {modules.has("hero") && <section className="appstore-hero-section container">
@@ -38,12 +40,10 @@ export default function Home() {
       </div>
       <div className="appstore-category-rail" aria-label="Shop by category">
         {categories.map((category, index) => {
-          const categoryProduct = activeProducts.find((product) => product.category === category);
           return <Link href={`/shop?category=${encodeURIComponent(category)}`} className="appstore-category-card" key={category}>
             <span className="appstore-category-index">0{index + 1}</span>
             <span className="appstore-category-icon" aria-hidden="true">{category.charAt(0)}</span>
             <span className="appstore-category-copy"><strong>{category}</strong><small>{activeProducts.filter((product) => product.category === category).length} essentials</small></span>
-            {categoryProduct && <img src={categoryProduct.images[0] || categoryProduct.image} alt="" />}
             <span className="appstore-category-arrow" aria-hidden="true">↗</span>
           </Link>;
         })}
@@ -57,7 +57,7 @@ export default function Home() {
           <Link href="/shop" className="appstore-text-link">Shop all gear <span>↗</span></Link>
         </div>
         <div className="appstore-product-rail" aria-label="Featured products">
-          {featuredProducts.slice(0, 4).map((product) => <ProductCard key={product.id} product={product} variant="rail" />)}
+          {primaryProducts.map((product) => <ProductCard key={product.id} product={product} variant="rail" />)}
         </div>
       </div>
     </section>}

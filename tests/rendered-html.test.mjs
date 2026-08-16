@@ -192,3 +192,26 @@ test("keeps V24 release approval and client operations in source", async () => {
   assert.match(portal, /Submit a verified after-sales case/);
   assert.match(admin, /V24 \/ Production launch center/);
 });
+
+test("keeps V25 identity-aware storefront access and account boundaries", async () => {
+  const v25 = await readFile(new URL("../db/v25.ts", import.meta.url), "utf8");
+  const cms = await readFile(new URL("../db/cms.ts", import.meta.url), "utf8");
+  const sessionRoute = await readFile(new URL("../app/api/account/session/route.ts", import.meta.url), "utf8");
+  const manageHelpers = await readFile(new URL("../app/api/manage/helpers.ts", import.meta.url), "utf8");
+  const header = await readFile(new URL("../app/components/site-header.tsx", import.meta.url), "utf8");
+  const account = await readFile(new URL("../app/account/account-page.tsx", import.meta.url), "utf8");
+  const accountResponse = await render("/account");
+
+  assert.equal(accountResponse.status, 200);
+  assert.match(v25, /merchant_members/);
+  assert.match(v25, /store_customers/);
+  assert.match(v25, /customer_addresses/);
+  assert.match(v25, /merchant_owner/);
+  assert.match(cms, /findMember/);
+  assert.match(sessionRoute, /getStorefrontAccess/);
+  assert.match(manageHelpers, /requireMerchantMember/);
+  assert.match(header, /StorefrontAccessMenu/);
+  assert.match(header, /SiteHeader/);
+  assert.match(account, /Saved addresses/);
+  assert.match(account, /Sign in to continue/);
+});

@@ -175,7 +175,7 @@ type SiteRow = CmsSite;
 type SettingsRow = { draft_config: string; published_config: string; updated_at: string; published_at: string | null };
 type ProductRow = { product_id: string; draft_payload: string; published_payload: string | null; updated_at: string };
 
-const DEFAULT_SITE_ID = "default";
+export const DEFAULT_SITE_ID = "default";
 
 function clone<T>(value: T): T {
   return JSON.parse(JSON.stringify(value)) as T;
@@ -680,6 +680,52 @@ export async function ensureCmsSchema(database: D1DatabaseLike) {
       created_at TEXT NOT NULL,
       last_used_at TEXT
     )`),
+    database.prepare(`CREATE TABLE IF NOT EXISTS merchant_members (
+      site_id TEXT NOT NULL,
+      user_id TEXT NOT NULL,
+      email TEXT NOT NULL,
+      role TEXT NOT NULL DEFAULT 'merchant_staff',
+      source TEXT NOT NULL DEFAULT 'invited',
+      created_at TEXT NOT NULL,
+      updated_at TEXT NOT NULL,
+      PRIMARY KEY (site_id, user_id)
+    )`),
+    database.prepare(`CREATE TABLE IF NOT EXISTS store_customers (
+      site_id TEXT NOT NULL,
+      user_id TEXT NOT NULL,
+      email TEXT NOT NULL,
+      display_name TEXT NOT NULL,
+      phone TEXT,
+      created_at TEXT NOT NULL,
+      updated_at TEXT NOT NULL,
+      PRIMARY KEY (site_id, user_id)
+    )`),
+    database.prepare(`CREATE TABLE IF NOT EXISTS customer_sessions (
+      id TEXT PRIMARY KEY,
+      site_id TEXT NOT NULL,
+      user_id TEXT NOT NULL,
+      token_hash TEXT NOT NULL UNIQUE,
+      expires_at TEXT NOT NULL,
+      created_at TEXT NOT NULL,
+      last_seen_at TEXT
+    )`),
+    database.prepare(`CREATE TABLE IF NOT EXISTS customer_addresses (
+      id TEXT PRIMARY KEY,
+      site_id TEXT NOT NULL,
+      user_id TEXT NOT NULL,
+      label TEXT NOT NULL DEFAULT 'Shipping address',
+      first_name TEXT NOT NULL,
+      last_name TEXT NOT NULL,
+      address TEXT NOT NULL,
+      city TEXT NOT NULL,
+      region TEXT NOT NULL,
+      zip TEXT NOT NULL,
+      country TEXT NOT NULL,
+      phone TEXT,
+      is_default INTEGER NOT NULL DEFAULT 0,
+      created_at TEXT NOT NULL,
+      updated_at TEXT NOT NULL
+    )`),
     database.prepare("CREATE INDEX IF NOT EXISTS cms_sites_status_idx ON cms_sites(status)"),
     database.prepare("CREATE INDEX IF NOT EXISTS cms_site_products_site_idx ON cms_site_products(site_id)"),
     database.prepare("CREATE INDEX IF NOT EXISTS cms_site_integrations_status_idx ON cms_site_integrations(site_id, status)"),
@@ -716,6 +762,10 @@ export async function ensureCmsSchema(database: D1DatabaseLike) {
     database.prepare("CREATE INDEX IF NOT EXISTS cms_health_site_idx ON cms_health_checks(site_id, checked_at)"),
     database.prepare("CREATE INDEX IF NOT EXISTS cms_release_requests_site_idx ON cms_release_requests(site_id, status, created_at)"),
     database.prepare("CREATE INDEX IF NOT EXISTS cms_preview_tokens_site_idx ON cms_preview_tokens(site_id, expires_at)"),
+    database.prepare("CREATE INDEX IF NOT EXISTS merchant_members_site_role_idx ON merchant_members(site_id, role, created_at)"),
+    database.prepare("CREATE INDEX IF NOT EXISTS merchant_members_site_email_idx ON merchant_members(site_id, email)"),
+    database.prepare("CREATE INDEX IF NOT EXISTS store_customers_site_email_idx ON store_customers(site_id, email)"),
+    database.prepare("CREATE INDEX IF NOT EXISTS customer_addresses_user_idx ON customer_addresses(site_id, user_id, is_default, updated_at)"),
   ]);
   await ensureColumn(database, "cms_orders", "admin_note", "TEXT");
   await ensureColumn(database, "cms_orders", "paypal_order_id", "TEXT");
@@ -791,6 +841,12 @@ export async function resolveSiteByHost(host: string | null): Promise<CmsSite> {
     FROM cms_sites WHERE lower(domain) = lower(?1) LIMIT 1`).bind(domain).first<SiteRow>();
   if (!site) throw new Error("SITE_NOT_FOUND");
   return siteRowToSite(site);
+}
+
+export async function getSiteById(siteId: string): Promise<CmsSite> {
+  const database = getD1();
+  await ensureCmsSchema(database);
+  return siteId === DEFAULT_SITE_ID ? ensureSite(siteId, database) : getExistingSite(siteId, database);
 }
 
 export async function updateSiteIdentity(siteId: string, changes: { name?: string; slug?: string; domain?: string | null }, userId: string, email: string) {
@@ -1162,6 +1218,18 @@ export async function getMember(siteId: string, userId: string, email: string): 
   await ensureCmsSchema(database);
   await getExistingSite(siteId, database);
   return ensureMember(siteId, userId, email, database);
+}
+
+/**
+ * Read-only membership lookup for identity-aware public UI. Unlike getMember,
+ * this never bootstraps a new CMS owner when the site has no matching member.
+ */
+export async function findMember(siteId: string, userId: string, email: string): Promise<CmsMember | null> {
+  const database = getD1();
+  await ensureCmsSchema(database);
+  await getExistingSite(siteId, database);
+  return database.prepare(`SELECT site_id AS siteId, user_id AS userId, email, role, created_at AS createdAt
+    FROM cms_members WHERE site_id = ?1 AND (user_id = ?2 OR lower(email) = lower(?3)) LIMIT 1`).bind(siteId, userId, email).first<CmsMember>();
 }
 
 export async function listMembers(siteId: string, userId: string, email: string): Promise<CmsMember[]> {

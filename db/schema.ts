@@ -360,3 +360,51 @@ export const cmsReleaseRequests = sqliteTable("cms_release_requests", {
 export const cmsPreviewTokens = sqliteTable("cms_preview_tokens", {
   id: text("id").primaryKey(), siteId: text("site_id").notNull(), tokenHash: text("token_hash").notNull().unique(), mode: text("mode").notNull().default("draft"), expiresAt: text("expires_at").notNull(), createdBy: text("created_by").notNull(), createdAt: text("created_at").notNull(), lastUsedAt: text("last_used_at"),
 }, (table) => [index("cms_preview_tokens_site_idx").on(table.siteId, table.expiresAt)]);
+
+export const merchantMembers = sqliteTable("merchant_members", {
+  siteId: text("site_id").notNull(),
+  userId: text("user_id").notNull(),
+  email: text("email").notNull(),
+  role: text("role").notNull().default("merchant_staff"),
+  source: text("source").notNull().default("invited"),
+  createdAt: text("created_at").notNull(),
+  updatedAt: text("updated_at").notNull(),
+}, (table) => [primaryKey({ columns: [table.siteId, table.userId] }), index("merchant_members_site_role_idx").on(table.siteId, table.role, table.createdAt), index("merchant_members_site_email_idx").on(table.siteId, table.email)]);
+
+export const storeCustomers = sqliteTable("store_customers", {
+  siteId: text("site_id").notNull(),
+  userId: text("user_id").notNull(),
+  email: text("email").notNull(),
+  displayName: text("display_name").notNull(),
+  phone: text("phone"),
+  createdAt: text("created_at").notNull(),
+  updatedAt: text("updated_at").notNull(),
+}, (table) => [primaryKey({ columns: [table.siteId, table.userId] }), index("store_customers_site_email_idx").on(table.siteId, table.email)]);
+
+export const customerSessions = sqliteTable("customer_sessions", {
+  id: text("id").primaryKey(),
+  siteId: text("site_id").notNull(),
+  userId: text("user_id").notNull(),
+  tokenHash: text("token_hash").notNull().unique(),
+  expiresAt: text("expires_at").notNull(),
+  createdAt: text("created_at").notNull(),
+  lastSeenAt: text("last_seen_at"),
+});
+
+export const customerAddresses = sqliteTable("customer_addresses", {
+  id: text("id").primaryKey(),
+  siteId: text("site_id").notNull(),
+  userId: text("user_id").notNull(),
+  label: text("label").notNull().default("Shipping address"),
+  firstName: text("first_name").notNull(),
+  lastName: text("last_name").notNull(),
+  address: text("address").notNull(),
+  city: text("city").notNull(),
+  region: text("region").notNull(),
+  zip: text("zip").notNull(),
+  country: text("country").notNull(),
+  phone: text("phone"),
+  isDefault: integer("is_default", { mode: "boolean" }).notNull().default(false),
+  createdAt: text("created_at").notNull(),
+  updatedAt: text("updated_at").notNull(),
+}, (table) => [index("customer_addresses_user_idx").on(table.siteId, table.userId, table.isDefault, table.updatedAt)]);
