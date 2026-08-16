@@ -21,17 +21,10 @@ export function StorefrontAccessMenu() {
   if (!access.authenticated) return <a className="access-menu-link access-menu-signin" href={`/signin-with-chatgpt?return_to=${encodeURIComponent(pathname)}`}>Sign in</a>;
 
   const capabilities = new Set(access.capabilities || []);
-  const canOpenMerchant = Boolean(access.merchantRole && (capabilities.has("merchant.read") || capabilities.has("orders.read")));
-  const canOpenStudio = Boolean(access.cmsRole && (capabilities.has("cms.read") || capabilities.has("content.read") || access.cmsRole === "owner"));
-  const links = [
-    access.customerRole ? { href: "/account", label: "Account", active: pathname.startsWith("/account") } : null,
-    canOpenMerchant ? { href: "/merchant", label: "Merchant workspace", active: pathname.startsWith("/merchant") || pathname.startsWith("/manage") } : null,
-    canOpenStudio ? { href: "/admin", label: "Studio", active: pathname.startsWith("/admin") } : null,
-  ].filter(Boolean) as Array<{ href: string; label: string; active: boolean }>;
+  const hasCustomerAccess = Boolean(access.customerRole || capabilities.has("customer.read"));
 
-  return <div className="access-menu" aria-label="Account and workspace access">
-    <span className="access-menu-user" title={access.user?.email}>{access.user?.displayName || "Account"}</span>
-    {links.map((link) => <Link key={link.href} href={link.href} className={`access-menu-link ${link.active ? "is-active" : ""}`}>{link.label}</Link>)}
-    <a className="access-menu-link access-menu-signout" href={`/signout-with-chatgpt?return_to=${encodeURIComponent(pathname || "/")}`}>Sign out</a>
+  return <div className="access-menu" aria-label="Consumer account access">
+    {hasCustomerAccess && <Link href="/account" className={"access-menu-link " + (pathname.startsWith("/account") ? "is-active" : "")}>Account</Link>}
+    <a className="access-menu-link access-menu-signout" href={"/signout-with-chatgpt?return_to=" + encodeURIComponent(pathname || "/")}>Sign out</a>
   </div>;
 }

@@ -1,11 +1,9 @@
-import { requireChatGPTUser } from "../chatgpt-auth";
-import { ClientPortal } from "./client-portal";
+import { redirect } from "next/navigation";
 
 export const dynamic = "force-dynamic";
 
-export const metadata = { title: "Client self-service portal" };
+export const metadata = { title: "Merchant workspace" };
 
 export default async function ClientPage() {
-  const user = await requireChatGPTUser("/client");
-  return <ClientPortal userName={user.displayName} />;
+  redirect("/merchant");
 }

@@ -1536,3 +1536,70 @@ button:disabled, .button:disabled { cursor: not-allowed; opacity: .45; }
   .platform-application-list article { flex-direction: column; }
   .platform-application-list article > div:last-child { min-width: 0; text-align: left; }
 }
+
+/* V32 entry separation: each role gets one clear shell and one source of truth. */
+.platform-portal-header { position: relative; z-index: 20; border-bottom: 1px solid #c9d9e8; background: rgba(255,255,255,.94); color: #10253d; }
+.platform-portal-header-inner { display: flex; align-items: center; justify-content: space-between; gap: 28px; width: min(1240px, calc(100% - 48px)); min-height: 78px; margin: 0 auto; }
+.platform-portal-brand { display: inline-flex; align-items: center; gap: 11px; color: #10253d; text-decoration: none; }
+.platform-portal-brand > span:last-child { display: grid; gap: 3px; }
+.platform-portal-brand strong { font-size: 14px; font-weight: 650; letter-spacing: -.02em; }
+.platform-portal-brand small { color: #6b8299; font-size: 9px; letter-spacing: .13em; text-transform: uppercase; }
+.platform-portal-mark { display: grid; width: 32px; height: 32px; place-items: center; border: 1px solid #1769d2; border-radius: 8px; color: #1769d2; font-family: Georgia, serif; font-size: 17px; font-style: italic; }
+.platform-portal-header nav { display: flex; align-items: center; gap: 28px; }
+.platform-portal-header nav a { color: #60768b; font-size: 11px; text-decoration: none; }
+.platform-portal-header nav a:hover, .platform-portal-header nav a:focus-visible, .platform-portal-header nav a.is-active { color: #1769d2; }
+.platform-portal-cta { border: 1px solid #1769d2; background: #1769d2; padding: 11px 15px; color: #fff; font-size: 10px; text-decoration: none; }
+.platform-portal-cta:hover, .platform-portal-cta:focus-visible { border-color: #0d4eaa; background: #0d4eaa; }
+
+.merchant-workspace-topbar { border-bottom: 1px solid #d5e2ee; background: #fff; color: #0b2239; }
+.merchant-workspace-topbar-inner { display: flex; align-items: center; justify-content: space-between; gap: 22px; min-height: 72px; }
+.merchant-workspace-brand { display: inline-flex; align-items: center; gap: 11px; color: #0b2239; text-decoration: none; }
+.merchant-workspace-brand > span:last-child { display: grid; gap: 3px; }
+.merchant-workspace-brand strong { font-size: 14px; font-weight: 650; }
+.merchant-workspace-brand small { color: #60768b; font-size: 9px; letter-spacing: .11em; text-transform: uppercase; }
+.merchant-workspace-mark { display: grid; width: 31px; height: 31px; place-items: center; border: 1px solid #1769d2; border-radius: 7px; color: #1769d2; font-family: Georgia, serif; font-size: 17px; font-style: italic; }
+.merchant-workspace-actions { display: flex; align-items: center; gap: 16px; color: #60768b; font-size: 10px; }
+.merchant-workspace-actions a { color: #1769d2; text-decoration: none; }
+.merchant-workspace-actions a:hover, .merchant-workspace-actions a:focus-visible { text-decoration: underline; text-underline-offset: 4px; }
+.merchant-workspace-user { max-width: 150px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.merchant-workspace-role { border: 1px solid #c9d9e8; background: #f4f8fc; padding: 6px 8px; color: #1769d2; font-size: 9px; letter-spacing: .07em; text-transform: uppercase; }
+
+.client-portal { width: min(1280px, calc(100% - 48px)); margin: 0 auto; padding: 0 0 90px; }
+.client-portal-header { padding-top: 48px; }
+.client-portal-layout { display: grid; grid-template-columns: 232px minmax(0, 1fr); gap: 24px; align-items: start; }
+.client-portal-sidebar { position: sticky; top: 18px; display: grid; gap: 23px; border: 1px solid #c9d9e8; background: #fff; padding: 18px 12px; }
+.client-portal-sidebar-heading { display: grid; gap: 7px; padding: 2px 8px 15px; border-bottom: 1px solid #e0eaf3; }
+.client-portal-sidebar-heading strong { color: #0b2239; font-size: 14px; font-weight: 600; }
+.client-portal-sidebar-heading small { color: #60768b; font-size: 10px; line-height: 1.5; }
+.client-portal-sidebar-group { display: grid; gap: 4px; }
+.client-portal-sidebar-group > p { margin: 0 8px 3px; color: #7890a5; font-size: 9px; font-weight: 650; letter-spacing: .13em; text-transform: uppercase; }
+.client-portal-sidebar-group button { display: flex; width: 100%; border: 1px solid transparent; border-radius: 5px; background: transparent; padding: 10px 9px; color: #60768b; cursor: pointer; font: inherit; font-size: 11px; text-align: left; }
+.client-portal-sidebar-group button:hover, .client-portal-sidebar-group button:focus-visible { border-color: #cfe1f2; background: #f1f7fd; color: #0b2239; outline: 0; }
+.client-portal-sidebar-group button.is-active { border-color: #c7dcf1; background: #e8f2ff; color: #1769d2; font-weight: 600; box-shadow: inset 3px 0 0 #1769d2; }
+.client-portal-content { min-width: 0; }
+.client-portal-content .client-portal-toolbar { margin-bottom: 22px; }
+.client-portal-content .client-portal-grid, .client-portal-content > section { min-width: 0; }
+
+@media (max-width: 900px) {
+  .platform-portal-header-inner { gap: 15px; }
+  .platform-portal-header nav { gap: 15px; }
+  .client-portal-layout { grid-template-columns: 1fr; }
+  .client-portal-sidebar { position: static; display: flex; align-items: flex-start; gap: 18px; overflow-x: auto; padding: 13px; }
+  .client-portal-sidebar-heading { flex: 0 0 170px; border-right: 1px solid #e0eaf3; border-bottom: 0; padding: 2px 15px 2px 3px; }
+  .client-portal-sidebar-group { flex: 0 0 auto; min-width: 145px; }
+  .client-portal-sidebar-group > p { margin-left: 0; }
+  .client-portal-sidebar-group button { padding: 7px 8px; }
+}
+
+@media (max-width: 620px) {
+  .platform-portal-header-inner { align-items: flex-start; flex-wrap: wrap; padding: 13px 0; }
+  .platform-portal-header nav { order: 3; width: 100%; justify-content: space-between; gap: 8px; }
+  .platform-portal-header nav a { font-size: 10px; }
+  .platform-portal-cta { margin-left: auto; }
+  .merchant-workspace-topbar-inner { align-items: flex-start; flex-direction: column; gap: 11px; padding: 13px 0; }
+  .merchant-workspace-actions { width: 100%; justify-content: space-between; gap: 9px; }
+  .merchant-workspace-user { display: none; }
+  .merchant-workspace-actions a { font-size: 9px; }
+  .client-portal { width: min(100% - 34px, 1280px); }
+  .client-portal-header { padding-top: 28px; }
+}
