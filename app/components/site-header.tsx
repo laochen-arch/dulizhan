@@ -25,7 +25,7 @@ export function SiteHeader() {
       // out of the global header prevents the storefront from repeating the
       // same product taxonomy in two places.
       if (item.href.startsWith("/shop?category=")) return false;
-      if (["/orders", "/wishlist", "/account", "/manage", "/admin"].includes(item.href)) return false;
+      if (["/orders", "/wishlist", "/account", "/manage", "/merchant", "/admin", "/platform"].includes(item.href)) return false;
       if (seen.has(item.href)) return false;
       seen.add(item.href);
       return true;

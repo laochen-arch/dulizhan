@@ -163,3 +163,14 @@ export async function runHealthChecks(siteId: string) {
   return listHealthChecks(siteId);
 }
 export async function listHealthChecks(siteId: string) { const database = getCmsDatabase(); await ensureCmsSchema(database); const rows = await database.prepare("SELECT check_key AS key, status, detail, checked_at AS checkedAt FROM cms_health_checks WHERE site_id = ?1 ORDER BY check_key").bind(siteId).all<{ key: string; status: string; detail: string; checkedAt: string }>(); return rows.results; }
+
+export async function updateCouponWindow(siteId: string, codeInput: string, startsAt: string | null, endsAt: string | null, userId: string, email: string) {
+  const database = getCmsDatabase();
+  await ensureCmsSchema(database);
+  const code = codeInput.trim().toUpperCase();
+  if (!code || (startsAt && Number.isNaN(Date.parse(startsAt))) || (endsAt && Number.isNaN(Date.parse(endsAt))) || (startsAt && endsAt && Date.parse(endsAt) <= Date.parse(startsAt))) throw new Error("INVALID_COUPON");
+  const result = await database.prepare("UPDATE cms_coupons SET starts_at = ?1, ends_at = ?2, active = CASE WHEN ?1 IS NOT NULL AND ?1 > ?3 THEN 0 ELSE active END, updated_at = ?3 WHERE site_id = ?4 AND code = ?5").bind(startsAt || null, endsAt || null, now(), siteId, code).run();
+  if (changed(result) !== 1) throw new Error("INVALID_COUPON");
+  await recordAudit(database, siteId, { userId, email }, "coupon.window_updated", "coupon", code, { startsAt, endsAt });
+  return listCoupons(siteId);
+}

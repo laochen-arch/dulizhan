@@ -25,7 +25,7 @@ export function StorefrontAccessMenu() {
   const canOpenStudio = Boolean(access.cmsRole && (capabilities.has("cms.read") || capabilities.has("content.read") || access.cmsRole === "owner"));
   const links = [
     access.customerRole ? { href: "/account", label: "Account", active: pathname.startsWith("/account") } : null,
-    canOpenMerchant ? { href: "/manage", label: "Merchant", active: pathname.startsWith("/manage") } : null,
+    canOpenMerchant ? { href: "/merchant", label: "Merchant workspace", active: pathname.startsWith("/merchant") || pathname.startsWith("/manage") } : null,
     canOpenStudio ? { href: "/admin", label: "Studio", active: pathname.startsWith("/admin") } : null,
   ].filter(Boolean) as Array<{ href: string; label: string; active: boolean }>;
 

@@ -16,7 +16,7 @@ export function StorefrontMobileNav() {
   const pathname = usePathname() || "/";
   const { activeSiteId, site } = useSiteRuntime();
   const { cartCount } = useStore(site?.id || activeSiteId);
-  if (pathname.startsWith("/admin") || pathname.startsWith("/manage") || pathname.startsWith("/preview")) return null;
+  if (pathname.startsWith("/admin") || pathname.startsWith("/manage") || pathname.startsWith("/merchant") || pathname.startsWith("/platform") || pathname.startsWith("/preview")) return null;
   return <nav className="storefront-mobile-nav" aria-label="Mobile storefront navigation">
     {links.map((link) => {
       const active = link.href === "/" ? pathname === "/" : pathname.startsWith(link.href);

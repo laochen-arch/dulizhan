@@ -423,3 +423,35 @@ test("keeps V31 P1 storefront discovery, retention and post-purchase paths", asy
   assert.equal((await render("/shop")).status, 200);
   assert.equal((await render("/orders")).status, 200);
 });
+
+test("keeps V32 platform onboarding and merchant operations boundaries", async () => {
+  const platform = await readFile(new URL("../app/platform/page.tsx", import.meta.url), "utf8");
+  const applicationForm = await readFile(new URL("../app/platform/platform-application-form.tsx", import.meta.url), "utf8");
+  const applicationsRoute = await readFile(new URL("../app/api/platform/applications/route.ts", import.meta.url), "utf8");
+  const merchantProducts = await readFile(new URL("../app/api/merchant/products/route.ts", import.meta.url), "utf8");
+  const merchantCampaigns = await readFile(new URL("../app/api/merchant/campaigns/route.ts", import.meta.url), "utf8");
+  const merchantOperations = await readFile(new URL("../app/api/merchant/operations/route.ts", import.meta.url), "utf8");
+  const v32 = await readFile(new URL("../db/v32.ts", import.meta.url), "utf8");
+  const cms = await readFile(new URL("../db/cms.ts", import.meta.url), "utf8");
+  const workspace = await readFile(new URL("../app/client/client-portal.tsx", import.meta.url), "utf8");
+  const admin = await readFile(new URL("../app/admin/platform-applications-panel.tsx", import.meta.url), "utf8");
+
+  assert.match(platform, /Apply to join/);
+  assert.match(applicationForm, /companyName/);
+  assert.match(applicationsRoute, /createSiteFromTemplate/);
+  assert.match(applicationsRoute, /merchant_owner/);
+  assert.match(merchantProducts, /createClientProduct/);
+  assert.match(merchantProducts, /deleteClientProduct/);
+  assert.match(merchantCampaigns, /saveMerchantCollection/);
+  assert.match(merchantCampaigns, /saveMerchantCampaignSchedule/);
+  assert.match(merchantOperations, /getAnalyticsSummary/);
+  assert.match(v32, /platform_applications/);
+  assert.match(v32, /cms_campaign_schedules/);
+  assert.match(cms, /cms_collections/);
+  assert.match(cms, /cms_recommendation_rules/);
+  assert.match(workspace, /Create draft product/);
+  assert.match(workspace, /Scheduled campaigns/);
+  assert.match(admin, /Create storefront/);
+  assert.equal((await render("/platform")).status, 200);
+  assert.equal((await render("/platform/apply")).status, 200);
+});

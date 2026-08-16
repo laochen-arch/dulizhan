@@ -338,6 +338,18 @@ export const cmsBundles = sqliteTable("cms_bundles", {
   id: text("id").primaryKey(), siteId: text("site_id").notNull(), name: text("name").notNull(), slug: text("slug").notNull(), productIds: text("product_ids").notNull(), discountType: text("discount_type").notNull().default("percent"), discountValue: real("discount_value").notNull().default(0), active: integer("active", { mode: "boolean" }).notNull().default(true), createdAt: text("created_at").notNull(), updatedAt: text("updated_at").notNull(),
 }, (table) => [uniqueIndex("cms_bundles_site_slug_unique").on(table.siteId, table.slug), index("cms_bundles_site_idx").on(table.siteId, table.active, table.createdAt)]);
 
+export const cmsCollections = sqliteTable("cms_collections", {
+  id: text("id").primaryKey(), siteId: text("site_id").notNull(), name: text("name").notNull(), slug: text("slug").notNull(), description: text("description"), productIds: text("product_ids").notNull(), active: integer("active", { mode: "boolean" }).notNull().default(true), sortOrder: integer("sort_order").notNull().default(0), createdAt: text("created_at").notNull(), updatedAt: text("updated_at").notNull(),
+}, (table) => [uniqueIndex("cms_collections_site_slug_unique").on(table.siteId, table.slug), index("cms_collections_site_idx").on(table.siteId, table.active, table.sortOrder, table.createdAt)]);
+
+export const cmsRecommendationRules = sqliteTable("cms_recommendation_rules", {
+  id: text("id").primaryKey(), siteId: text("site_id").notNull(), name: text("name").notNull(), strategy: text("strategy").notNull().default("manual"), sourceProductId: text("source_product_id"), productIds: text("product_ids").notNull(), active: integer("active", { mode: "boolean" }).notNull().default(true), createdAt: text("created_at").notNull(), updatedAt: text("updated_at").notNull(),
+}, (table) => [index("cms_recommendations_site_idx").on(table.siteId, table.active, table.updatedAt)]);
+
+export const cmsCampaignSchedules = sqliteTable("cms_campaign_schedules", {
+  id: text("id").primaryKey(), siteId: text("site_id").notNull(), targetType: text("target_type").notNull(), targetId: text("target_id").notNull(), startsAt: text("starts_at").notNull(), endsAt: text("ends_at"), status: text("status").notNull().default("scheduled"), createdBy: text("created_by").notNull(), createdByEmail: text("created_by_email").notNull(), createdAt: text("created_at").notNull(), updatedAt: text("updated_at").notNull(),
+}, (table) => [index("cms_campaign_schedules_site_idx").on(table.siteId, table.status, table.startsAt, table.endsAt)]);
+
 export const cmsReviews = sqliteTable("cms_reviews", {
   id: text("id").primaryKey(), siteId: text("site_id").notNull(), productId: text("product_id").notNull(), orderId: text("order_id"), email: text("email").notNull(), rating: integer("rating").notNull(), title: text("title"), body: text("body").notNull(), status: text("status").notNull().default("pending"), createdAt: text("created_at").notNull(), updatedAt: text("updated_at").notNull(),
 }, (table) => [index("cms_reviews_product_idx").on(table.siteId, table.productId, table.status, table.createdAt)]);
@@ -371,6 +383,10 @@ export const merchantMembers = sqliteTable("merchant_members", {
   createdAt: text("created_at").notNull(),
   updatedAt: text("updated_at").notNull(),
 }, (table) => [primaryKey({ columns: [table.siteId, table.userId] }), index("merchant_members_site_role_idx").on(table.siteId, table.role, table.createdAt), index("merchant_members_site_email_idx").on(table.siteId, table.email)]);
+
+export const platformApplications = sqliteTable("platform_applications", {
+  id: text("id").primaryKey(), userId: text("user_id"), email: text("email").notNull(), contactName: text("contact_name").notNull(), companyName: text("company_name").notNull(), brandName: text("brand_name").notNull(), category: text("category").notNull(), website: text("website"), targetDomain: text("target_domain"), markets: text("markets"), productSource: text("product_source"), notes: text("notes"), status: text("status").notNull().default("submitted"), assignedSiteId: text("assigned_site_id"), adminNote: text("admin_note"), createdAt: text("created_at").notNull(), updatedAt: text("updated_at").notNull(),
+}, (table) => [index("platform_applications_email_idx").on(table.email, table.createdAt), index("platform_applications_status_idx").on(table.status, table.updatedAt)]);
 
 export const storeCustomers = sqliteTable("store_customers", {
   siteId: text("site_id").notNull(),

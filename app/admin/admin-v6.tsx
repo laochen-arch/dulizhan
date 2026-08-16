@@ -12,19 +12,21 @@ import { BundleManager, V21OperationsPanel } from "./v21-panels";
 import { V22DeliveryWizard, V22OperationsPanel } from "./v22-panels";
 import { V23ConfigurationPanel } from "./v23-panels";
 import { V24OperationsPanel } from "./v24-panels";
+import { PlatformApplicationsPanel } from "./platform-applications-panel";
 
-type AdminTab = "overview" | "setup" | "delivery" | "brand" | "content" | "products" | "media" | "access" | "team" | "domains" | "activity" | "release" | "commerce" | "versions" | "v21" | "v22" | "v23" | "v24";
+type AdminTab = "overview" | "merchants" | "setup" | "delivery" | "brand" | "content" | "products" | "media" | "access" | "team" | "domains" | "activity" | "release" | "commerce" | "versions" | "v21" | "v22" | "v23" | "v24";
 type Notice = { tone: "success" | "error" | "info"; text: string } | null;
 type CommerceConfiguration = { paypal: { clientId: boolean; clientSecret: boolean; webhookId: boolean; mode?: string }; resend: { apiKey: boolean; fromEmail: boolean; fromDomain?: string | null }; webhookEndpoint?: string; environmentKeys?: string[] };
 type OnboardingState = { domain?: { hostname: string; status: string } | null; checks: CmsLaunchCheck[]; manualChecks?: CmsManualLaunchCheck[]; replacements: CmsReplacementItem[]; progress: { done: number; total: number }; readiness?: { score: number; done: number; total: number } };
 
 const tabs: Array<{ id: AdminTab; label: string }> = [
   { id: "overview", label: "Overview" },
+  { id: "merchants", label: "Merchant applications" },
   { id: "setup", label: "Launch setup" },
   { id: "delivery", label: "Client delivery" },
   { id: "brand", label: "Brand & content" },
   { id: "content", label: "Content modules" },
-  { id: "products", label: "Products" },
+  { id: "products", label: "Product templates" },
   { id: "media", label: "Media library" },
   { id: "access", label: "Access" },
   { id: "team", label: "Invitations" },
@@ -40,11 +42,10 @@ const tabs: Array<{ id: AdminTab; label: string }> = [
 ];
 
 const adminNavGroups: Array<{ label: string; items: AdminTab[] }> = [
-  { label: "Workspace", items: ["overview", "setup", "delivery"] },
-  { label: "Storefront", items: ["brand", "content", "products", "media"] },
-  { label: "People & access", items: ["access", "team", "domains"] },
-  { label: "Operations", items: ["activity", "release", "commerce", "versions"] },
-  { label: "Platform releases", items: ["v21", "v22", "v23", "v24"] },
+  { label: "Merchant lifecycle", items: ["overview", "merchants", "setup", "delivery"] },
+  { label: "Storefront setup", items: ["brand", "content", "products", "media"] },
+  { label: "People & connections", items: ["access", "team", "domains"] },
+  { label: "Launch & support", items: ["activity", "release", "commerce", "versions"] },
 ];
 
 function clone<T>(value: T): T {
@@ -802,14 +803,14 @@ export function AdminStudioV6() {
   return (
     <main className="admin-shell admin-shell-blue">
       <div className="admin-layout container">
-        <aside className="admin-sidebar" aria-label="CMS workspace navigation">
+        <aside className="admin-sidebar" aria-label="Platform control center navigation">
           <a className="admin-sidebar-brand" href="/admin" aria-label="Northline CMS home">
             <span className="admin-sidebar-mark">N</span>
-            <span><strong>Northline</strong><small>Client studio</small></span>
+            <span><strong>Northline</strong><small>Platform control center</small></span>
           </a>
 
           <div className="admin-site-switcher">
-            <label><span>Active client site</span><select value={activeSiteId} onChange={(event) => selectSite(event.target.value)}>{sites.map((item) => <option key={item.id} value={item.id}>{item.name} · {item.slug}</option>)}</select></label>
+            <label><span>Active merchant storefront</span><select value={activeSiteId} onChange={(event) => selectSite(event.target.value)}>{sites.map((item) => <option key={item.id} value={item.id}>{item.name} · {item.slug}</option>)}</select></label>
             <div className="admin-sidebar-site-meta"><strong>{site?.name || "Loading site..."}</strong><span>{cmsRole ? `${cmsRole} access` : "Draft workspace"}</span><span className={`v6-status ${cmsStatus}`}>{cmsStatus.replace("-", " ")}</span></div>
           </div>
 
@@ -832,12 +833,12 @@ export function AdminStudioV6() {
         </aside>
 
         <div className="admin-main">
-          <div className="admin-topbar"><span>White-label commerce workspace</span><span>{site?.name || "Client site"} · {cmsStatus.replace("-", " ")}</span></div>
+          <div className="admin-topbar"><span>Platform control center</span><span>{site?.name || "Merchant storefront"} · {cmsStatus.replace("-", " ")}</span></div>
         <header className="admin-hero v6-hero">
           <div>
-            <p className="eyebrow">White-label CMS / V10 P0</p>
-            <h1>Client sites,<br /><em>ready to ship.</em></h1>
-            <p>Manage each client storefront from one workspace. Changes stay in draft until the launch checks pass and you publish a version.</p>
+            <p className="eyebrow">Platform operations / Merchant delivery</p>
+            <h1>Merchant storefronts,<br /><em>ready to grow.</em></h1>
+            <p>Review applications, create isolated storefronts, prepare the launch package and keep platform support separate from each merchant&apos;s daily catalog operations.</p>
           </div>
           <div className="admin-hero-actions">
             <a className="button button-outline" href={`/preview?siteId=${encodeURIComponent(activeSiteId)}`} target="_blank" rel="noreferrer">Open preview <span>↗</span></a>
@@ -846,7 +847,7 @@ export function AdminStudioV6() {
         </header>
 
         <div className="v6-sitebar">
-          <label><span>Active client site</span><select value={activeSiteId} onChange={(event) => selectSite(event.target.value)}>{sites.map((item) => <option key={item.id} value={item.id}>{item.name} · {item.slug}</option>)}</select></label>
+          <label><span>Active merchant storefront</span><select value={activeSiteId} onChange={(event) => selectSite(event.target.value)}>{sites.map((item) => <option key={item.id} value={item.id}>{item.name} · {item.slug}</option>)}</select></label>
           <div className="v6-site-meta"><strong>{site?.name || "Loading site…"}</strong><span>{cmsRole ? `${cmsRole} access` : "Draft workspace"}</span><span className={`v6-status ${cmsStatus}`}>{cmsStatus.replace("-", " ")}</span></div>
         </div>
 
@@ -857,6 +858,7 @@ export function AdminStudioV6() {
 
         <P0Panels tab={tab} config={config} updateConfig={updateConfig} setHome={setHome} toggleModule={toggleModule} moveModule={moveModule} domainForm={domainForm} setDomainForm={setDomainForm} saveDomain={saveDomain} site={site} activeSiteId={activeSiteId} cmsRole={cmsRole} diff={diff} scheduleForm={scheduleForm} setScheduleForm={setScheduleForm} saveSchedule={saveSchedule} schedules={schedules} cancelScheduledPublish={cancelScheduledPublish} busy={busy} publish={publish} members={members} invitations={invitations} changeMemberRole={changeMemberRole} removeAccess={removeAccess} revokeAccessInvite={revokeAccessInvite} auditLogs={auditLogs} loadWorkspaceData={loadWorkspaceData} orders={orders} inventory={inventory} loadCommerceData={loadCommerceData} updateOrder={updateOrder} updateStock={updateStock} loadOrderDetail={loadOrderDetail} orderDetail={orderDetail} orderLoading={orderLoading} commerceConfiguration={commerceConfiguration} domains={domains} onboarding={onboarding} paymentEvents={paymentEvents} retryPaymentEvent={retryPaymentEvent} retryNotification={retryNotification} refundOrder={refundOrder} />
 
+        {tab === "merchants" && <PlatformApplicationsPanel />}
         {tab === "setup" && <LaunchSetupPanel activeSiteId={activeSiteId} commerceConfiguration={commerceConfiguration} domains={domains} onboarding={onboarding} busy={busy} onRefresh={async () => { await loadCommerceData(); await loadWorkspaceData(); }} onNotice={(next) => setNotice(next)} />}
         {tab === "delivery" && <V22DeliveryWizard activeSiteId={activeSiteId} site={site} cmsRole={cmsRole} onboarding={onboarding} busy={busy} onRefresh={async () => { await refreshCms(); await loadWorkspaceData(); }} onNotice={(next) => setNotice(next)}><DeliveryPanel sites={sites} site={site} activeSiteId={activeSiteId} setActiveSiteId={setActiveSiteId} siteForm={siteForm} setSiteForm={setSiteForm} createClientSite={createClientSite} onboarding={onboarding} busy={busy} onRefresh={async () => { await refreshCms(); await loadWorkspaceData(); }} onNotice={(next) => setNotice(next)} /></V22DeliveryWizard>}
         {tab === "v21" && <><V21OperationsPanel activeSiteId={activeSiteId} cmsRole={cmsRole} config={config} updateConfig={updateConfig} onNotice={(next) => setNotice(next)} /><BundleManager activeSiteId={activeSiteId} cmsRole={cmsRole} onNotice={(next) => setNotice(next)} /></>}

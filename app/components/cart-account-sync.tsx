@@ -33,7 +33,7 @@ export function CartAccountSync() {
   const signature = cartSignature(cartItems);
 
   useEffect(() => {
-    if (!hydrated || !catalog.length || pathname.startsWith("/admin") || pathname.startsWith("/manage") || pathname.startsWith("/preview")) return;
+    if (!hydrated || !catalog.length || pathname.startsWith("/admin") || pathname.startsWith("/manage") || pathname.startsWith("/merchant") || pathname.startsWith("/platform") || pathname.startsWith("/preview")) return;
     let active = true;
     void loadStorefrontSession().then(async (access) => {
       if (!active || !access?.authenticated || !access.user?.id) return;

@@ -733,13 +733,13 @@ export async function probeCommerceProvider(provider: CommerceProvider, siteId =
   }
 }
 
-export async function listInventory(siteId: string, userId: string, email: string): Promise<CmsInventoryRow[]> {
+export async function listInventory(siteId: string, userId: string, email: string, useDraft = false): Promise<CmsInventoryRow[]> {
   void userId;
   void email;
   const database = getCmsDatabase();
   await ensureCmsSchema(database);
   await expirePendingOrders(siteId);
-  const snapshot = await readSnapshot(siteId, "published");
+  const snapshot = useDraft ? await readSnapshot(siteId, "draft", { userId, email }, false, true) : await readSnapshot(siteId, "published");
   await ensureInventoryRows(database, siteId, snapshot.catalog.filter((product) => product.status === "active"));
   const rows = await database.prepare(`SELECT site_id AS siteId, product_id AS productId, variant_id AS variantId, sku, quantity, reserved_quantity AS reservedQuantity, updated_at AS updatedAt
     FROM cms_inventory WHERE site_id = ?1 ORDER BY product_id, variant_id`).bind(siteId).all<InventoryRow>();
@@ -747,12 +747,11 @@ export async function listInventory(siteId: string, userId: string, email: strin
   return rows.results.map((row) => ({ ...inventoryToPublic(row), productName: products.get(row.productId)?.name, variantLabel: products.get(row.productId) ? variantFor(products.get(row.productId)!, row.variantId).label : undefined }));
 }
 
-export async function updateInventory(siteId: string, productId: string, variantId: string, quantity: number, userId: string, email: string) {
-  void email;
+export async function updateInventory(siteId: string, productId: string, variantId: string, quantity: number, userId: string, email: string, useDraft = false) {
   if (!Number.isInteger(quantity) || quantity < 0 || quantity > 1000000) throw new Error("INVALID_INVENTORY");
   const database = getCmsDatabase();
   await ensureCmsSchema(database);
-  const snapshot = await readSnapshot(siteId, "published");
+  const snapshot = useDraft ? await readSnapshot(siteId, "draft", { userId, email }, false, true) : await readSnapshot(siteId, "published");
   const product = snapshot.catalog.find((item) => item.id === productId);
   if (!product) throw new Error("PRODUCT_NOT_FOUND");
   const variant = variantFor(product, variantId);

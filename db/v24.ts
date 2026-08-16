@@ -1,6 +1,6 @@
 import { getProductionReadiness } from "./v22";
 import { createAfterSalesRequest, listAfterSalesRequests, type AfterSalesRequest } from "./v21";
-import { getCmsDatabase, ensureCmsSchema, getMember, getSnapshotDiff, listRevisions, publishDraft, recordAudit, rollbackRevision } from "./cms";
+import { getCmsDatabase, ensureCmsSchema, getMember, getOperationalMember, getSnapshotDiff, listRevisions, publishDraft, recordAudit, rollbackRevision } from "./cms";
 import { readOrder, listInventory, listOrders, listPaymentEvents } from "./commerce";
 import { getSiteIntegrationStatuses } from "./site-integrations";
 import type { CmsOrderDetail } from "./commerce";
@@ -53,18 +53,19 @@ async function releaseById(siteId: string, requestId: string) {
   return releaseFromRow(row);
 }
 
-export async function listReleaseRequests(siteId: string, userId: string, email: string) {
+export async function listReleaseRequests(siteId: string, userId: string, email: string, allowMerchant = false) {
   const database = getCmsDatabase();
   await ensureCmsSchema(database);
-  await getMember(siteId, userId, email);
+  if (allowMerchant) await getOperationalMember(siteId, userId, email, true);
+  else await getMember(siteId, userId, email);
   const rows = await database.prepare(`SELECT ${releaseSelect} FROM cms_release_requests WHERE site_id = ?1 ORDER BY created_at DESC LIMIT 50`).bind(siteId).all<ReleaseRow>();
   return rows.results.map(releaseFromRow);
 }
 
-export async function createReleaseRequest(siteId: string, input: { label?: string; note?: string }, userId: string, email: string) {
+export async function createReleaseRequest(siteId: string, input: { label?: string; note?: string }, userId: string, email: string, allowMerchant = false) {
   const database = getCmsDatabase();
   await ensureCmsSchema(database);
-  const member = await getMember(siteId, userId, email);
+  const member = allowMerchant ? await getOperationalMember(siteId, userId, email, true) : await getMember(siteId, userId, email);
   if (member.role === "viewer") throw new Error("VIEWER_READ_ONLY");
   const timestamp = now();
   const id = `release_${crypto.randomUUID()}`;
@@ -117,10 +118,10 @@ export async function rollbackPublishedRevision(siteId: string, revisionId: stri
   return published;
 }
 
-export async function createPreviewShare(siteId: string, hoursInput: number | undefined, userId: string, email: string) {
+export async function createPreviewShare(siteId: string, hoursInput: number | undefined, userId: string, email: string, allowMerchant = false) {
   const database = getCmsDatabase();
   await ensureCmsSchema(database);
-  const member = await getMember(siteId, userId, email);
+  const member = allowMerchant ? await getOperationalMember(siteId, userId, email, true) : await getMember(siteId, userId, email);
   if (member.role === "viewer") throw new Error("VIEWER_READ_ONLY");
   const hours = Math.max(1, Math.min(168, Number(hoursInput || 24)));
   const token = `${crypto.randomUUID().replaceAll("-", "")}${crypto.randomUUID().replaceAll("-", "")}`;
@@ -144,18 +145,19 @@ export async function validatePreviewShare(siteId: string, token: string) {
   return true;
 }
 
-export async function getV24LaunchCenter(siteId: string, userId: string, email: string) {
+export async function getV24LaunchCenter(siteId: string, userId: string, email: string, allowMerchant = false) {
   const database = getCmsDatabase();
   await ensureCmsSchema(database);
-  await getMember(siteId, userId, email);
+  if (allowMerchant) await getOperationalMember(siteId, userId, email, true);
+  else await getMember(siteId, userId, email);
   const [readiness, releases, revisions, diff, integrations, orders, inventory, afterSales] = await Promise.all([
-    getProductionReadiness(siteId, userId, email),
-    listReleaseRequests(siteId, userId, email),
-    listRevisions(siteId, userId, email),
-    getSnapshotDiff(siteId, userId, email),
+    getProductionReadiness(siteId, userId, email, allowMerchant),
+    listReleaseRequests(siteId, userId, email, allowMerchant),
+    listRevisions(siteId, userId, email, allowMerchant),
+    getSnapshotDiff(siteId, userId, email, allowMerchant),
     getSiteIntegrationStatuses(siteId, database),
     listOrders(siteId, userId, email),
-    listInventory(siteId, userId, email),
+    listInventory(siteId, userId, email, allowMerchant),
     listAfterSalesRequests(siteId),
   ]);
   return {
@@ -184,10 +186,11 @@ export type ClientOrderDetail = {
   afterSales: AfterSalesRequest[];
 };
 
-export async function getClientOrderDetail(siteId: string, orderId: string, userId: string, email: string): Promise<ClientOrderDetail> {
+export async function getClientOrderDetail(siteId: string, orderId: string, userId: string, email: string, allowMerchant = false): Promise<ClientOrderDetail> {
   const database = getCmsDatabase();
   await ensureCmsSchema(database);
-  await getMember(siteId, userId, email);
+  if (allowMerchant) await getOperationalMember(siteId, userId, email, true);
+  else await getMember(siteId, userId, email);
   const detail = await readOrder(database, orderId, siteId);
   const afterSales = (await listAfterSalesRequests(siteId)).filter((request) => request.orderId === orderId);
   return {
@@ -199,19 +202,21 @@ export async function getClientOrderDetail(siteId: string, orderId: string, user
   };
 }
 
-export async function submitClientAfterSales(siteId: string, input: { orderNumber: string; email: string; requestType: string; reason: string; customerNote?: string; requestedAmount?: number; items?: Array<{ productId: string; variantId: string; quantity: number }> }, userId: string, actorEmail: string) {
+export async function submitClientAfterSales(siteId: string, input: { orderNumber: string; email: string; requestType: string; reason: string; customerNote?: string; requestedAmount?: number; items?: Array<{ productId: string; variantId: string; quantity: number }> }, userId: string, actorEmail: string, allowMerchant = false) {
   const database = getCmsDatabase();
   await ensureCmsSchema(database);
-  await getMember(siteId, userId, actorEmail);
+  if (allowMerchant) await getOperationalMember(siteId, userId, actorEmail, true);
+  else await getMember(siteId, userId, actorEmail);
   const request = await createAfterSalesRequest(siteId, input);
   await recordAudit(database, siteId, { userId, email: actorEmail }, "client.after_sales_submitted", "after_sales", request.id, { orderId: request.orderId, requestType: request.requestType });
   return request;
 }
 
-export async function getClientOperations(siteId: string, userId: string, email: string) {
+export async function getClientOperations(siteId: string, userId: string, email: string, allowMerchant = false) {
   const database = getCmsDatabase();
   await ensureCmsSchema(database);
-  await getMember(siteId, userId, email);
+  if (allowMerchant) await getOperationalMember(siteId, userId, email, true);
+  else await getMember(siteId, userId, email);
   const [orders, inventory, afterSales, paymentEvents] = await Promise.all([
     listOrders(siteId, userId, email),
     listInventory(siteId, userId, email),

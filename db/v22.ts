@@ -1,4 +1,4 @@
-import { ensureCmsSchema, getCmsDatabase, getMember, getSiteLaunchChecks, recordAudit, type CmsLaunchCheck, type CmsRole } from "./cms";
+import { ensureCmsSchema, getCmsDatabase, getMember, getOperationalMember, getSiteLaunchChecks, recordAudit, type CmsLaunchCheck, type CmsRole } from "./cms";
 
 function now() {
   return new Date().toISOString();
@@ -94,10 +94,11 @@ const deliverySelect = `site_id AS siteId, run_id AS runId, status, current_step
   package_name AS packageName, package_summary AS packageSummary, import_revision_id AS importRevisionId,
   last_error AS lastError, created_by AS createdBy, created_at AS createdAt, updated_at AS updatedAt`;
 
-export async function getDeliveryRun(siteId: string, userId: string, email: string): Promise<CmsDeliveryRun> {
+export async function getDeliveryRun(siteId: string, userId: string, email: string, allowMerchant = false): Promise<CmsDeliveryRun> {
   const database = getCmsDatabase();
   await ensureCmsSchema(database);
-  await getMember(siteId, userId, email);
+  if (allowMerchant) await getOperationalMember(siteId, userId, email, true);
+  else await getMember(siteId, userId, email);
   const row = await database.prepare(`SELECT ${deliverySelect} FROM cms_delivery_runs WHERE site_id = ?1`).bind(siteId).first<DeliveryRow>();
   if (row) return deliveryFromRow(row);
   const timestamp = now();
@@ -158,10 +159,11 @@ const operationSelect = `id, site_id AS siteId, category, action, status, severi
   entity_id AS entityId, message, metadata, attempts, last_attempt_at AS lastAttemptAt,
   next_retry_at AS nextRetryAt, resolved_at AS resolvedAt, created_at AS createdAt, updated_at AS updatedAt`;
 
-export async function listOperationEvents(siteId: string, userId: string, email: string, status?: string) {
+export async function listOperationEvents(siteId: string, userId: string, email: string, status?: string, allowMerchant = false) {
   const database = getCmsDatabase();
   await ensureCmsSchema(database);
-  await getMember(siteId, userId, email);
+  if (allowMerchant) await getOperationalMember(siteId, userId, email, true);
+  else await getMember(siteId, userId, email);
   const filter = status ? " AND status = ?2" : "";
   const statement = database.prepare(`SELECT ${operationSelect} FROM cms_operation_events WHERE site_id = ?1${filter} ORDER BY created_at DESC LIMIT 150`);
   const rows = status ? await statement.bind(siteId, status).all<Record<string, unknown>>() : await statement.bind(siteId).all<Record<string, unknown>>();
@@ -182,15 +184,16 @@ export async function resolveOperationEvent(siteId: string, eventId: string, use
   return listOperationEvents(siteId, userId, email);
 }
 
-export async function getProductionReadiness(siteId: string, userId: string, email: string) {
+export async function getProductionReadiness(siteId: string, userId: string, email: string, allowMerchant = false) {
   const database = getCmsDatabase();
   await ensureCmsSchema(database);
-  await getMember(siteId, userId, email);
+  if (allowMerchant) await getOperationalMember(siteId, userId, email, true);
+  else await getMember(siteId, userId, email);
   const [launch, delivery, health, events] = await Promise.all([
-    getSiteLaunchChecks(siteId, userId, email),
-    getDeliveryRun(siteId, userId, email),
+    getSiteLaunchChecks(siteId, userId, email, allowMerchant),
+    getDeliveryRun(siteId, userId, email, allowMerchant),
     database.prepare("SELECT check_key AS key, status, detail, checked_at AS checkedAt FROM cms_health_checks WHERE site_id = ?1 ORDER BY check_key").bind(siteId).all<{ key: string; status: string; detail: string; checkedAt: string }>(),
-    listOperationEvents(siteId, userId, email),
+    listOperationEvents(siteId, userId, email, undefined, allowMerchant),
   ]);
   const healthChecks = health.results;
   const blockers: Array<{ key: string; label: string; detail: string; source: "launch" | "health" | "operations" }> = launch.checks

@@ -646,6 +646,43 @@ async function initializeCmsSchema(database: D1DatabaseLike) {
       updated_at TEXT NOT NULL,
       UNIQUE(site_id, slug)
     )`),
+    database.prepare(`CREATE TABLE IF NOT EXISTS cms_collections (
+      id TEXT PRIMARY KEY,
+      site_id TEXT NOT NULL,
+      name TEXT NOT NULL,
+      slug TEXT NOT NULL,
+      description TEXT,
+      product_ids TEXT NOT NULL,
+      active INTEGER NOT NULL DEFAULT 1,
+      sort_order INTEGER NOT NULL DEFAULT 0,
+      created_at TEXT NOT NULL,
+      updated_at TEXT NOT NULL,
+      UNIQUE(site_id, slug)
+    )`),
+    database.prepare(`CREATE TABLE IF NOT EXISTS cms_recommendation_rules (
+      id TEXT PRIMARY KEY,
+      site_id TEXT NOT NULL,
+      name TEXT NOT NULL,
+      strategy TEXT NOT NULL DEFAULT 'manual',
+      source_product_id TEXT,
+      product_ids TEXT NOT NULL,
+      active INTEGER NOT NULL DEFAULT 1,
+      created_at TEXT NOT NULL,
+      updated_at TEXT NOT NULL
+    )`),
+    database.prepare(`CREATE TABLE IF NOT EXISTS cms_campaign_schedules (
+      id TEXT PRIMARY KEY,
+      site_id TEXT NOT NULL,
+      target_type TEXT NOT NULL,
+      target_id TEXT NOT NULL,
+      starts_at TEXT NOT NULL,
+      ends_at TEXT,
+      status TEXT NOT NULL DEFAULT 'scheduled',
+      created_by TEXT NOT NULL,
+      created_by_email TEXT NOT NULL,
+      created_at TEXT NOT NULL,
+      updated_at TEXT NOT NULL
+    )`),
     database.prepare(`CREATE TABLE IF NOT EXISTS cms_reviews (
       id TEXT PRIMARY KEY,
       site_id TEXT NOT NULL,
@@ -726,6 +763,25 @@ async function initializeCmsSchema(database: D1DatabaseLike) {
       updated_at TEXT NOT NULL,
       PRIMARY KEY (site_id, user_id)
     )`),
+    database.prepare(`CREATE TABLE IF NOT EXISTS platform_applications (
+      id TEXT PRIMARY KEY,
+      user_id TEXT,
+      email TEXT NOT NULL,
+      contact_name TEXT NOT NULL,
+      company_name TEXT NOT NULL,
+      brand_name TEXT NOT NULL,
+      category TEXT NOT NULL,
+      website TEXT,
+      target_domain TEXT,
+      markets TEXT,
+      product_source TEXT,
+      notes TEXT,
+      status TEXT NOT NULL DEFAULT 'submitted',
+      assigned_site_id TEXT,
+      admin_note TEXT,
+      created_at TEXT NOT NULL,
+      updated_at TEXT NOT NULL
+    )`),
     database.prepare(`CREATE TABLE IF NOT EXISTS store_customers (
       site_id TEXT NOT NULL,
       user_id TEXT NOT NULL,
@@ -792,6 +848,9 @@ async function initializeCmsSchema(database: D1DatabaseLike) {
     database.prepare("CREATE INDEX IF NOT EXISTS cms_after_sales_order_idx ON cms_after_sales_requests(site_id, order_id, created_at)"),
     database.prepare("CREATE INDEX IF NOT EXISTS cms_coupons_site_idx ON cms_coupons(site_id, active, starts_at, ends_at)"),
     database.prepare("CREATE INDEX IF NOT EXISTS cms_bundles_site_idx ON cms_bundles(site_id, active, created_at)"),
+    database.prepare("CREATE INDEX IF NOT EXISTS cms_collections_site_idx ON cms_collections(site_id, active, sort_order, created_at)"),
+    database.prepare("CREATE INDEX IF NOT EXISTS cms_recommendations_site_idx ON cms_recommendation_rules(site_id, active, updated_at)"),
+    database.prepare("CREATE INDEX IF NOT EXISTS cms_campaign_schedules_site_idx ON cms_campaign_schedules(site_id, status, starts_at, ends_at)"),
     database.prepare("CREATE INDEX IF NOT EXISTS cms_reviews_product_idx ON cms_reviews(site_id, product_id, status, created_at)"),
     database.prepare("CREATE INDEX IF NOT EXISTS cms_analytics_site_idx ON cms_analytics_events(site_id, event_type, created_at)"),
     database.prepare("CREATE INDEX IF NOT EXISTS cms_abandoned_site_idx ON cms_abandoned_checkouts(site_id, status, last_seen_at)"),
@@ -800,6 +859,8 @@ async function initializeCmsSchema(database: D1DatabaseLike) {
     database.prepare("CREATE INDEX IF NOT EXISTS cms_preview_tokens_site_idx ON cms_preview_tokens(site_id, expires_at)"),
     database.prepare("CREATE INDEX IF NOT EXISTS merchant_members_site_role_idx ON merchant_members(site_id, role, created_at)"),
     database.prepare("CREATE INDEX IF NOT EXISTS merchant_members_site_email_idx ON merchant_members(site_id, email)"),
+    database.prepare("CREATE INDEX IF NOT EXISTS platform_applications_email_idx ON platform_applications(email, created_at)"),
+    database.prepare("CREATE INDEX IF NOT EXISTS platform_applications_status_idx ON platform_applications(status, updated_at)"),
     database.prepare("CREATE INDEX IF NOT EXISTS store_customers_site_email_idx ON store_customers(site_id, email)"),
     database.prepare("CREATE INDEX IF NOT EXISTS customer_addresses_user_idx ON customer_addresses(site_id, user_id, is_default, updated_at)"),
   ]);
@@ -1100,12 +1161,12 @@ function importedProduct(row: Record<string, string>, current: Product[]) {
 
 type ClientImportPayload = { config?: unknown; products?: unknown; productCsv?: string; assetBindings?: Record<string, string> };
 
-async function prepareClientImport(siteId: string, payload: ClientImportPayload, userId: string, email: string) {
+async function prepareClientImport(siteId: string, payload: ClientImportPayload, userId: string, email: string, allowMerchant = false) {
   const database = getD1();
   await ensureCmsSchema(database);
-  const access = await ensureMember(siteId, userId, email, database);
+  const access = allowMerchant ? await getOperationalMember(siteId, userId, email, true) : await ensureMember(siteId, userId, email, database);
   if (access.role === "viewer") throw new Error("VIEWER_READ_ONLY");
-  const draft = await readSnapshot(siteId, "draft", { userId, email });
+  const draft = await readSnapshot(siteId, "draft", { userId, email }, false, allowMerchant);
   const bindings = new Map(Object.entries(payload.assetBindings || {}));
   let config = replaceAssetUrls(mergeRecords(draft.config, payload.config), bindings);
   let catalog = draft.catalog;
@@ -1124,8 +1185,8 @@ async function prepareClientImport(siteId: string, payload: ClientImportPayload,
   return { database, config, catalog, bindings, draft };
 }
 
-export async function previewClientImport(siteId: string, payload: ClientImportPayload, userId: string, email: string) {
-  const prepared = await prepareClientImport(siteId, payload, userId, email);
+export async function previewClientImport(siteId: string, payload: ClientImportPayload, userId: string, email: string, allowMerchant = false) {
+  const prepared = await prepareClientImport(siteId, payload, userId, email, allowMerchant);
   const errors = getCatalogValidationErrors(prepared.catalog);
   const warnings: string[] = [];
   if (!payload.config) warnings.push("No brand/content config was included; existing draft content will be preserved.");
@@ -1145,15 +1206,15 @@ export async function previewClientImport(siteId: string, payload: ClientImportP
   };
 }
 
-export async function importClientData(siteId: string, payload: ClientImportPayload, userId: string, email: string) {
-  const prepared = await prepareClientImport(siteId, payload, userId, email);
+export async function importClientData(siteId: string, payload: ClientImportPayload, userId: string, email: string, allowMerchant = false) {
+  const prepared = await prepareClientImport(siteId, payload, userId, email, allowMerchant);
   const errors = getCatalogValidationErrors(prepared.catalog);
   if (errors.length) throw new Error(`INVALID_IMPORT:${JSON.stringify(errors)}`);
   const { database, config, catalog, bindings, draft } = prepared;
   const revisionId = `rev_${crypto.randomUUID()}`;
   const revisionTimestamp = now();
   await database.prepare("INSERT INTO cms_revisions (id, site_id, kind, label, snapshot, created_at, created_by) VALUES (?1, ?2, 'import-backup', ?3, ?4, ?5, ?6)").bind(revisionId, siteId, "Before client import", JSON.stringify({ config: draft.config, catalog: draft.catalog }), revisionTimestamp, userId).run();
-  await writeDraft(siteId, config, catalog, userId, email);
+  await writeDraft(siteId, config, catalog, userId, email, allowMerchant);
   await recordAudit(database, siteId, { userId, email }, "client.imported", "import", siteId, { products: catalog.length, hasConfig: Boolean(payload.config), bindings: bindings.size, revisionId });
   return { config, catalog, importedProducts: catalog.length, assetBindings: bindings.size, revisionId };
 }
@@ -1221,10 +1282,10 @@ async function buildSiteLaunchChecks(database: D1DatabaseLike, siteId: string, c
   };
 }
 
-export async function getSiteLaunchChecks(siteId: string, userId: string, email: string) {
+export async function getSiteLaunchChecks(siteId: string, userId: string, email: string, allowMerchant = false) {
   const database = getD1();
   await ensureCmsSchema(database);
-  const snapshot = await readSnapshot(siteId, "draft", { userId, email });
+  const snapshot = await readSnapshot(siteId, "draft", { userId, email }, false, allowMerchant);
   const result = await buildSiteLaunchChecks(database, siteId, snapshot.config, snapshot.catalog);
   return { ...result, progress: result.readiness };
 }
@@ -1271,6 +1332,28 @@ export async function getMember(siteId: string, userId: string, email: string): 
   await ensureCmsSchema(database);
   await getExistingSite(siteId, database);
   return ensureMember(siteId, userId, email, database);
+}
+
+/**
+ * Resolve a member for merchant self-service without widening the platform
+ * CMS APIs. The normal CMS routes continue to use getMember/ensureMember.
+ */
+export async function getOperationalMember(siteId: string, userId: string, email: string, allowMerchant = false): Promise<CmsMember> {
+  const database = getD1();
+  await ensureCmsSchema(database);
+  await getExistingSite(siteId, database);
+  const cmsMember = await database.prepare(`SELECT site_id AS siteId, user_id AS userId, email, role, created_at AS createdAt
+    FROM cms_members WHERE site_id = ?1 AND (user_id = ?2 OR lower(email) = lower(?3)) LIMIT 1`).bind(siteId, userId, email).first<CmsMember>();
+  if (cmsMember) return cmsMember;
+  if (allowMerchant) {
+    const merchant = await database.prepare(`SELECT site_id AS siteId, user_id AS userId, email, role, created_at AS createdAt
+      FROM merchant_members WHERE site_id = ?1 AND (user_id = ?2 OR lower(email) = lower(?3)) LIMIT 1`).bind(siteId, userId, email).first<{ siteId: string; userId: string; email: string; role: string; createdAt: string }>();
+    if (merchant) {
+      const role: CmsRole = merchant.role === "merchant_owner" ? "owner" : merchant.role === "merchant_manager" ? "editor" : "viewer";
+      return { ...merchant, role };
+    }
+  }
+  throw new Error("FORBIDDEN");
 }
 
 /**
@@ -1424,7 +1507,7 @@ export async function removeMember(siteId: string, memberUserId: string, actorId
   return { ok: true };
 }
 
-export async function readSnapshot(siteId: string, mode: CmsMode, user?: { userId: string; email: string }, allowSharedDraft = false): Promise<CmsSnapshot> {
+export async function readSnapshot(siteId: string, mode: CmsMode, user?: { userId: string; email: string }, allowSharedDraft = false, allowMerchant = false): Promise<CmsSnapshot> {
   if (mode === "published") {
     const cached = readCachedPublishedSnapshot(siteId);
     if (cached) return cached;
@@ -1436,7 +1519,7 @@ export async function readSnapshot(siteId: string, mode: CmsMode, user?: { userI
   let role: CmsRole | undefined;
   if (mode === "draft") {
     if (!user && !allowSharedDraft) throw new Error("AUTH_REQUIRED");
-    if (user) role = (await ensureMember(siteId, user.userId, user.email, database)).role;
+    if (user) role = (allowMerchant ? await getOperationalMember(siteId, user.userId, user.email, true) : await ensureMember(siteId, user.userId, user.email, database)).role;
   }
   const settings = await database.prepare(`SELECT draft_config, published_config, updated_at, published_at
     FROM cms_site_settings WHERE site_id = ?1`).bind(siteId).first<SettingsRow>();
@@ -1477,10 +1560,10 @@ export function getLaunchFailures(config: SiteConfig, catalog: Product[]) {
   return validateSnapshot(config, catalog);
 }
 
-export async function writeDraft(siteId: string, config: SiteConfig, catalog: Product[], userId: string, userEmail: string) {
+export async function writeDraft(siteId: string, config: SiteConfig, catalog: Product[], userId: string, userEmail: string, allowMerchant = false) {
   const database = getD1();
   await ensureCmsSchema(database);
-  const member = await ensureMember(siteId, userId, userEmail, database);
+  const member = allowMerchant ? await getOperationalMember(siteId, userId, userEmail, true) : await ensureMember(siteId, userId, userEmail, database);
   if (member.role === "viewer") throw new Error("VIEWER_READ_ONLY");
   const site = await getExistingSite(siteId, database);
   const existing = await database.prepare("SELECT product_id, published_payload, published_at, published_by FROM cms_site_products WHERE site_id = ?1").bind(siteId).all<{ product_id: string; published_payload: string | null; published_at: string | null; published_by: string | null }>();
@@ -1535,10 +1618,11 @@ export async function publishDraft(siteId: string, label: string, userId: string
   return { revisionId, publishedAt: timestamp, site: draft.site };
 }
 
-export async function listRevisions(siteId: string, userId: string, userEmail: string): Promise<CmsRevision[]> {
+export async function listRevisions(siteId: string, userId: string, userEmail: string, allowMerchant = false): Promise<CmsRevision[]> {
   const database = getD1();
   await ensureCmsSchema(database);
-  await ensureMember(siteId, userId, userEmail, database);
+  if (allowMerchant) await getOperationalMember(siteId, userId, userEmail, true);
+  else await ensureMember(siteId, userId, userEmail, database);
   const rows = await database.prepare(`SELECT id, site_id AS siteId, kind, label, created_at AS createdAt, created_by AS createdBy
     FROM cms_revisions WHERE site_id = ?1 ORDER BY created_at DESC LIMIT 30`).bind(siteId).all<CmsRevision>();
   return rows.results;
@@ -1557,10 +1641,11 @@ export async function rollbackRevision(siteId: string, revisionId: string, userI
   return { ok: true };
 }
 
-export async function listAssets(siteId: string, userId: string, userEmail: string): Promise<CmsAsset[]> {
+export async function listAssets(siteId: string, userId: string, userEmail: string, allowMerchant = false): Promise<CmsAsset[]> {
   const database = getD1();
   await ensureCmsSchema(database);
-  await ensureMember(siteId, userId, userEmail, database);
+  if (allowMerchant) await getOperationalMember(siteId, userId, userEmail, true);
+  else await ensureMember(siteId, userId, userEmail, database);
   const rows = await database.prepare(`SELECT id, site_id AS siteId, asset_key AS assetKey, kind, url, object_key AS objectKey, alt, mime_type AS mimeType, size_bytes AS sizeBytes, created_at AS createdAt, created_by AS createdBy
     FROM cms_assets WHERE site_id = ?1 ORDER BY created_at DESC`).bind(siteId).all<CmsAsset>();
   return rows.results;
@@ -1605,8 +1690,8 @@ export async function listAuditLogs(siteId: string, userId: string, email: strin
   return rows.results.map((row) => ({ ...row, metadata: row.metadata ? JSON.parse(row.metadata) as Record<string, unknown> : null }));
 }
 
-export async function getSnapshotDiff(siteId: string, userId: string, email: string): Promise<CmsSnapshotDiff> {
-  const draft = await readSnapshot(siteId, "draft", { userId, email });
+export async function getSnapshotDiff(siteId: string, userId: string, email: string, allowMerchant = false): Promise<CmsSnapshotDiff> {
+  const draft = await readSnapshot(siteId, "draft", { userId, email }, false, allowMerchant);
   const published = await readSnapshot(siteId, "published");
   const draftProducts = new Map(draft.catalog.map((product) => [product.id, product]));
   const publishedProducts = new Map(published.catalog.map((product) => [product.id, product]));
