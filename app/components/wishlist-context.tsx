@@ -2,6 +2,7 @@
 
 import { createContext, useCallback, useContext, useEffect, useMemo, useState } from "react";
 import { useSiteRuntime } from "./site-runtime";
+import { loadStorefrontSession } from "../lib/storefront-session";
 
 const WISHLIST_PREFIX = "northline-wishlist-v26";
 
@@ -49,9 +50,8 @@ export function WishlistProvider({ children }: { children: React.ReactNode }) {
     setHydrated(false);
     const syncTimer = window.setTimeout(() => void (async () => {
       try {
-        const sessionResponse = await fetch("/api/account/session", { cache: "no-store" });
-        const session = await sessionResponse.json().catch(() => ({})) as { access?: { authenticated?: boolean } };
-        if (!session.access?.authenticated) {
+        const session = await loadStorefrontSession();
+        if (!session?.authenticated) {
           if (active) { setAuthenticated(false); setHydrated(true); }
           return;
         }

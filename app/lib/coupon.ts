@@ -1,4 +1,5 @@
 const COUPON_PREFIX = "northline-coupon-v28";
+export const COUPON_CHANGED_EVENT = "northline-coupon-changed";
 
 function couponKey(siteId: string) {
   const host = typeof window === "undefined" ? "server" : window.location.hostname || "local";
@@ -15,8 +16,12 @@ export function writeStoredCoupon(siteId: string, code: string) {
   const normalized = code.trim().toUpperCase();
   if (normalized) window.localStorage.setItem(couponKey(siteId), normalized);
   else window.localStorage.removeItem(couponKey(siteId));
+  window.dispatchEvent(new CustomEvent(COUPON_CHANGED_EVENT, { detail: { siteId } }));
 }
 
 export function clearStoredCoupon(siteId: string) {
-  if (typeof window !== "undefined") window.localStorage.removeItem(couponKey(siteId));
+  if (typeof window !== "undefined") {
+    window.localStorage.removeItem(couponKey(siteId));
+    window.dispatchEvent(new CustomEvent(COUPON_CHANGED_EVENT, { detail: { siteId } }));
+  }
 }

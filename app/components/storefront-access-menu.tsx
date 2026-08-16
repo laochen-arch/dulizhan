@@ -3,40 +3,16 @@
 import { usePathname } from "next/navigation";
 import { useEffect, useState } from "react";
 import Link from "./site-link";
-
-type SessionPayload = {
-  access?: {
-    authenticated: boolean;
-    user: { id: string; email: string; displayName: string } | null;
-    customerRole: "customer" | null;
-    merchantRole: "merchant_owner" | "merchant_manager" | "merchant_staff" | null;
-    cmsRole: "owner" | "editor" | "viewer" | null;
-    capabilities?: string[];
-  };
-};
-
-const sessionRequest = new Map<string, Promise<SessionPayload["access"] | undefined>>();
-
-function loadSession() {
-  const scope = typeof window === "undefined" ? "server" : window.location.host;
-  const existing = sessionRequest.get(scope);
-  if (existing) return existing;
-  const request = fetch("/api/account/session", { cache: "no-store" }).then(async (response) => {
-      const payload = await response.json().catch(() => ({})) as SessionPayload;
-      return payload.access;
-    }).catch(() => undefined);
-  sessionRequest.set(scope, request);
-  return request;
-}
+import { loadStorefrontSession, type StorefrontAccess } from "../lib/storefront-session";
 
 export function StorefrontAccessMenu() {
   const pathname = usePathname() || "/";
-  const [access, setAccess] = useState<SessionPayload["access"]>();
+  const [access, setAccess] = useState<StorefrontAccess>();
 
   useEffect(() => {
     let active = true;
     const timer = window.setTimeout(() => {
-      void loadSession().then((nextAccess) => { if (active) setAccess(nextAccess); });
+      void loadStorefrontSession().then((nextAccess) => { if (active) setAccess(nextAccess); });
     }, 250);
     return () => { active = false; window.clearTimeout(timer); };
   }, [pathname]);

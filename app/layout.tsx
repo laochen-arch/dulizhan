@@ -14,6 +14,8 @@ import { TrackingScripts } from "./components/tracking-scripts";
 import { WishlistProvider } from "./components/wishlist-context";
 import { CartDrawer } from "./components/cart-drawer";
 import { ConsentBanner } from "./components/consent-banner";
+import { StorefrontMobileNav } from "./components/storefront-mobile-nav";
+import { CartAccountSync } from "./components/cart-account-sync";
 
 const geistSans = Geist({ variable: "--font-geist-sans", subsets: ["latin"] });
 const geistMono = Geist_Mono({ variable: "--font-geist-mono", subsets: ["latin"] });
@@ -77,12 +79,14 @@ export default async function RootLayout({ children }: Readonly<{ children: Reac
       <body style={themeStyle as React.CSSProperties} className={`${geistSans.variable} ${geistMono.variable}`}>
         <SiteRuntimeProvider initialPayload={initialPayload}>
           <WishlistProvider>
+            <CartAccountSync />
             <TenantMetadata />
             <AnalyticsTracker />
             <TrackingScripts />
             <SiteHeader />
             <CartDrawer />
             <main>{children}</main>
+            <StorefrontMobileNav />
             <SiteFooter />
             <ToastViewport />
             <ConsentBanner />

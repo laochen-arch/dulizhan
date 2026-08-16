@@ -44,7 +44,11 @@ export function AddToCartButton({ product, compact = false, variantId, quantity 
       disabled={unavailable}
       className={compact ? "add-button add-button-compact" : "button button-dark button-wide"}
       onClick={() => {
-        addToCart(product, { variantId: selected.id, quantity: Math.min(quantity, availableStock(product, selected)) });
+        const didAdd = addToCart(product, { variantId: selected.id, quantity: Math.min(quantity, availableStock(product, selected)) });
+        if (!didAdd) {
+          showToast("This option is no longer available. Refresh the product and try again.", "error");
+          return;
+        }
         openDrawer();
         trackAnalytics("add_to_cart", { productId: product.id, payload: { quantity, variantId: selected.id } });
         setAdded(true);
@@ -96,10 +100,11 @@ export function ProductPurchase({ product }: { product: Product }) {
 
   function chooseOption(name: string, value: string) {
     const nextSelection = { ...selection, [name]: value };
-    const matching = product.variants.find((variant) => {
+    const compatible = product.variants.filter((variant) => {
       const values = variantOptionValues(variant);
-      return variant.available !== false && availableStock(product, variant) > 0 && Object.entries(nextSelection).every(([key, candidate]) => values[key] === candidate);
-    }) ?? product.variants.find((variant) => variantOptionValues(variant)[name] === value);
+      return Object.entries(nextSelection).every(([key, candidate]) => values[key] === candidate);
+    });
+    const matching = compatible.find((variant) => variant.available !== false && availableStock(product, variant) > 0) ?? compatible[0] ?? product.variants.find((variant) => variantOptionValues(variant)[name] === value);
     setSelection(nextSelection);
     if (matching) {
       setVariantId(matching.id);
@@ -115,8 +120,12 @@ export function ProductPurchase({ product }: { product: Product }) {
       <div className="detail-label">{group.name} <span className="selected-option">{selectedValues[group.name] || selection[group.name] || "Select"}</span></div>
       <div className="swatches" role="group" aria-label={`${group.name} options`}>
         {group.values.map((value) => {
-          const matching = product.variants.find((variant) => variantOptionValues(variant)[group.name] === value);
-          const disabled = !matching || matching.available === false || availableStock(product, matching) <= 0;
+          const compatible = product.variants.filter((variant) => {
+            const values = variantOptionValues(variant);
+            return values[group.name] === value && Object.entries(selection).every(([key, candidate]) => key === group.name || values[key] === candidate);
+          });
+          const matching = compatible.find((variant) => variant.available !== false && availableStock(product, variant) > 0) ?? compatible[0];
+          const disabled = !matching || !compatible.some((variant) => variant.available !== false && availableStock(product, variant) > 0);
           const isSelected = selectedValues[group.name] === value;
           return <button type="button" key={`${group.name}-${value}`} disabled={disabled} className={`swatch ${isSelected ? "selected" : ""} ${group.name.toLowerCase() === "color" ? "swatch-color" : "swatch-text"}`} title={`${value}${disabled ? " (unavailable)" : ""}`} aria-label={`${group.name}: ${value}`} aria-pressed={isSelected} onClick={() => chooseOption(group.name, value)}>
             {group.name.toLowerCase() === "color" && <span style={{ backgroundColor: matching?.swatch || "#20211e" }} />}

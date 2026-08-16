@@ -28,15 +28,29 @@ async function getPublishedProduct(slug: string) {
 export async function generateMetadata({ params }: { params: { slug: string } }): Promise<Metadata> {
   const product = await getPublishedProduct(params.slug);
   if (!product) return { title: "Product not found" };
+  const requestHeaders = await headers();
+  const host = requestHeaders.get("host") || "localhost";
+  const protocol = requestHeaders.get("x-forwarded-proto") || (host.startsWith("localhost") ? "http" : "https");
+  const origin = `${protocol}://${host}`;
+  const canonical = `${origin}/products/${product.slug}`;
+  const images = (product.images.length ? product.images : [product.image]).map((image) => image.startsWith("http") ? image : `${origin}${image.startsWith("/") ? image : `/${image}`}`);
   return {
     title: product.name,
     description: product.description,
-    alternates: { canonical: `/products/${product.slug}` },
+    alternates: { canonical },
+    metadataBase: new URL(origin),
     openGraph: {
       title: product.name,
       description: product.description,
       type: "website",
-      images: product.images.length ? product.images : [product.image],
+      url: canonical,
+      images,
+    },
+    twitter: {
+      card: "summary_large_image",
+      title: product.name,
+      description: product.description,
+      images,
     },
   };
 }

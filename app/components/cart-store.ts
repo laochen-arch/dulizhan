@@ -103,7 +103,7 @@ export function useStore(scope = "default") {
       const current = getStore(key);
       const variant = product.variants.find((candidate) => candidate.id === options.variantId) ?? defaultVariant(product);
       const stock = Math.max(0, variant.stock ?? product.stock);
-      if (variant.available === false || stock < 1) return;
+      if (variant.available === false || stock < 1) return false;
       const requestedQuantity = Math.max(1, Math.floor(options.quantity ?? 1));
       const lineId = `${product.id}:${variant.id}`;
       const existing = current.cart.find((item) => item.lineId === lineId);
@@ -114,6 +114,7 @@ export function useStore(scope = "default") {
       stores.set(key, { ...current, cart });
       persist(key, cart);
       emit(key);
+      return true;
     },
     updateQuantity: (lineId: string, quantity: number) => {
       const current = getStore(key);
@@ -138,6 +139,13 @@ export function useStore(scope = "default") {
       const current = getStore(key);
       stores.set(key, { ...current, cart: [] });
       persist(key, []);
+      emit(key);
+    },
+    replaceCart: (items: CartLine[]) => {
+      const current = getStore(key);
+      const cart = normalizeCart(items as PersistedCartLine[]);
+      stores.set(key, { ...current, cart });
+      persist(key, cart);
       emit(key);
     },
     openDrawer: () => {

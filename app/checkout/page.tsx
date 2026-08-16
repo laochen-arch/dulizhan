@@ -23,11 +23,20 @@ export default function CheckoutPage() {
   const [statusRefresh, setStatusRefresh] = useState(0);
   const clearedSession = useRef(false);
   const statusStarted = useRef(false);
+  const paymentEvent = useRef("");
   const cancelled = searchParams.get("cancelled") === "1";
   const paypalOrderId = searchParams.get("token") || searchParams.get("paypal_order_id") || "";
   const paypalReturn = searchParams.get("paypal_return") === "1";
   const orderId = searchParams.get("order_id") || "";
   const paidSession = Boolean(paypalOrderId);
+
+  useEffect(() => {
+    if (!paidSession || !["paid", "pending", "cancelled", "failed"].includes(paymentState)) return;
+    const key = `${orderId}:${paymentState}`;
+    if (paymentEvent.current === key) return;
+    paymentEvent.current = key;
+    trackAnalytics(`paypal_payment_${paymentState}`, { payload: { orderId, paypalOrderId } });
+  }, [orderId, paidSession, paypalOrderId, paymentState]);
 
   useEffect(() => {
     if (cancelled || !paidSession || statusStarted.current) return;

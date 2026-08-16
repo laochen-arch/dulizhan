@@ -417,6 +417,13 @@ export const storeWishlists = sqliteTable("store_wishlists", {
   createdAt: text("created_at").notNull(),
 }, (table) => [primaryKey({ columns: [table.siteId, table.userId, table.productId] }), index("store_wishlists_user_idx").on(table.siteId, table.userId, table.createdAt)]);
 
+export const storeCarts = sqliteTable("store_carts", {
+  siteId: text("site_id").notNull(),
+  userId: text("user_id").notNull(),
+  itemsJson: text("items_json").notNull().default("[]"),
+  updatedAt: text("updated_at").notNull(),
+}, (table) => [primaryKey({ columns: [table.siteId, table.userId] }), index("store_carts_user_idx").on(table.siteId, table.userId, table.updatedAt)]);
+
 export const storeNewsletterSubscribers = sqliteTable("store_newsletter_subscribers", {
   siteId: text("site_id").notNull(),
   email: text("email").notNull(),

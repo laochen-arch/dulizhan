@@ -39,6 +39,24 @@ export function SiteHeader() {
     }, 0);
     return () => window.clearTimeout(timer);
   }, [searchHistoryKey]);
+
+  useEffect(() => {
+    const onKeyDown = (event: KeyboardEvent) => {
+      if (event.key === "Escape") {
+        setMenuOpen(false);
+        setSearchOpen(false);
+      }
+    };
+    if (menuOpen || searchOpen) document.addEventListener("keydown", onKeyDown);
+    return () => document.removeEventListener("keydown", onKeyDown);
+  }, [menuOpen, searchOpen]);
+
+  useEffect(() => {
+    // Route changes can leave a drawer open when navigation comes from the browser controls.
+    // eslint-disable-next-line react-hooks/set-state-in-effect
+    setMenuOpen(false);
+    setSearchOpen(false);
+  }, [pathname]);
   const suggestions = useMemo(() => {
     const normalized = query.trim().toLowerCase();
     if (normalized.length < 2) return [];
@@ -76,7 +94,7 @@ export function SiteHeader() {
           <span className="wordmark-mark">{config.brand.mark}</span>
           <span>{brandParts[0]} <em>{brandParts.slice(1).join(" ")}</em></span>
         </Link>
-        <nav className={`main-nav ${menuOpen ? "is-open" : ""}`} aria-label="Main navigation">
+        <nav id="storefront-main-navigation" className={`main-nav ${menuOpen ? "is-open" : ""}`} aria-label="Main navigation">
           {navigation.map((item) => <Link key={item.href} href={item.href} className={isActive(item.href) ? "is-active" : ""} aria-current={isActive(item.href) ? "page" : undefined} onClick={() => setMenuOpen(false)}>{item.label}</Link>)}
           <Link href="/orders" className={isActive("/orders") ? "is-active" : ""} aria-current={isActive("/orders") ? "page" : undefined} onClick={() => setMenuOpen(false)}>Track order</Link>
           <Link href="/wishlist" className={isActive("/wishlist") ? "is-active" : ""} aria-current={isActive("/wishlist") ? "page" : undefined} onClick={() => setMenuOpen(false)}>Wishlist</Link>

@@ -297,11 +297,12 @@ test("keeps V29 P0 storefront navigation, purchase and payment recovery paths", 
   const orders = await readFile(new URL("../app/orders/page.tsx", import.meta.url), "utf8");
   const commerce = await readFile(new URL("../db/commerce.ts", import.meta.url), "utf8");
   const shop = await readFile(new URL("../app/shop/page.tsx", import.meta.url), "utf8");
+  const session = await readFile(new URL("../app/lib/storefront-session.ts", import.meta.url), "utf8");
 
   assert.match(header, /Category navigation belongs to the collection filter rail/);
   assert.match(access, /signout-with-chatgpt/);
   assert.match(access, /capabilities/);
-  assert.match(access, /sessionRequest/);
+  assert.match(session, /sessionRequest/);
   assert.match(gallery, /gallery-zoom-layer/);
   assert.match(purchase, /product-purchase/);
   assert.match(purchase, /product-delivery-note/);
@@ -346,4 +347,42 @@ test("keeps V30 identity binding and canonical commerce recovery paths", async (
   assert.match(admin, /const selectTab/);
   assert.match(admin, /admin-workspace-status/);
   assert.match(admin, /cmsRole === "viewer"/);
+});
+
+test("keeps V31 P0 storefront checkout, account cart and mobile continuity paths", async () => {
+  const cart = await readFile(new URL("../app/cart/page.tsx", import.meta.url), "utf8");
+  const validation = await readFile(new URL("../app/components/cart-validation.tsx", import.meta.url), "utf8");
+  const drawer = await readFile(new URL("../app/components/cart-drawer.tsx", import.meta.url), "utf8");
+  const accountCart = await readFile(new URL("../app/api/account/cart/route.ts", import.meta.url), "utf8");
+  const v31 = await readFile(new URL("../db/v31.ts", import.meta.url), "utf8");
+  const schema = await readFile(new URL("../db/schema.ts", import.meta.url), "utf8");
+  const sync = await readFile(new URL("../app/components/cart-account-sync.tsx", import.meta.url), "utf8");
+  const mobileNav = await readFile(new URL("../app/components/storefront-mobile-nav.tsx", import.meta.url), "utf8");
+  const checkout = await readFile(new URL("../app/components/checkout-form.tsx", import.meta.url), "utf8");
+  const productActions = await readFile(new URL("../app/components/product-actions.tsx", import.meta.url), "utf8");
+  const productMetadata = await readFile(new URL("../app/products/[slug]/page.tsx", import.meta.url), "utf8");
+  const session = await readFile(new URL("../app/lib/storefront-session.ts", import.meta.url), "utf8");
+  const migration = await readFile(new URL("../drizzle/0015_v31_storefront_cart.sql", import.meta.url), "utf8");
+
+  assert.match(cart, /useCartValidation/);
+  assert.match(cart, /Continue to checkout/);
+  assert.match(validation, /\/api\/checkout\/quote/);
+  assert.match(validation, /Checking live availability and price/);
+  assert.match(drawer, /Review bag before checkout/);
+  assert.match(accountCart, /mergeCustomerCart/);
+  assert.match(accountCart, /replaceCustomerCart/);
+  assert.match(v31, /store_carts/);
+  assert.match(schema, /storeCarts/);
+  assert.match(sync, /\/api\/account\/cart/);
+  assert.match(sync, /mergeCustomerCart|method: "POST"/);
+  assert.match(mobileNav, /Mobile storefront navigation/);
+  assert.match(checkout, /Saved address/);
+  assert.match(checkout, /autoComplete="street-address"/);
+  assert.match(productActions, /compatible/);
+  assert.match(productMetadata, /metadataBase/);
+  assert.match(session, /sessionRequest/);
+  assert.match(migration, /CREATE TABLE IF NOT EXISTS store_carts/);
+  assert.equal((await render("/products/field-pack-28l")).status, 200);
+  assert.equal((await render("/cart")).status, 200);
+  assert.equal((await render("/checkout")).status, 200);
 });
