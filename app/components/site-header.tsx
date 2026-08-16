@@ -10,10 +10,11 @@ export function SiteHeader() {
   const [menuOpen, setMenuOpen] = useState(false);
   const [searchOpen, setSearchOpen] = useState(false);
   const [query, setQuery] = useState("");
-  const { config, activeSiteId, site } = useSiteRuntime();
+  const { config, catalog, activeSiteId, site } = useSiteRuntime();
   const { cartCount } = useStore(site?.id || activeSiteId);
   const pathname = usePathname();
   const brandParts = config.brand.name.trim().split(/\s+/);
+  const categories = Array.from(new Set(catalog.filter((product) => product.status === "active").map((product) => product.category).filter(Boolean))).slice(0, 4);
 
   function submitSearch(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
@@ -30,9 +31,9 @@ export function SiteHeader() {
   }
 
   return (
-    <header className="site-header">
-      <div className="announcement">{config.announcement.text} <span>-</span> {config.announcement.accent}</div>
-      <div className="nav-wrap container">
+    <header className="site-header storefront-header">
+      <div className="announcement storefront-announcement">{config.announcement.text} <span>-</span> {config.announcement.accent}</div>
+      <div className="nav-wrap container storefront-header-inner">
         <button type="button" className="menu-toggle" aria-label={menuOpen ? "Close menu" : "Open menu"} aria-expanded={menuOpen} onClick={() => setMenuOpen((open) => !open)}>
           <span />
           <span />
@@ -47,12 +48,20 @@ export function SiteHeader() {
           <Link href="/wishlist" className={isActive("/wishlist") ? "is-active" : ""} onClick={() => setMenuOpen(false)}>Wishlist</Link>
         </nav>
         <div className="nav-actions">
-          {searchOpen ? <form className="nav-search-form" onSubmit={submitSearch}><label className="sr-only" htmlFor="nav-search-input">Search products</label><input id="nav-search-input" value={query} onChange={(event) => setQuery(event.target.value)} placeholder="Search gear" /><button type="submit" aria-label="Submit search">-&gt;</button><button type="button" className="nav-search-close" onClick={() => setSearchOpen(false)} aria-label="Close search">x</button></form> : <button type="button" className="nav-search-trigger" aria-expanded={searchOpen} onClick={() => setSearchOpen(true)}>Search <span>?</span></button>}
+          {searchOpen ? <form className="nav-search-form" onSubmit={submitSearch}><label className="sr-only" htmlFor="nav-search-input">Search products</label><input id="nav-search-input" value={query} onChange={(event) => setQuery(event.target.value)} placeholder="Search gear" /><button type="submit" aria-label="Submit search">↗</button><button type="button" className="nav-search-close" onClick={() => setSearchOpen(false)} aria-label="Close search">×</button></form> : <button type="button" className="nav-search-trigger" aria-expanded={searchOpen} onClick={() => setSearchOpen(true)}><span className="nav-search-icon" aria-hidden="true">⌕</span> Search</button>}
           <Link href="/cart" className="cart-link" aria-label={`Cart with ${cartCount} items`}>
             Bag <span className="cart-count">{cartCount}</span>
           </Link>
         </div>
       </div>
+      <nav className="storefront-quicknav" aria-label="Storefront categories">
+        <div className="container storefront-quicknav-inner">
+          <Link href="/" className={isActive("/") ? "is-active" : ""}>Today</Link>
+          <Link href="/shop" className={isActive("/shop") ? "is-active" : ""}>Shop all</Link>
+          {categories.map((category) => <Link key={category} href={`/shop?category=${encodeURIComponent(category)}`}>{category}</Link>)}
+          <Link href="/orders" className={isActive("/orders") ? "is-active" : ""}>Order status</Link>
+        </div>
+      </nav>
     </header>
   );
 }
