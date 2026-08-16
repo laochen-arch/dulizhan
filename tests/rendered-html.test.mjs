@@ -257,6 +257,7 @@ test("keeps V27 storefront discovery and repeat-purchase paths in source", async
 
 test("keeps V28 recovery, retention and storefront trust paths in source", async () => {
   const v28 = await readFile(new URL("../db/v28.ts", import.meta.url), "utf8");
+  const compatibilityMigration = await readFile(new URL("../drizzle/0012_volatile_loners.sql", import.meta.url), "utf8");
   const schema = await readFile(new URL("../drizzle/0013_curved_odin.sql", import.meta.url), "utf8");
   const commerce = await readFile(new URL("../db/commerce.ts", import.meta.url), "utf8");
   const checkout = await readFile(new URL("../app/checkout/page.tsx", import.meta.url), "utf8");
@@ -269,6 +270,8 @@ test("keeps V28 recovery, retention and storefront trust paths in source", async
   assert.match(v28, /sendResendMessage/);
   assert.match(schema, /store_newsletter_subscribers/);
   assert.match(schema, /store_stock_alerts/);
+  assert.match(compatibilityMigration, /safe no-op/);
+  assert.match(schema, /CREATE TABLE IF NOT EXISTS/);
   assert.match(commerce, /retryPayPalCheckout/);
   assert.match(commerce, /accessToken/);
   assert.match(checkout, /Try PayPal again/);
