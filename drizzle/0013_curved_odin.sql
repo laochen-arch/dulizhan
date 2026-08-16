@@ -1,4 +1,4 @@
-CREATE TABLE `store_newsletter_subscribers` (
+CREATE TABLE IF NOT EXISTS `store_newsletter_subscribers` (
 	`site_id` text NOT NULL,
 	`email` text NOT NULL,
 	`status` text DEFAULT 'subscribed' NOT NULL,
@@ -11,8 +11,8 @@ CREATE TABLE `store_newsletter_subscribers` (
 	PRIMARY KEY(`site_id`, `email`)
 );
 --> statement-breakpoint
-CREATE INDEX `store_newsletter_site_status_idx` ON `store_newsletter_subscribers` (`site_id`,`status`,`updated_at`);--> statement-breakpoint
-CREATE TABLE `store_stock_alerts` (
+CREATE INDEX IF NOT EXISTS `store_newsletter_site_status_idx` ON `store_newsletter_subscribers` (`site_id`,`status`,`updated_at`);--> statement-breakpoint
+CREATE TABLE IF NOT EXISTS `store_stock_alerts` (
 	`id` text PRIMARY KEY NOT NULL,
 	`site_id` text NOT NULL,
 	`email` text NOT NULL,
@@ -24,5 +24,5 @@ CREATE TABLE `store_stock_alerts` (
 	`notified_at` text
 );
 --> statement-breakpoint
-CREATE UNIQUE INDEX `store_stock_alerts_unique` ON `store_stock_alerts` (`site_id`,`email`,`product_id`,`variant_id`);--> statement-breakpoint
-CREATE INDEX `store_stock_alerts_product_idx` ON `store_stock_alerts` (`site_id`,`product_id`,`variant_id`,`status`);
+CREATE UNIQUE INDEX IF NOT EXISTS `store_stock_alerts_unique` ON `store_stock_alerts` (`site_id`,`email`,`product_id`,`variant_id`);--> statement-breakpoint
+CREATE INDEX IF NOT EXISTS `store_stock_alerts_product_idx` ON `store_stock_alerts` (`site_id`,`product_id`,`variant_id`,`status`);
