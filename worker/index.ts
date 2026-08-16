@@ -45,10 +45,12 @@ const worker = {
   async scheduled(_controller: unknown, env: Env): Promise<void> {
     const { runCommerceRecovery } = await import("../db/commerce");
     const { retryAbandonedCheckoutEmails } = await import("../db/v21");
+    const { syncMerchantCampaignSchedules } = await import("../db/v32");
     const sites = await env.DB.prepare("SELECT id FROM cms_sites WHERE status <> 'deleted'").all<{ id: string }>();
     await Promise.all(sites.results.map(async (site) => {
       try { await runCommerceRecovery(site.id, "system", "system@northlinesupply.com"); } catch { /* keep the remaining tenant jobs running */ }
       try { await retryAbandonedCheckoutEmails(site.id); } catch { /* traced by checkout recovery status */ }
+      try { await syncMerchantCampaignSchedules(site.id); } catch { /* keep the remaining tenant jobs running */ }
     }));
   },
 };

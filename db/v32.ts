@@ -253,7 +253,8 @@ async function syncCampaignSchedules(siteId: string) {
     const status: MerchantCampaignSchedule["status"] = schedule.status === "cancelled" ? "cancelled" : Date.parse(schedule.startsAt) > Date.now() ? "scheduled" : schedule.endsAt && Date.parse(schedule.endsAt) <= Date.now() ? "expired" : "active";
     if (status !== schedule.status) await database.prepare("UPDATE cms_campaign_schedules SET status = ?1, updated_at = ?2 WHERE site_id = ?3 AND id = ?4").bind(status, timestamp, siteId, schedule.id).run();
     const enabled = status === "active" ? 1 : 0;
-    if (schedule.targetType === "coupon") await database.prepare("UPDATE cms_coupons SET starts_at = ?1, ends_at = ?2, active = ?3, updated_at = ?4 WHERE site_id = ?5 AND id = ?6").bind(schedule.startsAt, schedule.endsAt, enabled, timestamp, siteId, schedule.targetId).run();
+    const couponEnabled = status === "scheduled" || status === "active" ? 1 : 0;
+    if (schedule.targetType === "coupon") await database.prepare("UPDATE cms_coupons SET starts_at = ?1, ends_at = ?2, active = ?3, updated_at = ?4 WHERE site_id = ?5 AND id = ?6").bind(schedule.startsAt, schedule.endsAt, couponEnabled, timestamp, siteId, schedule.targetId).run();
     if (schedule.targetType === "bundle") await database.prepare("UPDATE cms_bundles SET active = ?1, updated_at = ?2 WHERE site_id = ?3 AND id = ?4").bind(enabled, timestamp, siteId, schedule.targetId).run();
     if (schedule.targetType === "collection") await database.prepare("UPDATE cms_collections SET active = ?1, updated_at = ?2 WHERE site_id = ?3 AND id = ?4").bind(enabled, timestamp, siteId, schedule.targetId).run();
     if (schedule.targetType === "recommendation") await database.prepare("UPDATE cms_recommendation_rules SET active = ?1, updated_at = ?2 WHERE site_id = ?3 AND id = ?4").bind(enabled, timestamp, siteId, schedule.targetId).run();
@@ -269,6 +270,10 @@ async function assertCampaignTarget(database: ReturnType<typeof getCmsDatabase>,
 }
 
 export async function listMerchantCampaignSchedules(siteId: string) {
+  return syncCampaignSchedules(siteId);
+}
+
+export async function syncMerchantCampaignSchedules(siteId: string) {
   return syncCampaignSchedules(siteId);
 }
 

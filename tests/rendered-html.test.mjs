@@ -433,6 +433,7 @@ test("keeps V32 platform onboarding and merchant operations boundaries", async (
   const merchantOperations = await readFile(new URL("../app/api/merchant/operations/route.ts", import.meta.url), "utf8");
   const v32 = await readFile(new URL("../db/v32.ts", import.meta.url), "utf8");
   const cms = await readFile(new URL("../db/cms.ts", import.meta.url), "utf8");
+  const workerSource = await readFile(new URL("../worker/index.ts", import.meta.url), "utf8");
   const workspace = await readFile(new URL("../app/client/client-portal.tsx", import.meta.url), "utf8");
   const admin = await readFile(new URL("../app/admin/platform-applications-panel.tsx", import.meta.url), "utf8");
 
@@ -447,8 +448,10 @@ test("keeps V32 platform onboarding and merchant operations boundaries", async (
   assert.match(merchantOperations, /getAnalyticsSummary/);
   assert.match(v32, /platform_applications/);
   assert.match(v32, /cms_campaign_schedules/);
+  assert.match(v32, /syncMerchantCampaignSchedules/);
   assert.match(cms, /cms_collections/);
   assert.match(cms, /cms_recommendation_rules/);
+  assert.match(workerSource, /syncMerchantCampaignSchedules/);
   assert.match(workspace, /Create draft product/);
   assert.match(workspace, /Scheduled campaigns/);
   assert.match(admin, /Create storefront/);
