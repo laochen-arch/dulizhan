@@ -11,10 +11,10 @@ export type CartLine = Product & {
   variantPrice: number;
 };
 
-type StoreState = { cart: CartLine[]; hydrated: boolean };
+type StoreState = { cart: CartLine[]; hydrated: boolean; drawerOpen: boolean };
 type PersistedCartLine = Partial<CartLine> & Product & { quantity: number };
 const CART_PREFIX = "northline-cart-v20";
-const serverState: StoreState = { cart: [], hydrated: false };
+const serverState: StoreState = { cart: [], hydrated: false, drawerOpen: false };
 const stores = new Map<string, StoreState>();
 const listeners = new Map<string, Set<() => void>>();
 
@@ -26,7 +26,7 @@ function storageKey(scope: string) {
 function getStore(key: string) {
   const existing = stores.get(key);
   if (existing) return existing;
-  const created: StoreState = { cart: [], hydrated: false };
+  const created: StoreState = { cart: [], hydrated: false, drawerOpen: false };
   stores.set(key, created);
   return created;
 }
@@ -71,7 +71,7 @@ function hydrate(key: string) {
   try {
     const saved = window.localStorage.getItem(key);
     const parsed = saved ? JSON.parse(saved) : [];
-    stores.set(key, { cart: Array.isArray(parsed) ? normalizeCart(parsed as PersistedCartLine[]) : [], hydrated: true });
+    stores.set(key, { ...current, cart: Array.isArray(parsed) ? normalizeCart(parsed as PersistedCartLine[]) : [], hydrated: true });
   } catch {
     window.localStorage.removeItem(key);
     stores.set(key, { cart: [], hydrated: true });
@@ -101,19 +101,28 @@ export function useStore(scope = "default") {
     subtotal: snapshot.cart.reduce((total, item) => total + item.variantPrice * item.quantity, 0),
     addToCart: (product: Product, options: { variantId?: string; quantity?: number } = {}) => {
       const current = getStore(key);
-      const quantity = options.quantity ?? 1;
       const variant = product.variants.find((candidate) => candidate.id === options.variantId) ?? defaultVariant(product);
+      const stock = Math.max(0, variant.stock ?? product.stock);
+      if (variant.available === false || stock < 1) return;
+      const requestedQuantity = Math.max(1, Math.floor(options.quantity ?? 1));
       const lineId = `${product.id}:${variant.id}`;
       const existing = current.cart.find((item) => item.lineId === lineId);
+      const quantity = Math.min(requestedQuantity, stock);
       const line: CartLine = { ...product, quantity, lineId, variantId: variant.id, variantLabel: variant.label, variantPrice: variant.price ?? product.price };
-      const cart = existing ? current.cart.map((item) => item.lineId === lineId ? { ...item, quantity: item.quantity + quantity } : item) : [...current.cart, line];
+      const nextQuantity = Math.min(stock, (existing?.quantity || 0) + quantity);
+      const cart = existing ? current.cart.map((item) => item.lineId === lineId ? { ...item, quantity: nextQuantity } : item) : [...current.cart, { ...line, quantity: nextQuantity }];
       stores.set(key, { ...current, cart });
       persist(key, cart);
       emit(key);
     },
     updateQuantity: (lineId: string, quantity: number) => {
       const current = getStore(key);
-      const cart = quantity <= 0 ? current.cart.filter((item) => item.lineId !== lineId) : current.cart.map((item) => item.lineId === lineId ? { ...item, quantity } : item);
+      const cart = quantity <= 0 ? current.cart.filter((item) => item.lineId !== lineId) : current.cart.map((item) => {
+        if (item.lineId !== lineId) return item;
+        const variant = item.variants.find((candidate) => candidate.id === item.variantId);
+        const stock = Math.max(0, variant?.stock ?? item.stock);
+        return { ...item, quantity: Math.min(Math.max(1, Math.floor(quantity)), stock) };
+      }).filter((item) => item.quantity > 0);
       stores.set(key, { ...current, cart });
       persist(key, cart);
       emit(key);
@@ -129,6 +138,18 @@ export function useStore(scope = "default") {
       const current = getStore(key);
       stores.set(key, { ...current, cart: [] });
       persist(key, []);
+      emit(key);
+    },
+    openDrawer: () => {
+      const current = getStore(key);
+      if (current.drawerOpen) return;
+      stores.set(key, { ...current, drawerOpen: true });
+      emit(key);
+    },
+    closeDrawer: () => {
+      const current = getStore(key);
+      if (!current.drawerOpen) return;
+      stores.set(key, { ...current, drawerOpen: false });
       emit(key);
     },
   };

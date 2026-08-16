@@ -215,3 +215,23 @@ test("keeps V25 identity-aware storefront access and account boundaries", async 
   assert.match(account, /Saved addresses/);
   assert.match(account, /Sign in to continue/);
 });
+
+test("keeps V26 storefront conversion and account continuity paths in source", async () => {
+  const v26 = await readFile(new URL("../db/v26.ts", import.meta.url), "utf8");
+  const schema = await readFile(new URL("../db/schema.ts", import.meta.url), "utf8");
+  const wishlistRoute = await readFile(new URL("../app/api/account/wishlist/route.ts", import.meta.url), "utf8");
+  const quoteRoute = await readFile(new URL("../app/api/checkout/quote/route.ts", import.meta.url), "utf8");
+  const quoteForm = await readFile(new URL("../app/components/checkout-form.tsx", import.meta.url), "utf8");
+  const drawer = await readFile(new URL("../app/components/cart-drawer.tsx", import.meta.url), "utf8");
+  const recent = await readFile(new URL("../app/components/recently-viewed.tsx", import.meta.url), "utf8");
+  const shop = await readFile(new URL("../app/shop/page.tsx", import.meta.url), "utf8");
+  assert.match(v26, /store_wishlists/);
+  assert.match(schema, /storeWishlists/);
+  assert.match(wishlistRoute, /getAccountContext/);
+  assert.match(quoteRoute, /getCheckoutQuote/);
+  assert.match(quoteForm, /\/api\/checkout\/quote/);
+  assert.match(quoteForm, /\/api\/account\/addresses/);
+  assert.match(drawer, /role="dialog"/);
+  assert.match(recent, /Recently/);
+  assert.match(shop, /mobile-filter-toggle/);
+});

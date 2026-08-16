@@ -31,7 +31,7 @@ function isSellable(product: Product, variant?: ProductVariant) {
 
 export function AddToCartButton({ product, compact = false, variantId, quantity = 1 }: { product: Product; compact?: boolean; variantId?: string; quantity?: number }) {
   const { activeSiteId, site, config } = useSiteRuntime();
-  const { addToCart } = useStore(site?.id || activeSiteId);
+  const { addToCart, openDrawer } = useStore(site?.id || activeSiteId);
   const [added, setAdded] = useState(false);
   const selected = product.variants.find((variant) => variant.id === variantId) ?? fallbackVariant(product);
   const unavailable = !isSellable(product, selected);
@@ -44,6 +44,7 @@ export function AddToCartButton({ product, compact = false, variantId, quantity 
       className={compact ? "add-button add-button-compact" : "button button-dark button-wide"}
       onClick={() => {
         addToCart(product, { variantId: selected.id, quantity: Math.min(quantity, availableStock(product, selected)) });
+        openDrawer();
         trackAnalytics("add_to_cart", { productId: product.id, payload: { quantity, variantId: selected.id } });
         setAdded(true);
         showToast(`${product.name} added to your bag.`);
@@ -63,10 +64,10 @@ export function BuyNowButton({ product, variantId, quantity = 1 }: { product: Pr
   return <Link href="/checkout" className="button button-outline button-wide" onClick={() => addToCart(product, { variantId: selected.id, quantity: Math.min(quantity, availableStock(product, selected)) })}>Buy now</Link>;
 }
 
-export function QuantityControl({ id, quantity }: { id: string; quantity: number }) {
+export function QuantityControl({ id, quantity, maxQuantity }: { id: string; quantity: number; maxQuantity?: number }) {
   const { activeSiteId, site } = useSiteRuntime();
   const { updateQuantity } = useStore(site?.id || activeSiteId);
-  return <div className="quantity-control" aria-label="Quantity"><button type="button" disabled={quantity <= 1} onClick={() => updateQuantity(id, quantity - 1)} aria-label="Decrease quantity">-</button><span>{quantity}</span><button type="button" onClick={() => updateQuantity(id, quantity + 1)} aria-label="Increase quantity">+</button></div>;
+  return <div className="quantity-control" aria-label="Quantity"><button type="button" disabled={quantity <= 1} onClick={() => updateQuantity(id, quantity - 1)} aria-label="Decrease quantity">-</button><span>{quantity}</span><button type="button" disabled={typeof maxQuantity === "number" && quantity >= maxQuantity} onClick={() => updateQuantity(id, quantity + 1)} aria-label="Increase quantity">+</button></div>;
 }
 
 function optionGroups(product: Product) {

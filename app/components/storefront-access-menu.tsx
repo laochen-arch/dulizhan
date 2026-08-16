@@ -20,13 +20,15 @@ export function StorefrontAccessMenu() {
 
   useEffect(() => {
     let active = true;
-    void fetch("/api/account/session", { cache: "no-store" }).then(async (response) => {
-      const payload = await response.json().catch(() => ({})) as SessionPayload;
-      if (active) setAccess(payload.access);
-    }).catch(() => {
-      if (active) setAccess(undefined);
-    });
-    return () => { active = false; };
+    const timer = window.setTimeout(() => {
+      void fetch("/api/account/session", { cache: "no-store" }).then(async (response) => {
+        const payload = await response.json().catch(() => ({})) as SessionPayload;
+        if (active) setAccess(payload.access);
+      }).catch(() => {
+        if (active) setAccess(undefined);
+      });
+    }, 250);
+    return () => { active = false; window.clearTimeout(timer); };
   }, [pathname]);
 
   if (!access) return <span className="access-menu access-menu-loading" aria-hidden="true" />;

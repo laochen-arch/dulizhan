@@ -154,6 +154,41 @@ export type D1DatabaseLike = {
   batch: (statements: D1Statement[]) => Promise<unknown>;
 };
 
+// D1 bindings live for the lifetime of a Worker isolate. Coalesce the schema
+// check so the public storefront does not replay every CREATE/ALTER statement
+// on every request (the first request still performs the full safety check).
+const schemaInitializationPromises = new WeakMap<object, Promise<void>>();
+
+const PUBLISHED_SNAPSHOT_TTL_MS = 15_000;
+const MAX_PUBLISHED_SNAPSHOT_CACHE_ENTRIES = 50;
+const publishedSnapshotCache = new Map<string, { expiresAt: number; snapshot: CmsSnapshot }>();
+
+export function clearPublishedSnapshotCache(siteId?: string) {
+  if (siteId) {
+    publishedSnapshotCache.delete(siteId);
+    return;
+  }
+  publishedSnapshotCache.clear();
+}
+
+function readCachedPublishedSnapshot(siteId: string) {
+  const entry = publishedSnapshotCache.get(siteId);
+  if (!entry) return null;
+  if (entry.expiresAt <= Date.now()) {
+    publishedSnapshotCache.delete(siteId);
+    return null;
+  }
+  return entry.snapshot;
+}
+
+function writeCachedPublishedSnapshot(siteId: string, snapshot: CmsSnapshot) {
+  if (publishedSnapshotCache.size >= MAX_PUBLISHED_SNAPSHOT_CACHE_ENTRIES) {
+    const oldestKey = publishedSnapshotCache.keys().next().value;
+    if (oldestKey) publishedSnapshotCache.delete(oldestKey);
+  }
+  publishedSnapshotCache.set(siteId, { expiresAt: Date.now() + PUBLISHED_SNAPSHOT_TTL_MS, snapshot });
+}
+
 async function ensureColumn(database: D1DatabaseLike, table: string, column: string, definition: string) {
   const columns = await database.prepare(`PRAGMA table_info(${table})`).all<{ name: string }>();
   if (columns.results.some((item) => item.name === column)) return;
@@ -266,7 +301,7 @@ export function getMediaBucket(): R2BucketLike {
   return bucket;
 }
 
-export async function ensureCmsSchema(database: D1DatabaseLike) {
+async function initializeCmsSchema(database: D1DatabaseLike) {
   await database.batch([
     database.prepare(`CREATE TABLE IF NOT EXISTS cms_sites (
       id TEXT PRIMARY KEY,
@@ -789,6 +824,21 @@ export async function ensureCmsSchema(database: D1DatabaseLike) {
   await ensureColumn(database, "cms_site_domains", "ssl_status", "TEXT");
   await ensureColumn(database, "cms_site_domains", "last_error", "TEXT");
   await database.prepare("CREATE UNIQUE INDEX IF NOT EXISTS cms_inventory_tx_idempotency_unique ON cms_inventory_transactions(idempotency_key) WHERE idempotency_key IS NOT NULL").run();
+}
+
+export async function ensureCmsSchema(database: D1DatabaseLike) {
+  const key = database as unknown as object;
+  const existing = schemaInitializationPromises.get(key);
+  if (existing) return existing;
+
+  const initialization = initializeCmsSchema(database);
+  schemaInitializationPromises.set(key, initialization);
+  try {
+    await initialization;
+  } catch (error) {
+    schemaInitializationPromises.delete(key);
+    throw error;
+  }
 }
 
 function parseConfig(value: string): SiteConfig {
@@ -1372,6 +1422,10 @@ export async function removeMember(siteId: string, memberUserId: string, actorId
 }
 
 export async function readSnapshot(siteId: string, mode: CmsMode, user?: { userId: string; email: string }, allowSharedDraft = false): Promise<CmsSnapshot> {
+  if (mode === "published") {
+    const cached = readCachedPublishedSnapshot(siteId);
+    if (cached) return cached;
+  }
   const database = getD1();
   await ensureCmsSchema(database);
   await processDueScheduledPublishes(database);
@@ -1387,7 +1441,7 @@ export async function readSnapshot(siteId: string, mode: CmsMode, user?: { userI
   const rows = await database.prepare(`SELECT product_id, draft_payload, published_payload, updated_at
     FROM cms_site_products WHERE site_id = ?1 ORDER BY product_id ASC`).bind(siteId).all<ProductRow>();
   const catalog = rows.results.map((row) => parseProduct(mode === "published" ? (row.published_payload ?? "") : row.draft_payload)).filter(Boolean) as Product[];
-  return {
+  const snapshot = {
     site,
     config: parseConfig(mode === "published" ? settings.published_config : settings.draft_config),
     catalog,
@@ -1395,6 +1449,8 @@ export async function readSnapshot(siteId: string, mode: CmsMode, user?: { userI
     updatedAt: mode === "published" ? settings.published_at ?? settings.updated_at : settings.updated_at,
     role,
   };
+  if (mode === "published") writeCachedPublishedSnapshot(siteId, snapshot);
+  return snapshot;
 }
 
 function validateSnapshot(config: SiteConfig, catalog: Product[]) {
@@ -1471,6 +1527,7 @@ export async function publishDraft(siteId: string, label: string, userId: string
     database.prepare("INSERT INTO cms_revisions (id, site_id, kind, label, snapshot, created_at, created_by) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7)").bind(revisionId, siteId, "publish", label || "Published storefront", snapshot, timestamp, userId),
     database.prepare("UPDATE cms_sites SET updated_at = ?1, status = 'active' WHERE id = ?2").bind(timestamp, siteId),
   ]);
+  clearPublishedSnapshotCache(siteId);
   await recordAudit(database, siteId, { userId, email: userEmail }, "publish.completed", "revision", revisionId, { label: label || "Published storefront", productCount: draft.catalog.length });
   return { revisionId, publishedAt: timestamp, site: draft.site };
 }
@@ -1620,6 +1677,7 @@ async function publishStoredDraft(database: D1DatabaseLike, schedule: CmsSchedul
     database.prepare("UPDATE cms_sites SET updated_at = ?1, status = 'active' WHERE id = ?2").bind(timestamp, schedule.siteId),
     database.prepare("UPDATE cms_scheduled_publishes SET status = 'published', published_at = ?1 WHERE id = ?2").bind(timestamp, schedule.id),
   ]);
+  clearPublishedSnapshotCache(schedule.siteId);
   await recordAudit(database, schedule.siteId, { userId: schedule.createdBy, email: schedule.createdByEmail }, "publish.scheduled_completed", "schedule", schedule.id, { revisionId });
 }
 

@@ -20,6 +20,19 @@ export type CheckoutPayload = {
   couponCode?: string;
 };
 
+export type CheckoutQuotePayload = Pick<CheckoutPayload, "items" | "deliveryMethod" | "couponCode">;
+
+export type CheckoutQuote = {
+  currency: string;
+  subtotal: number;
+  discount: number;
+  shipping: number;
+  total: number;
+  couponCode: string | null;
+  couponApplied: boolean;
+  freeShippingThreshold: number;
+};
+
 export type CmsInventoryRow = {
   siteId: string;
   productId: string;
@@ -160,6 +173,31 @@ function now() {
 
 function clone<T>(value: T): T {
   return JSON.parse(JSON.stringify(value)) as T;
+}
+
+// Public catalog reads should not write every inventory row or scan pending
+// orders on every page view. Keep these two maintenance checks warm for the
+// lifetime of the Worker isolate and refresh them when the catalog shape changes.
+const inventorySeedSignatures = new WeakMap<object, Map<string, string>>();
+const inventoryExpirationChecks = new WeakMap<object, Map<string, number>>();
+const INVENTORY_EXPIRATION_CHECK_INTERVAL_MS = 60_000;
+
+function databaseCacheMap<T>(cache: WeakMap<object, Map<string, T>>, database: D1DatabaseLike) {
+  const key = database as unknown as object;
+  let map = cache.get(key);
+  if (!map) {
+    map = new Map<string, T>();
+    cache.set(key, map);
+  }
+  return map;
+}
+
+function inventorySignature(catalog: Product[]) {
+  return catalog
+    .filter((product) => product.status === "active")
+    .flatMap((product) => product.variants.map((variant) => `${product.id}:${variant.id}:${variant.sku}`))
+    .sort()
+    .join("|");
 }
 
 export function getStoreCommerceProfile(config: SiteConfig, siteId: string): StoreCommerceProfile {
@@ -489,12 +527,65 @@ export async function createCheckout(siteId: string, payload: CheckoutPayload, o
   }
 }
 
-export async function attachLiveInventoryToCatalog(siteId: string, catalog: Product[]) {
+export async function getCheckoutQuote(siteId: string, payload: CheckoutQuotePayload): Promise<CheckoutQuote> {
   const database = getCmsDatabase();
   await ensureCmsSchema(database);
   await expirePendingOrders(siteId);
+  const snapshot = await readSnapshot(siteId, "published");
+  const profile = getStoreCommerceProfile(snapshot.config, siteId);
+  const catalog = snapshot.catalog.filter((product) => product.status === "active");
+  await ensureInventoryRows(database, siteId, catalog);
+  const requested = new Map<string, number>();
+  for (const item of Array.isArray(payload.items) ? payload.items : []) {
+    if (!item.productId || !Number.isInteger(item.quantity) || item.quantity < 1 || item.quantity > 20) throw new Error("INVALID_CHECKOUT");
+    const key = `${item.productId}:${item.variantId || ""}`;
+    requested.set(key, (requested.get(key) || 0) + item.quantity);
+  }
+  if (!requested.size || requested.size > 50) throw new Error("INVALID_CHECKOUT");
+  const productsById = new Map(catalog.map((product) => [product.id, product]));
+  let subtotal = 0;
+  for (const [key, quantity] of requested) {
+    const [productId, variantId] = key.split(":");
+    const product = productsById.get(productId);
+    if (!product) throw new Error("PRODUCT_UNAVAILABLE");
+    const variant = variantFor(product, variantId || undefined);
+    if (variant.available === false) throw new Error("PRODUCT_UNAVAILABLE");
+    const inventory = await database.prepare("SELECT quantity, reserved_quantity FROM cms_inventory WHERE site_id = ?1 AND product_id = ?2 AND variant_id = ?3").bind(siteId, product.id, variant.id).first<{ quantity: number; reserved_quantity: number }>();
+    if (!inventory || inventory.quantity - inventory.reserved_quantity < quantity) throw new Error("STOCK_UNAVAILABLE");
+    subtotal += (variant.price ?? product.price) * quantity;
+  }
+  subtotal = Math.round(subtotal * 100) / 100;
+  const coupon = await checkoutCoupon(database, siteId, payload.couponCode, subtotal);
+  const shipping = payload.deliveryMethod?.toLowerCase().includes("express") ? profile.shipping.express : subtotal - coupon.discount >= profile.shipping.freeThreshold ? 0 : profile.shipping.standard;
+  return {
+    currency: profile.currency,
+    subtotal,
+    discount: coupon.discount,
+    shipping,
+    total: Math.max(0, Math.round((subtotal + shipping - coupon.discount) * 100) / 100),
+    couponCode: coupon.code,
+    couponApplied: Boolean(coupon.code),
+    freeShippingThreshold: profile.shipping.freeThreshold,
+  };
+}
+
+export async function attachLiveInventoryToCatalog(siteId: string, catalog: Product[]) {
+  const database = getCmsDatabase();
+  await ensureCmsSchema(database);
   const activeCatalog = catalog.filter((product) => product.status === "active");
-  await ensureInventoryRows(database, siteId, activeCatalog);
+  const expirationChecks = databaseCacheMap(inventoryExpirationChecks, database);
+  const lastExpirationCheck = expirationChecks.get(siteId) || 0;
+  if (Date.now() - lastExpirationCheck >= INVENTORY_EXPIRATION_CHECK_INTERVAL_MS) {
+    expirationChecks.set(siteId, Date.now());
+    await expirePendingOrders(siteId);
+  }
+
+  const seedSignatures = databaseCacheMap(inventorySeedSignatures, database);
+  const signature = inventorySignature(activeCatalog);
+  if (seedSignatures.get(siteId) !== signature) {
+    await ensureInventoryRows(database, siteId, activeCatalog);
+    seedSignatures.set(siteId, signature);
+  }
   const rows = await database.prepare(`SELECT product_id AS productId, variant_id AS variantId, quantity, reserved_quantity AS reservedQuantity
     FROM cms_inventory WHERE site_id = ?1`).bind(siteId).all<{ productId: string; variantId: string; quantity: number; reservedQuantity: number }>();
   const inventory = new Map(rows.results.map((row) => [`${row.productId}:${row.variantId}`, row]));

@@ -408,3 +408,10 @@ export const customerAddresses = sqliteTable("customer_addresses", {
   createdAt: text("created_at").notNull(),
   updatedAt: text("updated_at").notNull(),
 }, (table) => [index("customer_addresses_user_idx").on(table.siteId, table.userId, table.isDefault, table.updatedAt)]);
+
+export const storeWishlists = sqliteTable("store_wishlists", {
+  siteId: text("site_id").notNull(),
+  userId: text("user_id").notNull(),
+  productId: text("product_id").notNull(),
+  createdAt: text("created_at").notNull(),
+}, (table) => [primaryKey({ columns: [table.siteId, table.userId, table.productId] }), index("store_wishlists_user_idx").on(table.siteId, table.userId, table.createdAt)]);

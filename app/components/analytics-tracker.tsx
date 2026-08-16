@@ -16,7 +16,10 @@ export function AnalyticsTracker() {
     const sessionKey = "storefront-analytics-session";
     let sessionId = sessionStorage.getItem(sessionKey);
     if (!sessionId) { sessionId = crypto.randomUUID(); sessionStorage.setItem(sessionKey, sessionId); }
-    void fetch("/api/analytics", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ eventType: "page_view", sessionId, payload: { path: pathname } }) }).catch(() => undefined);
+    const timer = window.setTimeout(() => {
+      void fetch("/api/analytics", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ eventType: "page_view", sessionId, payload: { path: pathname } }) }).catch(() => undefined);
+    }, 1000);
+    return () => window.clearTimeout(timer);
   }, [pathname]);
   return null;
 }

@@ -2,7 +2,7 @@
 
 import { usePathname } from "next/navigation";
 import { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState } from "react";
-import type { CmsMode, CmsRole, CmsSite, CmsRevision } from "../../db/cms";
+import type { CmsMode, CmsRole, CmsSite, CmsRevision, CmsSnapshot } from "../../db/cms";
 import { products, type Product } from "../data/products";
 import { siteConfig, type SiteConfig } from "../data/site-config";
 
@@ -23,14 +23,7 @@ function scopedStorageKey(prefix: string, siteId: string) {
   return `${prefix}:${siteId}`;
 }
 
-type CmsPayload = {
-  site: CmsSite;
-  config: SiteConfig;
-  catalog: Product[];
-  mode: CmsMode;
-  updatedAt: string;
-  role?: CmsRole;
-};
+type CmsPayload = CmsSnapshot;
 
 type RuntimeContextValue = {
   config: EditableSiteConfig;
@@ -150,22 +143,23 @@ function getCmsStatus(error: unknown): CmsStatus {
   return (error as Error & { code?: string })?.code === "AUTH_REQUIRED" ? "auth-required" : "offline";
 }
 
-export function SiteRuntimeProvider({ children }: { children: React.ReactNode }) {
+export function SiteRuntimeProvider({ children, initialPayload }: { children: React.ReactNode; initialPayload?: CmsPayload | null }) {
   const pathname = usePathname();
   const cmsMode: CmsMode = pathname.startsWith("/admin") || pathname.startsWith("/preview") ? "draft" : "published";
-  const [config, setConfig] = useState<EditableSiteConfig>(defaultConfig);
-  const [catalog, setCatalog] = useState<Product[]>(() => clone(products));
+  const [config, setConfig] = useState<EditableSiteConfig>(() => initialPayload ? mergeConfig(defaultConfig(), initialPayload.config) : defaultConfig());
+  const [catalog, setCatalog] = useState<Product[]>(() => initialPayload?.catalog?.length ? initialPayload.catalog.map((item) => normalizeProduct(item)).filter(Boolean) as Product[] : clone(products));
   const [hydrated, setHydrated] = useState(false);
-  const [cmsStatus, setCmsStatus] = useState<CmsStatus>("connecting");
+  const [cmsStatus, setCmsStatus] = useState<CmsStatus>(initialPayload ? "synced" : "connecting");
   const [cmsError, setCmsError] = useState("");
-  const [cmsReady, setCmsReady] = useState(false);
+  const [cmsReady, setCmsReady] = useState(Boolean(initialPayload));
   const [activeSiteId, setActiveSiteIdState] = useState(() => {
+    if (initialPayload?.site.id) return initialPayload.site.id;
     if (typeof window === "undefined") return "default";
     const storedSiteId = window.localStorage.getItem(ACTIVE_SITE_STORAGE_KEY);
     return storedSiteId && /^[a-zA-Z0-9_-]{2,80}$/.test(storedSiteId) ? storedSiteId : "default";
   });
-  const [site, setSite] = useState<CmsSite | null>(null);
-  const [cmsRole, setCmsRole] = useState<CmsRole | undefined>();
+  const [site, setSite] = useState<CmsSite | null>(initialPayload?.site ?? null);
+  const [cmsRole, setCmsRole] = useState<CmsRole | undefined>(initialPayload?.role);
   const saveTimer = useRef<ReturnType<typeof window.setTimeout> | null>(null);
   const cmsDirty = useRef(false);
   const changeVersion = useRef(0);
@@ -199,24 +193,37 @@ export function SiteRuntimeProvider({ children }: { children: React.ReactNode })
   }, [activeSiteId, applyCmsPayload, cmsMode]);
 
   useEffect(() => {
+    const canUseInitialPublishedPayload = Boolean(initialPayload && cmsMode === "published" && initialPayload.site.id === activeSiteId);
     try {
       const configKey = scopedStorageKey(SITE_CONFIG_STORAGE_KEY, activeSiteId);
       const savedConfig = window.localStorage.getItem(configKey);
-      // A site switch must not briefly render the previous tenant's cached data.
-      // eslint-disable-next-line react-hooks/set-state-in-effect
-      setConfig(defaultConfig());
-      if (savedConfig) {
-        // Hydrate the last known storefront while the authoritative CMS is loading.
-        setConfig(mergeConfig(defaultConfig(), JSON.parse(savedConfig)));
+      if (canUseInitialPublishedPayload) {
+        // The server already supplied the authoritative published snapshot. Keep
+        // it for the first paint instead of replacing it with a local fallback.
+      } else {
+        // A site switch must not briefly render the previous tenant's cached data.
+        // eslint-disable-next-line react-hooks/set-state-in-effect
+        setConfig(defaultConfig());
+        if (savedConfig) {
+          // Hydrate the last known storefront while the authoritative CMS is loading.
+          setConfig(mergeConfig(defaultConfig(), JSON.parse(savedConfig)));
+        }
+        setCatalog(readStoredCatalog(activeSiteId));
       }
-      setCatalog(readStoredCatalog(activeSiteId));
     } catch {
       window.localStorage.removeItem(scopedStorageKey(SITE_CONFIG_STORAGE_KEY, activeSiteId));
       window.localStorage.removeItem(scopedStorageKey(PRODUCT_CATALOG_STORAGE_KEY, activeSiteId));
     }
     setHydrated(true);
-    void refreshCms();
-  }, [activeSiteId, cmsMode, refreshCms]);
+    if (!canUseInitialPublishedPayload || cmsMode !== "published") {
+      void refreshCms();
+      return;
+    }
+    // Let the server-rendered storefront paint first, then reconcile live
+    // inventory and any just-published edits in the background.
+    const refreshTimer = window.setTimeout(() => void refreshCms(), 1200);
+    return () => window.clearTimeout(refreshTimer);
+  }, [activeSiteId, cmsMode, initialPayload, refreshCms]);
 
   useEffect(() => {
     if (!hydrated || !cmsReady || !cmsDirty.current || cmsMode !== "draft") return;
