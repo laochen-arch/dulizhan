@@ -510,6 +510,10 @@ test("keeps V34 platform commercial, referral and email identity loops", async (
   assert.match(auth, /PBKDF2/);
   assert.match(authPage, /Create an account/);
   assert.match(header, /platform-nav-dropdown/);
+  assert.match(header, /from "\.\/site-link"/);
+  assert.doesNotMatch(header, /from "next\/link"/);
+  assert.match(header, /auth\/login\?return_to=%2Fplatform/);
+  assert.match(header, /auth\/register\?return_to=%2Fplatform/);
   assert.match(migration, /platform_subscriptions/);
   assert.equal((await render("/platform/plans")).status, 200);
   assert.equal((await render("/auth/login")).status, 200);

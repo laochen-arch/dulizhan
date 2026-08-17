@@ -1,7 +1,7 @@
 "use client";
 
-import Link from "next/link";
 import { usePathname } from "next/navigation";
+import SiteLink from "./site-link";
 
 const menus = [
   { label: "产品与功能", groups: [{ heading: "开始搭建", links: [{ label: "申请入驻", href: "/platform/apply" }, { label: "模板预览", href: "/platform/templates/default" }] }, { heading: "交付与运营", links: [{ label: "品牌与首页配置", href: "/platform/apply" }, { label: "商品资料导入", href: "/platform/applications" }] }, { heading: "上线支持", links: [{ label: "申请进度", href: "/platform/applications" }, { label: "平台协议", href: "/platform/agreement" }] }] },
@@ -13,11 +13,11 @@ export function PlatformPortalHeader() {
   const pathname = usePathname() || "/platform";
   const isActive = (href: string) => { const cleanPath = href.split("?")[0]; return cleanPath === "/platform" ? pathname === cleanPath : pathname === cleanPath || pathname.startsWith(`${cleanPath}/`); };
   return <>
-    <div className="platform-announcement">免费领取独立站 0-1 开店指南 · 从品牌资料到建站实操，轻松开启全球业务 → <Link href="/platform/apply">点击领取</Link></div>
+    <div className="platform-announcement">免费领取独立站 0-1 开店指南 · 从品牌资料到建站实操，轻松开启全球业务 → <SiteLink href="/platform/apply">点击领取</SiteLink></div>
     <header className="platform-portal-header"><div className="platform-portal-header-inner">
-      <Link href="/platform" className="platform-portal-brand"><span className="platform-portal-mark">N</span><span><strong>Northline Commerce</strong><small>Merchant platform</small></span></Link>
-      <nav aria-label="Platform portal navigation">{menus.map((menu) => <div className="platform-nav-menu" key={menu.label}><Link href={menu.groups[0].links[0].href} className={menu.groups.some((group) => group.links.some((link) => isActive(link.href))) ? "is-active platform-nav-trigger" : "platform-nav-trigger"}>{menu.label} <span>⌄</span></Link><div className="platform-nav-dropdown">{menu.groups.map((group) => <div key={group.heading}><p>{group.heading}</p>{group.links.map((link) => <Link href={link.href} key={link.href + link.label}>{link.label}<span>↗</span></Link>)}</div>)}</div></div>)}<Link href="/platform/plans" className={isActive("/platform/plans") ? "is-active" : ""}>套餐定价</Link></nav>
-      <div className="platform-portal-actions"><Link href="/auth/login?return_to=%2Fplatform" className="platform-login-link">登录</Link><Link href="/auth/register?return_to=%2Fplatform" className="platform-login-link">注册</Link><Link href="/platform/apply" className="platform-portal-cta">免费试用 <span>↗</span></Link></div>
+      <SiteLink href="/platform" className="platform-portal-brand"><span className="platform-portal-mark">N</span><span><strong>Northline Commerce</strong><small>Merchant platform</small></span></SiteLink>
+      <nav aria-label="Platform portal navigation">{menus.map((menu) => <div className="platform-nav-menu" key={menu.label}><SiteLink href={menu.groups[0].links[0].href} className={menu.groups.some((group) => group.links.some((link) => isActive(link.href))) ? "is-active platform-nav-trigger" : "platform-nav-trigger"}>{menu.label} <span>⌄</span></SiteLink><div className="platform-nav-dropdown">{menu.groups.map((group) => <div key={group.heading}><p>{group.heading}</p>{group.links.map((link) => <SiteLink href={link.href} key={link.href + link.label}>{link.label}<span>↗</span></SiteLink>)}</div>)}</div></div>)}<SiteLink href="/platform/plans" className={isActive("/platform/plans") ? "is-active" : ""}>套餐定价</SiteLink></nav>
+      <div className="platform-portal-actions"><SiteLink href="/auth/login?return_to=%2Fplatform" className="platform-login-link">登录</SiteLink><SiteLink href="/auth/register?return_to=%2Fplatform" className="platform-login-link">注册</SiteLink><SiteLink href="/platform/apply" className="platform-portal-cta">免费试用 <span>↗</span></SiteLink></div>
     </div></header>
   </>;
 }
