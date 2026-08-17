@@ -439,6 +439,7 @@ test("keeps V32 platform onboarding and merchant operations boundaries", async (
   const status = await readFile(new URL("../app/platform/application-status.tsx", import.meta.url), "utf8");
   const domainRoute = await readFile(new URL("../app/api/platform/applications/domain/route.ts", import.meta.url), "utf8");
   const assetsRoute = await readFile(new URL("../app/api/platform/applications/assets/route.ts", import.meta.url), "utf8");
+  const assetBindingRoute = await readFile(new URL("../app/api/platform/applications/assets/[assetId]/route.ts", import.meta.url), "utf8");
   const supportRoute = await readFile(new URL("../app/api/platform/applications/support/route.ts", import.meta.url), "utf8");
   const template = await readFile(new URL("../app/platform/templates/default/page.tsx", import.meta.url), "utf8");
   const agreement = await readFile(new URL("../app/platform/agreement/page.tsx", import.meta.url), "utf8");
@@ -459,6 +460,8 @@ test("keeps V32 platform onboarding and merchant operations boundaries", async (
   assert.match(status, /Send support request/);
   assert.match(domainRoute, /createPlatformDomainRequest/);
   assert.match(assetsRoute, /getMediaBucket/);
+  assert.match(assetBindingRoute, /updatePlatformApplicationAsset/);
+  assert.match(status, /Save binding/);
   assert.match(supportRoute, /createPlatformSupportTicket/);
   assert.match(template, /PUBLIC TEMPLATE PREVIEW/);
   assert.match(agreement, /Platform delivery/);

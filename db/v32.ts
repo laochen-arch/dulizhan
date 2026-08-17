@@ -491,6 +491,20 @@ export async function insertPlatformApplicationAsset(asset: PlatformApplicationA
   return asset;
 }
 
+export async function updatePlatformApplicationAsset(applicationId: string, assetId: string, input: { assetKey?: string; kind?: string; alt?: string | null }, actor: ApplicationActor) {
+  const database = getCmsDatabase();
+  await ensureCmsSchema(database);
+  const assetKey = clean(input.assetKey, 120);
+  const kind = clean(input.kind, 40) || "general";
+  if (!assetKey) throw new Error("INVALID_ASSET_BINDING");
+  const current = await database.prepare("SELECT id FROM platform_application_assets WHERE id = ?1 AND application_id = ?2").bind(assetId, applicationId).first<{ id: string }>();
+  if (!current) throw new Error("ASSET_NOT_FOUND");
+  await database.prepare(`UPDATE platform_application_assets SET asset_key = ?1, kind = ?2, alt = ?3 WHERE id = ?4 AND application_id = ?5`)
+    .bind(assetKey, kind, clean(input.alt, 240) || null, assetId, applicationId).run();
+  await recordApplicationEvent(database, applicationId, { eventType: "asset_binding_updated", actor, payload: { assetId, assetKey, kind } });
+  return getPlatformApplicationAsset(assetId, applicationId);
+}
+
 export async function getPlatformApplicationAsset(id: string, applicationId: string) {
   const assets = await listPlatformApplicationAssets(applicationId);
   return assets.find((asset) => asset.id === id) || null;

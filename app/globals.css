@@ -1720,6 +1720,10 @@ button:disabled, .button:disabled { cursor: not-allowed; opacity: .45; }
 .platform-asset-grid figcaption { display: grid; gap: 3px; padding: 8px; }
 .platform-asset-grid figcaption strong { overflow: hidden; color: #10253d; font-size: 10px; text-overflow: ellipsis; white-space: nowrap; }
 .platform-asset-grid figcaption small { color: #7890a5; font-size: 9px; }
+.platform-asset-binding { display: grid; gap: 3px; margin-top: 6px; }
+.platform-asset-binding span { color: #7890a5; font-size: 9px; }
+.platform-asset-binding input, .platform-asset-binding select { width: 100%; border: 1px solid #c9d9e8; background: #fff; padding: 7px; color: #10253d; font: inherit; font-size: 10px; }
+.platform-asset-grid figcaption .button { width: 100%; justify-content: center; margin-top: 8px; padding: 8px 9px; font-size: 9px; }
 .platform-domain-list > div { display: grid; grid-template-columns: 1fr auto; gap: 6px 10px; align-items: center; }
 .platform-domain-list small { grid-column: 1 / -1; }
 .platform-support-panel { grid-column: 1 / -1; }
