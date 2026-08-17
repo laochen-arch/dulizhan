@@ -31,6 +31,8 @@ export type PlatformApplication = {
   productImport: PlatformProductImport | null;
   agreementVersion: string | null;
   agreementAcceptedAt: string | null;
+  locale: "en-US" | "zh-CN";
+  referralCode: string | null;
   status: PlatformApplicationStatus;
   assignedSiteId: string | null;
   adminNote: string | null;
@@ -114,6 +116,8 @@ type ApplicationRow = {
   productImportPayload: string | null;
   agreementVersion: string | null;
   agreementAcceptedAt: string | null;
+  locale: string | null;
+  referralCode: string | null;
   status: string;
   assignedSiteId: string | null;
   adminNote: string | null;
@@ -128,7 +132,7 @@ const APPLICATION_SELECT = `SELECT id, user_id AS userId, email, applicant_type 
     website, target_domain AS targetDomain, markets, product_source AS productSource, notes,
     template_site_id AS templateSiteId, brand_logo_url AS brandLogoUrl, brand_primary_color AS brandPrimaryColor,
     home_copy AS homeCopy, product_import_payload AS productImportPayload, agreement_version AS agreementVersion,
-    agreement_accepted_at AS agreementAcceptedAt, status, assigned_site_id AS assignedSiteId,
+    agreement_accepted_at AS agreementAcceptedAt, locale, referral_code AS referralCode, status, assigned_site_id AS assignedSiteId,
     admin_note AS adminNote, created_at AS createdAt, updated_at AS updatedAt
   FROM platform_applications`;
 
@@ -213,6 +217,8 @@ function applicationFromRow(row: ApplicationRow): PlatformApplication {
     productImport: parseProductImport(row.productImportPayload),
     agreementVersion: row.agreementVersion || null,
     agreementAcceptedAt: row.agreementAcceptedAt || null,
+    locale: row.locale === "zh-CN" ? "zh-CN" : "en-US",
+    referralCode: row.referralCode || null,
     status: statusValue(row.status),
     assignedSiteId: row.assignedSiteId || null,
     adminNote: row.adminNote || null,
@@ -238,6 +244,12 @@ async function recordApplicationEvent(database: ReturnType<typeof getCmsDatabase
       input.note || null, input.actor?.userId || null, input.actor?.email || null, input.payload ? JSON.stringify(input.payload) : null, now()).run();
 }
 
+export async function recordPlatformApplicationEvent(applicationId: string, input: { eventType: string; fromStatus?: string | null; toStatus?: string | null; note?: string | null; actor?: ApplicationActor; payload?: Record<string, unknown> }) {
+  const database = getCmsDatabase();
+  await ensureCmsSchema(database);
+  await recordApplicationEvent(database, applicationId, input);
+}
+
 export async function createPlatformApplication(input: {
   userId?: string | null;
   email?: string;
@@ -259,6 +271,8 @@ export async function createPlatformApplication(input: {
   productImport?: unknown;
   agreementAccepted?: boolean;
   agreementVersion?: string;
+  locale?: string;
+  referralCode?: string;
 }) {
   const database = getCmsDatabase();
   await ensureCmsSchema(database);
@@ -290,15 +304,17 @@ export async function createPlatformApplication(input: {
   const accessTokenHash = await hashAccessToken(accessToken);
   const accessTokenExpiresAt = new Date(Date.now() + 90 * 24 * 60 * 60 * 1000).toISOString();
   const agreementVersion = clean(input.agreementVersion, 40) || "platform-v1";
+  const locale = input.locale === "zh-CN" ? "zh-CN" : "en-US";
+  const referralCode = clean(input.referralCode, 40).toUpperCase().replace(/[^A-Z0-9_-]/g, "") || null;
   await database.prepare(`INSERT INTO platform_applications
     (id, user_id, email, applicant_type, contact_name, phone, company_name, brand_name, category, website, target_domain, markets, product_source, notes,
      template_site_id, brand_logo_url, brand_primary_color, home_copy, product_import_payload, access_token_hash, access_token_expires_at,
-     agreement_version, agreement_accepted_at, status, assigned_site_id, admin_note, created_at, updated_at)
-    VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16, ?17, ?18, ?19, ?20, ?21, ?22, ?23, 'submitted', NULL, NULL, ?24, ?24)`)
+     agreement_version, agreement_accepted_at, locale, referral_code, status, assigned_site_id, admin_note, created_at, updated_at)
+    VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16, ?17, ?18, ?19, ?20, ?21, ?22, ?23, ?24, ?25, 'submitted', NULL, NULL, ?26, ?26)`)
     .bind(id, typeof input.userId === "string" ? input.userId : null, email, applicantType, contactName, phone, companyName, brandName, category,
       website, targetDomain, clean(input.markets, 240) || null, clean(input.productSource, 240) || null, clean(input.notes, 3000) || null,
       templateSiteId, brandLogoUrl, brandPrimaryColor || null, homeCopy, productImport ? JSON.stringify(productImport) : null, accessTokenHash, accessTokenExpiresAt,
-      agreementVersion, timestamp, timestamp).run();
+      agreementVersion, timestamp, locale, referralCode, timestamp).run();
   await recordApplicationEvent(database, id, { eventType: "submitted", toStatus: "submitted", actor: input.userId ? { userId: input.userId, email, role: "applicant" } : undefined, payload: { applicantType, templateSiteId } });
   const application = await getPlatformApplication(id);
   if (!application) throw new Error("APPLICATION_NOT_CREATED");
@@ -359,6 +375,8 @@ export async function updatePlatformApplication(id: string, input: {
   brandPrimaryColor?: string | null;
   homeCopy?: string | null;
   productImport?: unknown;
+  locale?: string;
+  referralCode?: string | null;
 }, actor?: ApplicationActor) {
   const database = getCmsDatabase();
   await ensureCmsSchema(database);
@@ -401,6 +419,8 @@ export async function updatePlatformApplication(id: string, input: {
     const productImport = sanitizeProductImport(input.productImport);
     add("product_import_payload", productImport ? JSON.stringify(productImport) : null);
   }
+  if (input.locale !== undefined) add("locale", input.locale === "zh-CN" ? "zh-CN" : "en-US");
+  if (input.referralCode !== undefined) add("referral_code", clean(input.referralCode, 40).toUpperCase().replace(/[^A-Z0-9_-]/g, "") || null);
   if (!updates.length) return current;
   const timestamp = now();
   updates.push(`updated_at = ?${values.length + 1}`);

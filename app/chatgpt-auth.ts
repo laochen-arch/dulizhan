@@ -22,7 +22,17 @@ export async function getChatGPTUser(): Promise<ChatGPTUser | null> {
   const requestHeaders = await headers();
   const userId = requestHeaders.get(USER_ID_HEADER);
   const email = requestHeaders.get(USER_EMAIL_HEADER);
-  if (!userId || !email) return null;
+  if (!userId || !email) {
+    try {
+      const { getEmailSessionUser } = await import("./email-auth");
+      const emailUser = await getEmailSessionUser();
+      if (emailUser) return { userId: emailUser.userId, displayName: emailUser.displayName, email: emailUser.email, fullName: emailUser.fullName };
+    } catch {
+      // Public pages can render without a configured database. Email auth is
+      // an optional session source alongside the platform-provided identity.
+    }
+    return null;
+  }
 
   const encodedFullName = requestHeaders.get(USER_FULL_NAME_HEADER);
   const fullName =

@@ -964,6 +964,8 @@ async function initializeCmsSchema(database: D1DatabaseLike) {
   await ensureColumn(database, "platform_applications", "access_token_expires_at", "TEXT");
   await ensureColumn(database, "platform_applications", "agreement_version", "TEXT");
   await ensureColumn(database, "platform_applications", "agreement_accepted_at", "TEXT");
+  await ensureColumn(database, "platform_applications", "locale", "TEXT NOT NULL DEFAULT 'en-US'");
+  await ensureColumn(database, "platform_applications", "referral_code", "TEXT");
   await database.prepare("CREATE UNIQUE INDEX IF NOT EXISTS cms_inventory_tx_idempotency_unique ON cms_inventory_transactions(idempotency_key) WHERE idempotency_key IS NOT NULL").run();
 }
 

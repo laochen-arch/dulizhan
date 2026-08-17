@@ -1,142 +1,75 @@
 "use client";
 
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
+import { platformPlans, type PlatformPlan } from "./platform-plans";
 
+type Locale = "en-US" | "zh-CN";
 type ApplicationForm = {
-  applicantType: "business" | "individual";
-  email: string;
-  contactName: string;
-  phone: string;
-  companyName: string;
-  brandName: string;
-  category: string;
-  website: string;
-  targetDomain: string;
-  markets: string;
-  productSource: string;
-  templateSiteId: string;
-  brandLogoUrl: string;
-  brandPrimaryColor: string;
-  homeCopy: string;
-  productCsv: string;
-  productJson: string;
-  productMode: "csv" | "json";
-  agreementAccepted: boolean;
+  locale: Locale; applicantType: "business" | "individual"; email: string; contactName: string; phone: string; companyName: string; brandName: string; category: string; website: string; targetDomain: string; markets: string; productSource: string; templateSiteId: string; brandLogoUrl: string; brandPrimaryColor: string; homeCopy: string; productCsv: string; productJson: string; productMode: "csv" | "json"; planId: string; billingInterval: "monthly" | "annual"; referralCode: string; agreementAccepted: boolean;
 };
-
 type Notice = { tone: "success" | "error"; text: string };
 
-const initialForm: ApplicationForm = {
-  applicantType: "business",
-  email: "",
-  contactName: "",
-  phone: "",
-  companyName: "",
-  brandName: "",
-  category: "",
-  website: "",
-  targetDomain: "",
-  markets: "North America, Europe",
-  productSource: "Own products",
-  templateSiteId: "default",
-  brandLogoUrl: "",
-  brandPrimaryColor: "#1769d2",
-  homeCopy: "",
-  productCsv: "",
-  productJson: "",
-  productMode: "csv",
-  agreementAccepted: false,
-};
+const initialForm: ApplicationForm = { locale: "en-US", applicantType: "business", email: "", contactName: "", phone: "", companyName: "", brandName: "", category: "", website: "", targetDomain: "", markets: "North America, Europe", productSource: "Own products", templateSiteId: "default", brandLogoUrl: "", brandPrimaryColor: "#1769d2", homeCopy: "", productCsv: "", productJson: "", productMode: "csv", planId: "growth", billingInterval: "annual", referralCode: "", agreementAccepted: false };
 
-const requiredByStep: Record<number, Array<keyof ApplicationForm>> = {
-  1: ["email", "contactName", "companyName", "brandName", "category"],
-  2: [],
-  3: [],
-};
+const copy = {
+  "en-US": { language: "Form language", back: "← Back", continue: "Continue →", submit: "Submit merchant application →", submitting: "Submitting...", agreement: "Before submitting, review the", agreementLink: "platform onboarding agreement", steps: ["Business profile", "Plan & storefront", "Launch materials"], profileEyebrow: "01 / Business profile", profileTitle: "Who is launching?", profileIntro: "Tell us who should receive the workspace and how we should prepare the first merchant draft.", applicantType: "Applicant type", business: "Business", individual: "Individual / creator", email: "Email", contact: "Contact name", phone: "Phone", company: "Company / creator name", brand: "Brand name", category: "Product category", markets: "Target markets", referral: "Referral code (optional)", planEyebrow: "02 / Plan & storefront", planTitle: "Choose the launch track.", planIntro: "Pick the commercial starting point. You can review the exact fees before signing the platform agreement.", monthly: "Monthly", annual: "Annual", save: "Save 20%", template: "Starting template", preview: "Preview ↗", website: "Existing website", domain: "Target storefront domain", logo: "Logo image URL", color: "Primary brand color", homepage: "Homepage direction", materialsEyebrow: "03 / Launch materials", materialsTitle: "Bring the first catalog.", materialsIntro: "CSV or JSON can be imported into the draft after approval. Images can be uploaded and bound from the application workspace.", productCsv: "Product CSV", productJson: "Product JSON", detected: "row(s) detected.", optional: "Optional now. You can add it after approval.", terms: "I confirm the service terms, privacy policy and platform onboarding agreement.", draft: "Your materials remain in draft until a platform operator reviews the application.", required: "This field is required.", validEmail: "Enter a valid email address.", validPhone: "Enter a valid phone number.", fullUrl: "Use a full URL beginning with https://.", hostname: "Enter only the hostname, such as shop.example.com.", validJson: "JSON must be an array of products.", invalidJson: "JSON is not valid. Check commas and quotation marks.", accept: "Confirm the platform terms before submitting.", success: "Application submitted. Keep the reference and use the secure status link to continue onboarding.", error: "Unable to submit the application." },
+  "zh-CN": { language: "表单语言", back: "← 返回", continue: "继续 →", submit: "提交入驻申请 →", submitting: "提交中...", agreement: "提交前请阅读", agreementLink: "平台入驻协议", steps: ["企业资料", "套餐与站点", "上线资料"], profileEyebrow: "01 / 企业资料", profileTitle: "谁将开设店铺？", profileIntro: "填写负责人和品牌基础资料，我们会据此准备商户工作台和首版独立站。", applicantType: "申请主体", business: "企业", individual: "个人 / 创作者", email: "邮箱", contact: "联系人", phone: "手机号", company: "企业 / 创作者名称", brand: "品牌名称", category: "经营品类", markets: "目标市场", referral: "推荐码（可选）", planEyebrow: "02 / 套餐与站点", planTitle: "选择适合的上线方案。", planIntro: "先选择商业套餐，签约前可以查看完整的费用和服务费说明。", monthly: "月付", annual: "年付", save: "节省 20%", template: "起始模板", preview: "预览 ↗", website: "现有网站", domain: "目标独立站域名", logo: "Logo 图片 URL", color: "品牌主色", homepage: "首页方向", materialsEyebrow: "03 / 上线资料", materialsTitle: "带上首批商品资料。", materialsIntro: "审核通过后可将 CSV 或 JSON 导入草稿，图片可在申请工作区批量上传并绑定。", productCsv: "商品 CSV", productJson: "商品 JSON", detected: "条商品已识别。", optional: "现在可选，审核通过后也可以补充。", terms: "我确认服务条款、隐私政策和平台入驻协议。", draft: "审核通过前，资料会一直保留在草稿状态。", required: "此项为必填项。", validEmail: "请输入有效的邮箱地址。", validPhone: "请输入有效的手机号。", fullUrl: "请输入以 https:// 开头的完整网址。", hostname: "只填写域名，例如 shop.example.com。", validJson: "JSON 必须是商品数组。", invalidJson: "JSON 格式不正确，请检查逗号和引号。", accept: "请先确认平台协议。", success: "申请已提交，请保存申请编号，并通过安全链接继续查看进度。", error: "申请提交失败。" },
+} as const;
 
 export function PlatformApplicationForm() {
   const [form, setForm] = useState<ApplicationForm>(initialForm);
+  const [plans, setPlans] = useState<PlatformPlan[]>(platformPlans);
   const [step, setStep] = useState(1);
   const [errors, setErrors] = useState<Record<string, string>>({});
   const [notice, setNotice] = useState<Notice | null>(null);
   const [busy, setBusy] = useState(false);
   const [statusUrl, setStatusUrl] = useState("");
   const [applicationId, setApplicationId] = useState("");
+  const t = copy[form.locale];
 
-  const productCount = useMemo(() => {
-    if (form.productMode === "csv") return Math.max(0, form.productCsv.split(/\r?\n/).filter((line) => line.trim()).length - 1);
-    try { return Array.isArray(JSON.parse(form.productJson || "[]")) ? JSON.parse(form.productJson || "[]").length : 0; } catch { return 0; }
-  }, [form.productCsv, form.productJson, form.productMode]);
+  // Read a selected plan/referral from shared portal links after hydration.
+  // eslint-disable-next-line react-hooks/set-state-in-effect
+  useEffect(() => { const query = new URLSearchParams(window.location.search); const plan = query.get("plan"); const referralCode = query.get("ref"); if (plan && platformPlans.some((item) => item.id === plan)) setForm((current) => ({ ...current, planId: plan })); if (referralCode) setForm((current) => ({ ...current, referralCode })); void fetch("/api/platform/plans", { cache: "no-store" }).then((response) => response.json()).then((payload: { plans?: PlatformPlan[] }) => { if (payload.plans?.length) setPlans(payload.plans); }).catch(() => undefined); }, []);
 
-  function update(field: keyof ApplicationForm, value: string | boolean) {
-    setForm((current) => ({ ...current, [field]: value } as ApplicationForm));
-    setErrors((current) => ({ ...current, [field]: "" }));
-  }
+  const productCount = useMemo(() => { if (form.productMode === "csv") return Math.max(0, form.productCsv.split(/\r?\n/).filter((line) => line.trim()).length - 1); try { const parsed = JSON.parse(form.productJson || "[]"); return Array.isArray(parsed) ? parsed.length : 0; } catch { return 0; } }, [form.productCsv, form.productJson, form.productMode]);
+  const selectedPlan = plans.find((plan) => plan.id === form.planId) || plans[1] || plans[0];
 
+  function update(field: keyof ApplicationForm, value: string | boolean) { setForm((current) => ({ ...current, [field]: value } as ApplicationForm)); setErrors((current) => ({ ...current, [field]: "" })); }
   function validateStep(targetStep: number) {
     const nextErrors: Record<string, string> = {};
-    for (const field of requiredByStep[targetStep] || []) {
-      if (!String(form[field] || "").trim()) nextErrors[field] = "This field is required.";
-    }
-    if (targetStep === 1 && form.email && !/^\S+@\S+\.\S+$/.test(form.email.trim())) nextErrors.email = "Enter a valid email address.";
-    if (targetStep === 1 && form.phone && !/^[0-9+().\-\s]{7,30}$/.test(form.phone.trim())) nextErrors.phone = "Enter a valid phone number.";
-    if (targetStep === 2 && form.website && !/^https?:\/\//i.test(form.website.trim())) nextErrors.website = "Use a full URL beginning with https://.";
-    if (targetStep === 2 && form.brandLogoUrl && !/^https?:\/\//i.test(form.brandLogoUrl.trim())) nextErrors.brandLogoUrl = "Use a full image URL beginning with https://.";
-    if (targetStep === 2 && form.targetDomain && /:\/\//.test(form.targetDomain)) nextErrors.targetDomain = "Enter only the hostname, such as shop.example.com.";
-    if (targetStep === 3 && form.productMode === "json" && form.productJson.trim()) {
-      try { if (!Array.isArray(JSON.parse(form.productJson))) nextErrors.productJson = "JSON must be an array of products."; } catch { nextErrors.productJson = "JSON is not valid. Check commas and quotation marks."; }
-    }
-    setErrors(nextErrors);
-    return Object.keys(nextErrors).length === 0;
+    if (targetStep === 1) for (const field of ["email", "contactName", "companyName", "brandName", "category"] as const) if (!String(form[field] || "").trim()) nextErrors[field] = t.required;
+    if (targetStep === 1 && form.email && !/^\S+@\S+\.\S+$/.test(form.email.trim())) nextErrors.email = t.validEmail;
+    if (targetStep === 1 && form.phone && !/^[0-9+().\-\s]{7,30}$/.test(form.phone.trim())) nextErrors.phone = t.validPhone;
+    if (targetStep === 2 && form.website && !/^https?:\/\//i.test(form.website.trim())) nextErrors.website = t.fullUrl;
+    if (targetStep === 2 && form.brandLogoUrl && !/^https?:\/\//i.test(form.brandLogoUrl.trim())) nextErrors.brandLogoUrl = t.fullUrl;
+    if (targetStep === 2 && form.targetDomain && /:\/\//.test(form.targetDomain)) nextErrors.targetDomain = t.hostname;
+    if (targetStep === 3 && form.productMode === "json" && form.productJson.trim()) { try { if (!Array.isArray(JSON.parse(form.productJson))) nextErrors.productJson = t.validJson; } catch { nextErrors.productJson = t.invalidJson; } }
+    setErrors(nextErrors); return Object.keys(nextErrors).length === 0;
   }
-
-  function nextStep() {
-    if (validateStep(step)) setStep((current) => Math.min(3, current + 1));
-  }
-
-  function previousStep() {
-    setErrors({});
-    setStep((current) => Math.max(1, current - 1));
-  }
-
   async function submit(event: React.FormEvent) {
-    event.preventDefault();
-    if (!validateStep(1) || !validateStep(2) || !validateStep(3)) return;
-    if (!form.agreementAccepted) { setErrors({ agreementAccepted: "Confirm the platform terms before submitting." }); return; }
-    setBusy(true);
-    setNotice(null);
+    event.preventDefault(); if (!validateStep(1) || !validateStep(2) || !validateStep(3)) return; if (!form.agreementAccepted) { setErrors({ agreementAccepted: t.accept }); setStep(3); return; }
+    setBusy(true); setNotice(null);
     try {
-      const productImport = form.productMode === "csv"
-        ? (form.productCsv.trim() ? { productCsv: form.productCsv } : undefined)
-        : (form.productJson.trim() ? { products: JSON.parse(form.productJson) } : undefined);
-      const response = await fetch("/api/platform/applications", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ ...form, productImport, productCsv: undefined, productJson: undefined, productMode: undefined, agreementVersion: "platform-v1" }) });
-      const payload = await response.json().catch(() => ({})) as { application?: { id: string }; accessToken?: string; statusUrl?: string; error?: string; applicationId?: string };
-      if (!response.ok || !payload.application) {
-        if (payload.applicationId) setApplicationId(payload.applicationId);
-        throw new Error(payload.error || "Unable to submit the application.");
-      }
-      setApplicationId(payload.application.id);
-      setStatusUrl(payload.statusUrl || `/platform/applications?application=${encodeURIComponent(payload.application.id)}`);
-      setNotice({ tone: "success", text: "Application submitted. Keep the reference and use the secure status link to continue onboarding." });
-    } catch (error) {
-      setNotice({ tone: "error", text: error instanceof Error ? error.message : "Unable to submit the application." });
-    } finally {
-      setBusy(false);
-    }
+      const productImport = form.productMode === "csv" ? (form.productCsv.trim() ? { productCsv: form.productCsv } : undefined) : (form.productJson.trim() ? { products: JSON.parse(form.productJson) } : undefined);
+      const payload: Record<string, unknown> = { ...form, productImport };
+      delete payload.productCsv; delete payload.productJson; delete payload.productMode;
+      const response = await fetch("/api/platform/applications", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ ...payload, agreementVersion: "platform-v1" }) });
+      const result = await response.json().catch(() => ({})) as { application?: { id: string }; statusUrl?: string; error?: string; applicationId?: string };
+      if (!response.ok || !result.application) { if (result.applicationId) setApplicationId(result.applicationId); throw new Error(result.error || t.error); }
+      setApplicationId(result.application.id); setStatusUrl(result.statusUrl || `/platform/applications?application=${encodeURIComponent(result.application.id)}`); setNotice({ tone: "success", text: t.success });
+    } catch (error) { setNotice({ tone: "error", text: error instanceof Error ? error.message : t.error }); }
+    finally { setBusy(false); }
   }
-
-  const fieldClass = (field: string) => errors[field] ? "has-error" : "";
   const fieldError = (field: string) => errors[field] ? <small className="platform-field-error" id={`${field}-error`}>{errors[field]}</small> : null;
+  const fieldClass = (field: string) => errors[field] ? "has-error" : "";
 
   return <form className="platform-application-form" onSubmit={submit} noValidate>
-    <p className="platform-agreement-reference">Before submitting, review the <a href="/platform/agreement" target="_blank" rel="noreferrer">platform onboarding agreement</a>.</p>
-    <div className="platform-form-progress" aria-label="Application steps">
-      {["Business profile", "Storefront plan", "Launch materials"].map((label, index) => <div key={label} className={step === index + 1 ? "is-active" : step > index + 1 ? "is-complete" : ""}><span>{String(index + 1).padStart(2, "0")}</span><strong>{label}</strong></div>)}
-    </div>
-    {step === 1 && <section className="platform-form-step"><div className="platform-form-step-heading"><p className="eyebrow">01 / Business profile</p><h2>Who is launching?</h2><p>We use this information to route the application and prepare the right merchant workspace.</p></div><div className="v6-form-grid"><label className="v6-field"><span>Applicant type</span><select value={form.applicantType} onChange={(event) => update("applicantType", event.target.value)}><option value="business">Business</option><option value="individual">Individual / creator</option></select></label><label className={`v6-field ${fieldClass("email")}`}><span>Email <b>*</b></span><input required type="email" value={form.email} onChange={(event) => update("email", event.target.value)} placeholder="owner@company.com" aria-invalid={Boolean(errors.email)} aria-describedby={errors.email ? "email-error" : undefined} />{fieldError("email")}</label><label className={`v6-field ${fieldClass("contactName")}`}><span>Contact name <b>*</b></span><input required value={form.contactName} onChange={(event) => update("contactName", event.target.value)} aria-invalid={Boolean(errors.contactName)} />{fieldError("contactName")}</label><label className={`v6-field ${fieldClass("phone")}`}><span>Phone</span><input type="tel" value={form.phone} onChange={(event) => update("phone", event.target.value)} placeholder="+1 555 000 0000" aria-invalid={Boolean(errors.phone)} aria-describedby={errors.phone ? "phone-error" : undefined} />{fieldError("phone")}</label><label className={`v6-field ${fieldClass("companyName")}`}><span>Company / creator name <b>*</b></span><input required value={form.companyName} onChange={(event) => update("companyName", event.target.value)} aria-invalid={Boolean(errors.companyName)} />{fieldError("companyName")}</label><label className={`v6-field ${fieldClass("brandName")}`}><span>Brand name <b>*</b></span><input required value={form.brandName} onChange={(event) => update("brandName", event.target.value)} placeholder="Northline Supply" aria-invalid={Boolean(errors.brandName)} />{fieldError("brandName")}</label><label className={`v6-field ${fieldClass("category")}`}><span>Product category <b>*</b></span><input required value={form.category} onChange={(event) => update("category", event.target.value)} placeholder="Outdoor gear" aria-invalid={Boolean(errors.category)} />{fieldError("category")}</label><label className="v6-field"><span>Target markets</span><input value={form.markets} onChange={(event) => update("markets", event.target.value)} placeholder="North America, Europe" /></label></div></section>}
-    {step === 2 && <section className="platform-form-step"><div className="platform-form-step-heading"><p className="eyebrow">02 / Storefront plan</p><h2>Shape the first draft.</h2><p>Choose a starting template and give the delivery team enough direction to prepare your white-label storefront.</p></div><div className="platform-template-choice"><label className={`platform-template-option ${form.templateSiteId === "default" ? "is-selected" : ""}`}><input type="radio" name="template" value="default" checked={form.templateSiteId === "default"} onChange={(event) => update("templateSiteId", event.target.value)} /><span><strong>Northline Commerce / Outdoor</strong><small>Editorial commerce layout with product discovery, trust content and a focused checkout path.</small></span><a href="/platform/templates/default" target="_blank" rel="noreferrer">Preview ↗</a></label></div><div className="v6-form-grid"><label className={`v6-field ${fieldClass("website")}`}><span>Existing website</span><input type="url" value={form.website} onChange={(event) => update("website", event.target.value)} placeholder="https://example.com" aria-invalid={Boolean(errors.website)} />{fieldError("website")}</label><label className={`v6-field ${fieldClass("targetDomain")}`}><span>Target storefront domain</span><input value={form.targetDomain} onChange={(event) => update("targetDomain", event.target.value)} placeholder="shop.example.com" aria-invalid={Boolean(errors.targetDomain)} />{fieldError("targetDomain")}</label><label className={`v6-field ${fieldClass("brandLogoUrl")}`}><span>Logo image URL</span><input type="url" value={form.brandLogoUrl} onChange={(event) => update("brandLogoUrl", event.target.value)} placeholder="https://cdn.example.com/logo.png" aria-invalid={Boolean(errors.brandLogoUrl)} />{fieldError("brandLogoUrl")}</label><label className="v6-field"><span>Primary brand color</span><input type="color" value={form.brandPrimaryColor} onChange={(event) => update("brandPrimaryColor", event.target.value)} /></label></div><label className="v6-field"><span>Homepage direction</span><textarea value={form.homeCopy} onChange={(event) => update("homeCopy", event.target.value)} placeholder="Describe the customer, product promise and homepage message you want to start with." /></label></section>}
-    {step === 3 && <section className="platform-form-step"><div className="platform-form-step-heading"><p className="eyebrow">03 / Launch materials</p><h2>Bring the first catalog.</h2><p>CSV or JSON can be imported into the draft after approval. Images can be uploaded and bound from your application workspace.</p></div><div className="platform-import-switcher" role="tablist" aria-label="Product import format"><button type="button" className={form.productMode === "csv" ? "is-active" : ""} onClick={() => update("productMode", "csv")}>CSV</button><button type="button" className={form.productMode === "json" ? "is-active" : ""} onClick={() => update("productMode", "json")}>JSON</button></div>{form.productMode === "csv" ? <label className="v6-field"><span>Product CSV</span><textarea value={form.productCsv} onChange={(event) => update("productCsv", event.target.value)} placeholder="name,slug,sku,category,price,stock,status,image\nTrail Pack,trail-pack,TRAIL-001,Carry,148,20,active,https://..." /><small>Optional now. {productCount ? `${productCount} row(s) detected.` : "You can add it after approval."}</small></label> : <label className={`v6-field ${fieldClass("productJson")}`}><span>Product JSON</span><textarea value={form.productJson} onChange={(event) => update("productJson", event.target.value)} placeholder="[{&quot;name&quot;:&quot;Trail Pack&quot;,&quot;slug&quot;:&quot;trail-pack&quot;,&quot;sku&quot;:&quot;TRAIL-001&quot;,&quot;price&quot;:148,&quot;stock&quot;:20}]" aria-invalid={Boolean(errors.productJson)} />{fieldError("productJson")}</label>}<label className={`platform-agreement ${errors.agreementAccepted ? "has-error" : ""}`}><input type="checkbox" checked={form.agreementAccepted} onChange={(event) => update("agreementAccepted", event.target.checked)} /><span>I confirm the <a href="/terms" target="_blank" rel="noreferrer">service terms</a>, <a href="/privacy" target="_blank" rel="noreferrer">privacy policy</a> and platform onboarding agreement.<small>{errors.agreementAccepted || "Your materials remain in draft until a platform operator reviews the application."}</small></span></label></section>}
+    <div className="platform-form-toolbar"><p className="platform-agreement-reference">{t.agreement} <a href="/platform/agreement" target="_blank" rel="noreferrer">{t.agreementLink}</a>.</p><label className="platform-locale-picker"><span>{t.language}</span><select value={form.locale} onChange={(event) => update("locale", event.target.value)}><option value="en-US">English</option><option value="zh-CN">中文</option></select></label></div>
+    <div className="platform-form-progress" aria-label="Application steps">{t.steps.map((label, index) => <div key={label} className={step === index + 1 ? "is-active" : step > index + 1 ? "is-complete" : ""}><span>{String(index + 1).padStart(2, "0")}</span><strong>{label}</strong></div>)}</div>
+    {step === 1 && <section className="platform-form-step"><div className="platform-form-step-heading"><p className="eyebrow">{t.profileEyebrow}</p><h2>{t.profileTitle}</h2><p>{t.profileIntro}</p></div><div className="v6-form-grid"><label className="v6-field"><span>{t.applicantType}</span><select value={form.applicantType} onChange={(event) => update("applicantType", event.target.value)}><option value="business">{t.business}</option><option value="individual">{t.individual}</option></select></label><label className={`v6-field ${fieldClass("email")}`}><span>{t.email} <b>*</b></span><input required type="email" value={form.email} onChange={(event) => update("email", event.target.value)} placeholder="owner@company.com" />{fieldError("email")}</label><label className={`v6-field ${fieldClass("contactName")}`}><span>{t.contact} <b>*</b></span><input required value={form.contactName} onChange={(event) => update("contactName", event.target.value)} />{fieldError("contactName")}</label><label className={`v6-field ${fieldClass("phone")}`}><span>{t.phone}</span><input type="tel" value={form.phone} onChange={(event) => update("phone", event.target.value)} placeholder="+1 555 000 0000" />{fieldError("phone")}</label><label className={`v6-field ${fieldClass("companyName")}`}><span>{t.company} <b>*</b></span><input required value={form.companyName} onChange={(event) => update("companyName", event.target.value)} />{fieldError("companyName")}</label><label className={`v6-field ${fieldClass("brandName")}`}><span>{t.brand} <b>*</b></span><input required value={form.brandName} onChange={(event) => update("brandName", event.target.value)} placeholder="Northline Supply" />{fieldError("brandName")}</label><label className={`v6-field ${fieldClass("category")}`}><span>{t.category} <b>*</b></span><input required value={form.category} onChange={(event) => update("category", event.target.value)} placeholder="Outdoor gear" />{fieldError("category")}</label><label className="v6-field"><span>{t.markets}</span><input value={form.markets} onChange={(event) => update("markets", event.target.value)} /></label><label className="v6-field"><span>{t.referral}</span><input value={form.referralCode} onChange={(event) => update("referralCode", event.target.value.toUpperCase())} placeholder="REF-XXXX" /></label></div></section>}
+    {step === 2 && <section className="platform-form-step"><div className="platform-form-step-heading"><p className="eyebrow">{t.planEyebrow}</p><h2>{t.planTitle}</h2><p>{t.planIntro}</p></div><div className="platform-application-plan-grid">{plans.map((plan) => <div key={plan.id} className={`platform-application-plan ${form.planId === plan.id ? "is-selected" : ""}`}><input aria-label={plan.name} type="radio" name="plan" value={plan.id} checked={form.planId === plan.id} onChange={(event) => update("planId", event.target.value)} /><span className="platform-application-plan-copy" role="button" tabIndex={0} onClick={() => update("planId", plan.id)} onKeyDown={(event) => { if (event.key === "Enter" || event.key === " ") update("planId", plan.id); }}><strong>{plan.name}</strong><small>{plan.description}</small><b>${plan.monthlyFee}/mo · {plan.serviceFeePercent}% service fee</b></span></div>)}</div><div className="platform-billing-choice"><button type="button" className={form.billingInterval === "annual" ? "is-active" : ""} onClick={() => update("billingInterval", "annual")}>{t.annual} <b>{t.save}</b></button><button type="button" className={form.billingInterval === "monthly" ? "is-active" : ""} onClick={() => update("billingInterval", "monthly")}>{t.monthly}</button><span>{selectedPlan ? `$${selectedPlan[form.billingInterval === "annual" ? "annualFee" : "monthlyFee"]} / ${form.billingInterval === "annual" ? "year" : "month"}` : ""}</span></div><div className="platform-template-choice"><label htmlFor="template-default" className="platform-template-option is-selected"><input id="template-default" type="radio" name="template" checked readOnly /><span><strong>{t.template}: Northline Commerce / Outdoor</strong><small>Editorial commerce layout with product discovery, trust content and a focused checkout path.</small></span><a href="/platform/templates/default" target="_blank" rel="noreferrer">{t.preview}</a></label></div><div className="v6-form-grid"><label className={`v6-field ${fieldClass("website")}`}><span>{t.website}</span><input type="url" value={form.website} onChange={(event) => update("website", event.target.value)} placeholder="https://example.com" />{fieldError("website")}</label><label className={`v6-field ${fieldClass("targetDomain")}`}><span>{t.domain}</span><input value={form.targetDomain} onChange={(event) => update("targetDomain", event.target.value)} placeholder="shop.example.com" />{fieldError("targetDomain")}</label><label className={`v6-field ${fieldClass("brandLogoUrl")}`}><span>{t.logo}</span><input type="url" value={form.brandLogoUrl} onChange={(event) => update("brandLogoUrl", event.target.value)} placeholder="https://cdn.example.com/logo.png" />{fieldError("brandLogoUrl")}</label><label className="v6-field"><span>{t.color}</span><input type="color" value={form.brandPrimaryColor} onChange={(event) => update("brandPrimaryColor", event.target.value)} /></label></div><label className="v6-field"><span>{t.homepage}</span><textarea value={form.homeCopy} onChange={(event) => update("homeCopy", event.target.value)} placeholder="Describe the customer, product promise and homepage message." /></label></section>}
+    {step === 3 && <section className="platform-form-step"><div className="platform-form-step-heading"><p className="eyebrow">{t.materialsEyebrow}</p><h2>{t.materialsTitle}</h2><p>{t.materialsIntro}</p></div><div className="platform-import-switcher" role="tablist" aria-label="Product import format"><button type="button" className={form.productMode === "csv" ? "is-active" : ""} onClick={() => update("productMode", "csv")}>CSV</button><button type="button" className={form.productMode === "json" ? "is-active" : ""} onClick={() => update("productMode", "json")}>JSON</button></div>{form.productMode === "csv" ? <label className="v6-field"><span>{t.productCsv}</span><textarea value={form.productCsv} onChange={(event) => update("productCsv", event.target.value)} placeholder="name,slug,sku,category,price,stock,status,image" /><small>{productCount ? `${productCount} ${t.detected}` : t.optional}</small></label> : <label className={`v6-field ${fieldClass("productJson")}`}><span>{t.productJson}</span><textarea value={form.productJson} onChange={(event) => update("productJson", event.target.value)} placeholder='[{"name":"Trail Pack","price":148,"stock":20}]' />{fieldError("productJson")}</label>}<label className={`platform-agreement ${errors.agreementAccepted ? "has-error" : ""}`}><input type="checkbox" checked={form.agreementAccepted} onChange={(event) => update("agreementAccepted", event.target.checked)} /><span>{t.terms}<small>{errors.agreementAccepted || t.draft}</small></span></label></section>}
     {notice && <div className={`client-notice ${notice.tone}`} role="status">{notice.text}{applicationId && <strong> Reference: {applicationId}</strong>}{statusUrl && <a href={statusUrl}>Open application workspace →</a>}</div>}
-    <div className="platform-form-actions"><button type="button" className="button button-outline" onClick={previousStep} disabled={busy || step === 1}>← Back</button>{step < 3 ? <button type="button" className="button button-dark" onClick={nextStep}>Continue →</button> : <button type="submit" className="button button-dark" disabled={busy}>{busy ? "Submitting..." : "Submit merchant application →"}</button>}</div>
+    <div className="platform-form-actions"><button type="button" className="button button-outline" onClick={() => { setErrors({}); setStep((current) => Math.max(1, current - 1)); }} disabled={busy || step === 1}>{t.back}</button>{step < 3 ? <button type="button" className="button button-dark" onClick={() => { if (validateStep(step)) setStep((current) => Math.min(3, current + 1)); }}>{t.continue}</button> : <button type="submit" className="button button-dark" disabled={busy}>{busy ? t.submitting : t.submit}</button>}</div>
   </form>;
 }

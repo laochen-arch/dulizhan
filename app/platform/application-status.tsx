@@ -1,6 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useMemo, useState } from "react";
+import { PlatformCommercialPanel, type PlatformCommercialSnapshot } from "./platform-commercial";
 
 type Application = {
   id: string; userId: string | null; email: string; applicantType: "business" | "individual"; contactName: string; phone: string | null; companyName: string; brandName: string; category: string; website: string | null; targetDomain: string | null; markets: string | null; productSource: string | null; notes: string | null; templateSiteId: string; brandLogoUrl: string | null; brandPrimaryColor: string | null; homeCopy: string | null; productImport: { products?: unknown[]; productCsv?: string; assetBindings?: Record<string, string> } | null; agreementVersion: string | null; agreementAcceptedAt: string | null; status: string; assignedSiteId: string | null; adminNote: string | null; createdAt: string; updatedAt: string;
@@ -9,7 +10,7 @@ type Event = { id: string; eventType: string; fromStatus: string | null; toStatu
 type DomainRequest = { id: string; hostname: string; status: string; note: string | null; createdAt: string; updatedAt: string };
 type Asset = { id: string; assetKey: string; kind: string; url: string; alt: string | null; mimeType: string; sizeBytes: number; createdAt: string };
 type Ticket = { id: string; subject: string; message: string; status: string; adminNote: string | null; createdAt: string; updatedAt: string };
-type Detail = { application: Application; events: Event[]; domains: DomainRequest[]; assets: Asset[]; tickets: Ticket[]; canReview: boolean };
+type Detail = { application: Application; events: Event[]; domains: DomainRequest[]; assets: Asset[]; tickets: Ticket[]; commercial: PlatformCommercialSnapshot | null; canReview: boolean };
 
 const statusLabels: Record<string, string> = { submitted: "Submitted", reviewing: "In review", needs_info: "Action required", approved: "Approved", rejected: "Not approved", site_created: "Storefront ready" };
 const statusOrder = ["submitted", "reviewing", "approved", "site_created"];
@@ -154,7 +155,7 @@ export function PlatformApplicationStatus() {
   }
 
   if (loading) return <div className="platform-status-state"><p className="eyebrow">Merchant onboarding</p><h2>Loading your application workspace.</h2><p>Reading the latest review status and launch tasks...</p></div>;
-  if (error && !detail) return <div className="platform-status-state"><p className="eyebrow">Merchant onboarding</p><h2>Sign in or use your secure link.</h2><p>{error}</p><div className="v6-actions"><a className="button button-dark" href={`/signin-with-chatgpt?return_to=${encodeURIComponent("/platform/applications")}`}>Sign in with ChatGPT ↗</a><a className="button button-outline" href="/platform/apply">Start an application</a></div></div>;
+  if (error && !detail) return <div className="platform-status-state"><p className="eyebrow">Merchant onboarding</p><h2>Sign in or use your secure link.</h2><p>{error}</p><div className="v6-actions"><a className="button button-dark" href={`/auth/login?return_to=${encodeURIComponent("/platform/applications")}`}>Sign in with email ↗</a><a className="button button-outline" href={`/signin-with-chatgpt?return_to=${encodeURIComponent("/platform/applications")}`}>Use ChatGPT</a><a className="button button-outline" href="/platform/apply">Start an application</a></div></div>;
   if (!detail) return <div className="platform-status-state"><p className="eyebrow">Merchant onboarding</p><h2>No application selected.</h2><p>Select an application below or submit a new one.</p><div className="v6-actions"><a className="button button-dark" href="/platform/apply">Start an application →</a></div></div>;
 
   const application = detail.application;
@@ -168,6 +169,7 @@ export function PlatformApplicationStatus() {
   ];
 
   return <div className="platform-application-workspace">
+    <PlatformCommercialPanel applicationId={application.id} token={token} canReview={detail.canReview} commercial={detail.commercial} onUpdated={reloadDetail} />
     {applications.length > 1 && <label className="platform-application-switcher"><span>Applications for this account</span><select value={selectedId} onChange={(event) => void loadDetail(event.target.value, "")}><option value="">Choose an application...</option>{applications.map((item) => <option value={item.id} key={item.id}>{item.brandName} · {statusLabel(item.status)}</option>)}</select></label>}
     <div className="platform-status-header"><div><p className="eyebrow">Application {application.id}</p><h2>{application.brandName}</h2><p>{application.companyName} · {application.email}</p></div><span className={`platform-status-badge ${application.status}`}>{statusLabel(application.status)}</span></div>
     {error && <div className="client-notice error" role="alert">{error}<button type="button" onClick={() => setError("")} aria-label="Dismiss error">×</button></div>}

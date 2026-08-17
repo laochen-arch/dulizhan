@@ -487,3 +487,31 @@ test("keeps V32 platform onboarding and merchant operations boundaries", async (
   assert.equal((await render("/platform/templates/default")).status, 200);
   assert.equal((await render("/platform/agreement")).status, 200);
 });
+
+test("keeps V34 platform commercial, referral and email identity loops", async () => {
+  const plans = await readFile(new URL("../app/platform/plans/page.tsx", import.meta.url), "utf8");
+  const commercial = await readFile(new URL("../db/v34.ts", import.meta.url), "utf8");
+  const commercialRoute = await readFile(new URL("../app/api/platform/commercial/route.ts", import.meta.url), "utf8");
+  const referralRoute = await readFile(new URL("../app/api/platform/referrals/route.ts", import.meta.url), "utf8");
+  const auth = await readFile(new URL("../db/email-auth.ts", import.meta.url), "utf8");
+  const authPage = await readFile(new URL("../app/auth/email-auth-page.tsx", import.meta.url), "utf8");
+  const header = await readFile(new URL("../app/components/platform-portal-header.tsx", import.meta.url), "utf8");
+  const migration = await readFile(new URL("../drizzle/0017_v34_platform_commercial.sql", import.meta.url), "utf8");
+
+  assert.match(plans, /Billing interval/);
+  assert.match(plans, /is-featured/);
+  assert.match(commercial, /platform_agreements/);
+  assert.match(commercial, /platform_billing_invoices/);
+  assert.match(commercial, /platform_referral_rewards/);
+  assert.match(commercialRoute, /sign_agreement/);
+  assert.match(commercialRoute, /record_payment/);
+  assert.match(referralRoute, /create_code/);
+  assert.match(auth, /email_sessions/);
+  assert.match(auth, /PBKDF2/);
+  assert.match(authPage, /Create an account/);
+  assert.match(header, /platform-nav-dropdown/);
+  assert.match(migration, /platform_subscriptions/);
+  assert.equal((await render("/platform/plans")).status, 200);
+  assert.equal((await render("/auth/login")).status, 200);
+  assert.equal((await render("/auth/register")).status, 200);
+});

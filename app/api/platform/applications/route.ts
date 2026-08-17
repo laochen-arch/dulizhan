@@ -13,6 +13,7 @@ import {
   updatePlatformApplication,
 } from "../../../../db/v32";
 import { upsertMerchantMember } from "../../../../db/v25";
+import { attachPlatformReferral, getPlatformCommercialSnapshot, getPlatformPlan, getReferralCodeSummary, qualifyPlatformReferral, selectPlatformPlan } from "../../../../db/v34";
 
 export const dynamic = "force-dynamic";
 
@@ -49,7 +50,7 @@ export async function GET(request: Request) {
     if (id) {
       const application = owner ? await getPlatformApplication(id) : await resolveApplicantApplication(id, token, user);
       if (!application) return responseError(token ? "This application link is invalid or expired." : "You do not have access to this application.", token ? 401 : 403, token ? "INVALID_APPLICATION_ACCESS" : "FORBIDDEN");
-      return Response.json({ application, events: await listPlatformApplicationEvents(id), domains: await listPlatformDomainRequests(id), assets: await listPlatformApplicationAssets(id), tickets: await listPlatformSupportTickets(id), canReview: Boolean(owner) }, { headers: { "Cache-Control": "no-store" } });
+      return Response.json({ application, events: await listPlatformApplicationEvents(id), domains: await listPlatformDomainRequests(id), assets: await listPlatformApplicationAssets(id), tickets: await listPlatformSupportTickets(id), commercial: await getPlatformCommercialSnapshot(id), canReview: Boolean(owner) }, { headers: { "Cache-Control": "no-store" } });
     }
     if (!user) return responseError("Sign in with ChatGPT or open the secure application link to view status.", 401, "AUTH_REQUIRED");
     return Response.json({ applications: await listPlatformApplications(owner ? {} : { userId: user.userId, email: user.email }), canReview: Boolean(owner) }, { headers: { "Cache-Control": "no-store" } });
@@ -62,8 +63,15 @@ export async function POST(request: Request) {
   try {
     const user = await getChatGPTUser();
     const payload = await request.json().catch(() => ({})) as Record<string, unknown>;
+    const planId = typeof payload.planId === "string" ? payload.planId : "";
+    const referralCode = typeof payload.referralCode === "string" ? payload.referralCode : "";
+    if (planId && !await getPlatformPlan(planId)) return responseError("请选择有效的平台套餐。", 400, "PLAN_NOT_FOUND");
+    if (referralCode && !await getReferralCodeSummary(referralCode)) return responseError("推荐码无效或已停用。", 400, "REFERRAL_CODE_INVALID");
     const result = await createPlatformApplication({ ...payload, userId: user?.userId || null, email: typeof payload.email === "string" ? payload.email : user?.email });
-    return Response.json(result, { status: 201, headers: { "Cache-Control": "no-store" } });
+    const actor = { userId: user?.userId || `application:${result.application.id}`, email: result.application.email, role: "applicant" as const };
+    if (planId) await selectPlatformPlan(result.application.id, planId, payload.billingInterval === "annual" ? "annual" : "monthly", actor);
+    if (referralCode) await attachPlatformReferral(result.application.id, referralCode, actor);
+    return Response.json({ ...result, application: await getPlatformApplication(result.application.id), commercial: await getPlatformCommercialSnapshot(result.application.id) }, { status: 201, headers: { "Cache-Control": "no-store" } });
   } catch (error) {
     const raw = error instanceof Error ? error.message : "Unable to submit the merchant application.";
     if (raw.startsWith("DUPLICATE_APPLICATION:")) return responseError("已有一条处理中申请，请直接查看申请进度。", 409, "DUPLICATE_APPLICATION", { applicationId: raw.split(":")[1] });
@@ -97,6 +105,8 @@ export async function PATCH(request: Request) {
       brandPrimaryColor?: string | null;
       homeCopy?: string | null;
       productImport?: unknown;
+      locale?: string;
+      referralCode?: string | null;
     };
     if (!payload.id) return responseError("Application id is required.");
     const owner = await isPlatformOwner();
@@ -122,6 +132,8 @@ export async function PATCH(request: Request) {
         brandPrimaryColor: payload.brandPrimaryColor,
         homeCopy: payload.homeCopy,
         productImport: payload.productImport,
+        locale: payload.locale,
+        referralCode: payload.referralCode,
       }, { userId: user?.userId || `application:${current.id}`, email: user?.email || current.email, role: "applicant" });
       return Response.json({ application }, { headers: { "Cache-Control": "no-store" } });
     }
@@ -151,6 +163,7 @@ export async function PATCH(request: Request) {
       }
     }
     const application = await updatePlatformApplication(payload.id, { status, assignedSiteId, adminNote: payload.adminNote }, { userId: owner.userId, email: owner.email, role: "platform" });
+    if (application && ["approved", "site_created"].includes(application.status)) await qualifyPlatformReferral(application.id, { userId: owner.userId, email: owner.email, role: "platform" });
     return Response.json({ application }, { headers: { "Cache-Control": "no-store" } });
   } catch (error) {
     const message = error instanceof Error ? error.message : "Unable to update the application.";
