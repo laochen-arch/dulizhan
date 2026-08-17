@@ -441,12 +441,15 @@ test("keeps V32 platform onboarding and merchant operations boundaries", async (
   const assetsRoute = await readFile(new URL("../app/api/platform/applications/assets/route.ts", import.meta.url), "utf8");
   const supportRoute = await readFile(new URL("../app/api/platform/applications/support/route.ts", import.meta.url), "utf8");
   const template = await readFile(new URL("../app/platform/templates/default/page.tsx", import.meta.url), "utf8");
+  const agreement = await readFile(new URL("../app/platform/agreement/page.tsx", import.meta.url), "utf8");
   const migration = await readFile(new URL("../drizzle/0016_v33_platform_portal.sql", import.meta.url), "utf8");
 
   assert.match(platform, /Apply to join/);
   assert.match(platform, /Public template preview/);
+  assert.match(platform, /Customer cases \/ examples/);
   assert.match(applicationForm, /companyName/);
   assert.match(applicationForm, /agreementAccepted/);
+  assert.match(applicationForm, /platform\/agreement/);
   assert.match(applicationForm, /productImport/);
   assert.match(applicationsRoute, /createSiteFromTemplate/);
   assert.match(applicationsRoute, /merchant_owner/);
@@ -458,6 +461,7 @@ test("keeps V32 platform onboarding and merchant operations boundaries", async (
   assert.match(assetsRoute, /getMediaBucket/);
   assert.match(supportRoute, /createPlatformSupportTicket/);
   assert.match(template, /PUBLIC TEMPLATE PREVIEW/);
+  assert.match(agreement, /Platform delivery/);
   assert.match(migration, /platform_application_events/);
   assert.match(migration, /platform_domain_requests/);
   assert.match(merchantProducts, /createClientProduct/);
@@ -478,4 +482,5 @@ test("keeps V32 platform onboarding and merchant operations boundaries", async (
   assert.equal((await render("/platform/apply")).status, 200);
   assert.equal((await render("/platform/applications")).status, 200);
   assert.equal((await render("/platform/templates/default")).status, 200);
+  assert.equal((await render("/platform/agreement")).status, 200);
 });

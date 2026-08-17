@@ -129,6 +129,7 @@ export function PlatformApplicationForm() {
   const fieldError = (field: string) => errors[field] ? <small className="platform-field-error" id={`${field}-error`}>{errors[field]}</small> : null;
 
   return <form className="platform-application-form" onSubmit={submit} noValidate>
+    <p className="platform-agreement-reference">Before submitting, review the <a href="/platform/agreement" target="_blank" rel="noreferrer">platform onboarding agreement</a>.</p>
     <div className="platform-form-progress" aria-label="Application steps">
       {["Business profile", "Storefront plan", "Launch materials"].map((label, index) => <div key={label} className={step === index + 1 ? "is-active" : step > index + 1 ? "is-complete" : ""}><span>{String(index + 1).padStart(2, "0")}</span><strong>{label}</strong></div>)}
     </div>
