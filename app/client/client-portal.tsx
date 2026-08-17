@@ -2,7 +2,7 @@
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useSearchParams } from "next/navigation";
-import Link from "next/link";
+import Link from "../components/site-link";
 import type { CmsAsset, CmsSite } from "../../db/cms";
 import type { Product, ProductVariant } from "../data/products";
 import { formatMoney } from "../lib/format-money";

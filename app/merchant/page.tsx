@@ -1,4 +1,4 @@
-import Link from "next/link";
+import Link from "../components/site-link";
 import { requireChatGPTUser } from "../chatgpt-auth";
 import { listMerchantSites } from "../../db/v25";
 import { listPlatformApplications } from "../../db/v32";

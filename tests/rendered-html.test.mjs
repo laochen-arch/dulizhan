@@ -496,6 +496,8 @@ test("keeps V34 platform commercial, referral and email identity loops", async (
   const auth = await readFile(new URL("../db/email-auth.ts", import.meta.url), "utf8");
   const authPage = await readFile(new URL("../app/auth/email-auth-page.tsx", import.meta.url), "utf8");
   const header = await readFile(new URL("../app/components/platform-portal-header.tsx", import.meta.url), "utf8");
+  const merchant = await readFile(new URL("../app/merchant/page.tsx", import.meta.url), "utf8");
+  const clientPortal = await readFile(new URL("../app/client/client-portal.tsx", import.meta.url), "utf8");
   const migration = await readFile(new URL("../drizzle/0017_v34_platform_commercial.sql", import.meta.url), "utf8");
 
   assert.match(plans, /Billing interval/);
@@ -514,6 +516,9 @@ test("keeps V34 platform commercial, referral and email identity loops", async (
   assert.doesNotMatch(header, /from "next\/link"/);
   assert.match(header, /auth\/login\?return_to=%2Fplatform/);
   assert.match(header, /auth\/register\?return_to=%2Fplatform/);
+  assert.doesNotMatch(plans, /from "next\/link"/);
+  assert.doesNotMatch(merchant, /from "next\/link"/);
+  assert.doesNotMatch(clientPortal, /from "next\/link"/);
   assert.match(migration, /platform_subscriptions/);
   assert.equal((await render("/platform/plans")).status, 200);
   assert.equal((await render("/auth/login")).status, 200);
