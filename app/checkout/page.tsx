@@ -6,6 +6,7 @@ import { useEffect, useRef, useState } from "react";
 import { CheckoutForm, type CheckoutQuote } from "../components/checkout-form";
 import { useStore } from "../components/cart-store";
 import { useSiteRuntime } from "../components/site-runtime";
+import { trackAnalytics } from "../components/analytics-tracker";
 import { formatMoney } from "../lib/format-money";
 
 export default function CheckoutPage() {

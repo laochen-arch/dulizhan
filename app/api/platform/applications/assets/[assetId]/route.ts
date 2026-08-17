@@ -1,6 +1,7 @@
 import { resolvePlatformApplicationAccess } from "../../../application-access";
 import { getMediaBucket } from "../../../../../../db/cms";
 import { getPlatformApplicationAsset, updatePlatformApplicationAsset } from "../../../../../../db/v32";
+import { privateAssetHeaders } from "../../../../media-validation";
 
 export const dynamic = "force-dynamic";
 
@@ -15,7 +16,7 @@ export async function GET(request: Request, { params }: { params: Promise<{ asse
   if (!asset?.objectKey) return new Response("Not found", { status: 404 });
   const object = await getMediaBucket().get(asset.objectKey) as { body?: ReadableStream; httpMetadata?: { contentType?: string } } | null;
   if (!object?.body) return new Response("Not found", { status: 404 });
-  return new Response(object.body, { headers: { "Content-Type": object.httpMetadata?.contentType || asset.mimeType, "Cache-Control": "public, max-age=31536000, immutable" } });
+  return new Response(object.body, { headers: privateAssetHeaders(object.httpMetadata?.contentType || asset.mimeType) });
 }
 
 export async function PATCH(request: Request, { params }: { params: Promise<{ assetId: string }> }) {

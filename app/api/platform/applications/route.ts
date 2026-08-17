@@ -14,6 +14,7 @@ import {
 } from "../../../../db/v32";
 import { upsertMerchantMember } from "../../../../db/v25";
 import { attachPlatformReferral, getPlatformCommercialSnapshot, getPlatformPlan, getReferralCodeSummary, qualifyPlatformReferral, selectPlatformPlan } from "../../../../db/v34";
+import { applicationAccessCookieName } from "../application-access";
 
 export const dynamic = "force-dynamic";
 
@@ -50,7 +51,9 @@ export async function GET(request: Request) {
     if (id) {
       const application = owner ? await getPlatformApplication(id) : await resolveApplicantApplication(id, token, user);
       if (!application) return responseError(token ? "This application link is invalid or expired." : "You do not have access to this application.", token ? 401 : 403, token ? "INVALID_APPLICATION_ACCESS" : "FORBIDDEN");
-      return Response.json({ application, events: await listPlatformApplicationEvents(id), domains: await listPlatformDomainRequests(id), assets: await listPlatformApplicationAssets(id), tickets: await listPlatformSupportTickets(id), commercial: await getPlatformCommercialSnapshot(id), canReview: Boolean(owner) }, { headers: { "Cache-Control": "no-store" } });
+      const response = Response.json({ application, events: await listPlatformApplicationEvents(id), domains: await listPlatformDomainRequests(id), assets: await listPlatformApplicationAssets(id), tickets: await listPlatformSupportTickets(id), commercial: await getPlatformCommercialSnapshot(id), canReview: Boolean(owner) }, { headers: { "Cache-Control": "no-store" } });
+      if (token && !owner) response.headers.set("Set-Cookie", `${applicationAccessCookieName(id)}=${encodeURIComponent(token)}; Path=/api/platform/applications; Max-Age=7776000; HttpOnly; SameSite=Lax; Secure`);
+      return response;
     }
     if (!user) return responseError("Sign in with ChatGPT or open the secure application link to view status.", 401, "AUTH_REQUIRED");
     return Response.json({ applications: await listPlatformApplications(owner ? {} : { userId: user.userId, email: user.email }), canReview: Boolean(owner) }, { headers: { "Cache-Control": "no-store" } });
@@ -76,6 +79,8 @@ export async function POST(request: Request) {
     const raw = error instanceof Error ? error.message : "Unable to submit the merchant application.";
     if (raw.startsWith("DUPLICATE_APPLICATION:")) return responseError("已有一条处理中申请，请直接查看申请进度。", 409, "DUPLICATE_APPLICATION", { applicationId: raw.split(":")[1] });
     if (raw === "AGREEMENT_REQUIRED") return responseError("请先确认服务条款、隐私政策和平台入驻协议。", 400, raw);
+    if (raw === "SITE_REQUIRED_FOR_CREATED_STATUS") return responseError("只有已绑定独立站的申请才能标记为“站点已创建”。", 409, raw);
+    if (raw === "INVALID_STATUS_TRANSITION") return responseError("申请当前状态不允许直接切换到该状态。", 409, raw);
     return responseError(raw === "INVALID_APPLICATION" ? "请检查必填资料、邮箱、手机号、网址和品牌色。" : raw, 400, raw);
   }
 }
@@ -167,7 +172,7 @@ export async function PATCH(request: Request) {
     return Response.json({ application }, { headers: { "Cache-Control": "no-store" } });
   } catch (error) {
     const message = error instanceof Error ? error.message : "Unable to update the application.";
-    const status = message === "APPLICATION_NOT_FOUND" ? 404 : message === "FORBIDDEN" ? 403 : 400;
+    const status = message === "APPLICATION_NOT_FOUND" ? 404 : message === "FORBIDDEN" ? 403 : ["INVALID_STATUS_TRANSITION", "SITE_REQUIRED_FOR_CREATED_STATUS"].includes(message) ? 409 : 400;
     return responseError(message, status, message);
   }
 }

@@ -1,6 +1,7 @@
 import { resolvePlatformApplicationAccess } from "../../application-access";
 import { getMediaBucket } from "../../../../../db/cms";
 import { insertPlatformApplicationAsset, listPlatformApplicationAssets } from "../../../../../db/v32";
+import { isSupportedImageType } from "../../../media-validation";
 
 export const dynamic = "force-dynamic";
 
@@ -26,18 +27,18 @@ export async function POST(request: Request) {
     const access = await resolvePlatformApplicationAccess(applicationId, token);
     if (!access) return errorResponse("You do not have access to this application.", 403, "FORBIDDEN");
     const file = formData.get("file");
-    if (!(file instanceof File) || !file.type.startsWith("image/")) return errorResponse("Upload an image file.", 400, "INVALID_ASSET");
+    if (!(file instanceof File) || !isSupportedImageType(file.type)) return errorResponse("Upload a JPG, PNG, WebP, GIF or AVIF image.", 400, "INVALID_ASSET");
     if (file.size > 10 * 1024 * 1024) return errorResponse("Images must be smaller than 10 MB.", 400, "ASSET_TOO_LARGE");
     const assetId = `platform_asset_${crypto.randomUUID()}`;
     const safeName = file.name.toLowerCase().replace(/[^a-z0-9.]+/g, "-").slice(-80) || "image";
     const objectKey = `platform/applications/${applicationId}/${assetId}-${safeName}`;
-    await getMediaBucket().put(objectKey, await file.arrayBuffer(), { httpMetadata: { contentType: file.type, cacheControl: "public, max-age=31536000, immutable" } });
+    await getMediaBucket().put(objectKey, await file.arrayBuffer(), { httpMetadata: { contentType: file.type, cacheControl: "private, no-store" } });
     const asset = await insertPlatformApplicationAsset({
       id: assetId,
       applicationId,
       assetKey: String(formData.get("assetKey") || safeName).trim().slice(0, 120) || safeName,
       kind: String(formData.get("kind") || "general").trim().slice(0, 40) || "general",
-      url: `/api/platform/applications/assets/${assetId}?applicationId=${encodeURIComponent(applicationId)}${token ? `&token=${encodeURIComponent(token)}` : ""}`,
+      url: `/api/platform/applications/assets/${assetId}?applicationId=${encodeURIComponent(applicationId)}`,
       objectKey,
       alt: String(formData.get("alt") || "").trim().slice(0, 240) || null,
       mimeType: file.type,

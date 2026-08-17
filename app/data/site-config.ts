@@ -3,7 +3,42 @@
  * Replace values in this file first when onboarding a new B2B client.
  * Product catalog data lives in products.ts so the two concerns stay separate.
  */
-export const siteConfig = {
+export type HomeModule = "hero" | "intro" | "products" | "story" | "journal" | "newsletter";
+export type SiteColorKey = "ink" | "muted" | "paper" | "warm" | "white" | "line" | "rust" | "sage";
+
+export type SiteConfig = {
+  client: { demoName: string; industry: string; market: string };
+  brand: { name: string; mark: string; descriptor: string; tagline: string; footerLine: string; originLine: string };
+  theme: {
+    colors: Record<SiteColorKey, string>;
+    typography: { display: string; body: string };
+  };
+  navigation: Array<{ label: string; href: string }>;
+  announcement: { text: string; accent: string };
+  assets: { hero: string; story: string; journalHero: string; aboutHero: string };
+  content: {
+    home: {
+      modules: HomeModule[];
+      heroLabel: string; heroTitleLead: string; heroTitleAccent: string; heroBody: string; heroCta: string;
+      introLabel: string; introTitleLead: string; introTitleAccent: string; introBody: string;
+      storyLabel: string; storyTitleLead: string; storyTitleAccent: string; storyBody: string;
+      newsletterLabel: string; newsletterTitleLead: string; newsletterTitleAccent: string; newsletterBody: string;
+      productsLabel: string; productsTitleLead: string; productsTitleAccent: string;
+      journalLabel: string; journalTitleLead: string; journalTitleAccent: string;
+    };
+    about: { label: string; titleLead: string; titleAccent: string; lead: string; valuesLabel: string };
+    faq: { label: string; titleLead: string; titleAccent: string; intro: string };
+    contact: { email: string; tradeEmail: string; instagram: string; pinterest: string; youtube: string };
+    policies: { shippingLead: string; deliveryLead: string; returnsLead: string; shippingThreshold: string };
+    legal: { privacyLabel: string; termsLabel: string; accessibilityLabel: string };
+  };
+  seo: { title: string; description: string; keywords: string };
+  tracking: { ga4MeasurementId: string; metaPixelId: string; tiktokPixelId: string };
+  commerce: { currency: string; orderPrefix: string; shipping: { standard: number; express: number; freeThreshold: number } };
+  b2b: { templateRole: string; replacementMode: string; handoffRule: string; localPreviewStorage: string; handoffStatus: string };
+};
+
+export const siteConfig: SiteConfig = {
   client: {
     demoName: "Northline Supply",
     industry: "Outdoor & travel goods",
@@ -134,6 +169,4 @@ export const siteConfig = {
     localPreviewStorage: "Browser-local demo storage; connect a CMS or database for production editing.",
     handoffStatus: "Ready for client replacement",
   },
-} as const;
-
-export type SiteConfig = typeof siteConfig;
+};

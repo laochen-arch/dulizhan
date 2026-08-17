@@ -385,6 +385,18 @@ export async function updatePlatformApplication(id: string, input: {
   const status = input.status ? statusValue(input.status) : current.status;
   if (actor?.role === "applicant" && status !== "submitted") throw new Error("INVALID_STATUS_TRANSITION");
   if (actor?.role === "applicant" && !["needs_info", "rejected"].includes(current.status)) throw new Error("APPLICATION_NOT_EDITABLE");
+  const allowedTransitions: Record<string, string[]> = {
+    submitted: ["submitted", "reviewing", "needs_info", "approved", "rejected"],
+    reviewing: ["reviewing", "needs_info", "approved", "rejected"],
+    needs_info: ["needs_info", "submitted", "reviewing", "approved", "rejected"],
+    approved: ["approved", "site_created", "rejected"],
+    rejected: ["rejected", "reviewing", "needs_info", "approved"],
+    site_created: ["site_created"],
+  };
+  const creatingSite = status === "site_created" && Boolean(input.assignedSiteId || current.assignedSiteId) && actor?.role === "platform";
+  if (status === "site_created" && !(input.assignedSiteId || current.assignedSiteId)) throw new Error("SITE_REQUIRED_FOR_CREATED_STATUS");
+  if (!creatingSite && !allowedTransitions[current.status]?.includes(status)) throw new Error("INVALID_STATUS_TRANSITION");
+  if (current.status === "site_created" && input.assignedSiteId === null) throw new Error("SITE_REQUIRED_FOR_CREATED_STATUS");
   const updates: string[] = [];
   const values: unknown[] = [];
   const add = (column: string, value: unknown) => { updates.push(`${column} = ?${values.length + 1}`); values.push(value); };
@@ -500,7 +512,19 @@ export async function listPlatformApplicationAssets(applicationId: string): Prom
   const rows = await database.prepare(`SELECT id, application_id AS applicationId, asset_key AS assetKey, kind, url, object_key AS objectKey,
       alt, mime_type AS mimeType, size_bytes AS sizeBytes, created_at AS createdAt, created_by AS createdBy
     FROM platform_application_assets WHERE application_id = ?1 ORDER BY created_at DESC LIMIT 200`).bind(applicationId).all<Record<string, unknown>>();
-  return rows.results.map((row) => ({ id: String(row.id), applicationId: String(row.applicationId), assetKey: String(row.assetKey), kind: String(row.kind), url: String(row.url), objectKey: row.objectKey ? String(row.objectKey) : null, alt: row.alt ? String(row.alt) : null, mimeType: String(row.mimeType), sizeBytes: Number(row.sizeBytes || 0), createdAt: String(row.createdAt), createdBy: String(row.createdBy) }));
+  return rows.results.map((row) => {
+    const id = String(row.id);
+    const applicationId = String(row.applicationId);
+    let url = String(row.url);
+    try {
+      const parsed = new URL(url, "https://northline.invalid");
+      parsed.searchParams.delete("token");
+      url = `${parsed.pathname}${parsed.search}`;
+    } catch {
+      url = `/api/platform/applications/assets/${encodeURIComponent(id)}?applicationId=${encodeURIComponent(applicationId)}`;
+    }
+    return { id, applicationId, assetKey: String(row.assetKey), kind: String(row.kind), url, objectKey: row.objectKey ? String(row.objectKey) : null, alt: row.alt ? String(row.alt) : null, mimeType: String(row.mimeType), sizeBytes: Number(row.sizeBytes || 0), createdAt: String(row.createdAt), createdBy: String(row.createdBy) };
+  });
 }
 
 export async function insertPlatformApplicationAsset(asset: PlatformApplicationAsset) {

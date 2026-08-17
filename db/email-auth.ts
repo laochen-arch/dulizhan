@@ -23,8 +23,12 @@ export async function ensureEmailAuthSchema() {
     database.prepare(`CREATE TABLE IF NOT EXISTS email_auth_tokens (
       id TEXT PRIMARY KEY, user_id TEXT NOT NULL, token_hash TEXT NOT NULL UNIQUE, kind TEXT NOT NULL, expires_at TEXT NOT NULL, used_at TEXT, created_at TEXT NOT NULL
     )`),
+    database.prepare(`CREATE TABLE IF NOT EXISTS email_auth_rate_limits (
+      key TEXT PRIMARY KEY, window_started_at INTEGER NOT NULL, attempts INTEGER NOT NULL DEFAULT 0, updated_at TEXT NOT NULL
+    )`),
     database.prepare("CREATE INDEX IF NOT EXISTS email_sessions_user_idx ON email_sessions(user_id, expires_at)"),
     database.prepare("CREATE INDEX IF NOT EXISTS email_tokens_user_idx ON email_auth_tokens(user_id, kind, expires_at)"),
+    database.prepare("CREATE INDEX IF NOT EXISTS email_auth_rate_limits_window_idx ON email_auth_rate_limits(window_started_at)"),
   ]);
 }
 
@@ -83,6 +87,26 @@ export async function getEmailUserBySessionToken(rawToken: string) {
 }
 
 export async function revokeEmailSession(rawToken: string) { if (!rawToken) return; await ensureEmailAuthSchema(); await getCmsDatabase().prepare("DELETE FROM email_sessions WHERE token_hash = ?1").bind(await hash(rawToken)).run(); }
+
+export async function consumeEmailAuthRateLimit(scope: string, subject: string, limit: number, windowMs: number) {
+  await ensureEmailAuthSchema();
+  const database = getCmsDatabase();
+  const currentMs = Date.now();
+  const windowStart = currentMs - (currentMs % windowMs);
+  const key = await hash(`${scope}:${subject}`);
+  const timestamp = now();
+  await database.prepare(`INSERT INTO email_auth_rate_limits (key, window_started_at, attempts, updated_at)
+    VALUES (?1, ?2, 1, ?3)
+    ON CONFLICT(key) DO UPDATE SET
+      attempts = CASE WHEN email_auth_rate_limits.window_started_at = excluded.window_started_at THEN email_auth_rate_limits.attempts + 1 ELSE 1 END,
+      window_started_at = excluded.window_started_at,
+      updated_at = excluded.updated_at`).bind(key, windowStart, timestamp).run();
+  await database.prepare("DELETE FROM email_auth_rate_limits WHERE window_started_at < ?1").bind(currentMs - windowMs * 2).run();
+  const row = await database.prepare("SELECT attempts, window_started_at AS windowStartedAt FROM email_auth_rate_limits WHERE key = ?1").bind(key).first<{ attempts: number; windowStartedAt: number }>();
+  const attempts = Number(row?.attempts || 0);
+  const resetAt = Number(row?.windowStartedAt || windowStart) + windowMs;
+  return { allowed: attempts <= limit, attempts, retryAfterSeconds: Math.max(1, Math.ceil((resetAt - currentMs) / 1000)) };
+}
 
 export async function issueEmailAuthToken(userId: string, kind: "verify_email" | "reset_password") {
   await ensureEmailAuthSchema();

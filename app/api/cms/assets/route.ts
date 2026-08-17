@@ -1,5 +1,6 @@
 import { deleteAsset, getMediaBucket, insertAsset, listAssets } from "../../../../db/cms";
 import { errorResponse, getSiteId, requireMember } from "../helpers";
+import { isSupportedImageType } from "../../media-validation";
 
 export const dynamic = "force-dynamic";
 
@@ -19,7 +20,7 @@ export async function POST(request: Request) {
     const siteId = getSiteId(request, formData.get("siteId"));
     const access = await requireMember(siteId, "editor");
     const file = formData.get("file");
-    if (!(file instanceof File) || !file.type.startsWith("image/")) return Response.json({ error: "Upload an image file.", code: "INVALID_ASSET" }, { status: 400 });
+    if (!(file instanceof File) || !isSupportedImageType(file.type)) return Response.json({ error: "Upload a JPG, PNG, WebP, GIF or AVIF image.", code: "INVALID_ASSET" }, { status: 400 });
     if (file.size > 10 * 1024 * 1024) return Response.json({ error: "Images must be smaller than 10 MB.", code: "ASSET_TOO_LARGE" }, { status: 400 });
     const assetId = `asset_${crypto.randomUUID()}`;
     const safeName = file.name.toLowerCase().replace(/[^a-z0-9.]+/g, "-").slice(-80) || "image";

@@ -68,7 +68,7 @@ export function ClientPortal({ userName, mode = "client" }: { userName: string; 
   const [campaignForm, setCampaignForm] = useState({ code: "", discountType: "percent" as "percent" | "fixed", discountValue: "10", minSubtotal: "0", maxUses: "", active: true });
   const [bundleForm, setBundleForm] = useState({ name: "", discountType: "percent" as "percent" | "fixed", discountValue: "10", productIds: [] as string[], active: true });
   const [collectionForm, setCollectionForm] = useState({ name: "", description: "", productIds: [] as string[], active: true });
-  const [recommendationForm, setRecommendationForm] = useState({ name: "", strategy: "featured" as Recommendation["strategy"], sourceProductId: "", category: "", productIds: [], active: true });
+  const [recommendationForm, setRecommendationForm] = useState<{ name: string; strategy: Recommendation["strategy"]; sourceProductId: string; category: string; productIds: string[]; active: boolean }>({ name: "", strategy: "featured", sourceProductId: "", category: "", productIds: [], active: true });
   const [scheduleForm, setScheduleForm] = useState({ targetType: "coupon" as CampaignSchedule["targetType"], targetId: "", startsAt: "", endsAt: "" });
   const [teamMembers, setTeamMembers] = useState<MerchantTeamMember[]>([]);
   const [teamForm, setTeamForm] = useState({ email: "", role: "merchant_staff" as MerchantTeamMember["role"] });
@@ -147,15 +147,16 @@ export function ClientPortal({ userName, mode = "client" }: { userName: string; 
   const canTeam = mode === "merchant" && capabilities.has("merchant.team.manage");
   const canConfigure = mode === "merchant" ? capabilities.has("merchant.settings.write") : overview?.role === "owner";
   const merchantRoleLabel = overview?.merchantRole === "merchant_owner" ? "Merchant owner" : overview?.merchantRole === "merchant_manager" ? "Merchant manager" : overview?.merchantRole === "merchant_staff" ? "Merchant staff" : overview?.role || "Workspace";
-  const workspaceNavGroups: WorkspaceNavGroup[] = useMemo(() => {
+  const workspaceNavGroups = useMemo<WorkspaceNavGroup[]>(() => {
     if (mode !== "merchant") {
       return [{ label: "Site operations", items: [{ id: "brand", label: "Storefront setup" }, { id: "products", label: "Products & stock" }, { id: "orders", label: "Orders" }, { id: "after-sales", label: "After-sales" }, { id: "operations", label: "Launch & analytics" }, { id: "integrations", label: "Payments & email" }] }];
     }
     const has = (capability: string) => capabilities.has(capability);
+    const item = (id: PortalSection, label: string) => ({ id, label });
     return [
-      { label: "Storefront", items: [{ id: "brand", label: "Storefront setup" }, { id: "products", label: "Products & inventory" }, ...(has("marketing.read") ? [{ id: "campaigns", label: "Marketing" }] : [])].filter((item) => item.id !== "brand" || has("merchant.storefront.write")) },
-      { label: "Sales & service", items: [...(has("orders.read") ? [{ id: "orders", label: "Orders & fulfillment" }] : []), ...(has("after-sales.read") ? [{ id: "after-sales", label: "After-sales" }] : [])] },
-      { label: "Workspace", items: [{ id: "operations", label: "Analytics & launch" }, ...(canConfigure ? [{ id: "integrations", label: "Payments & email" }] : []), ...(canTeam ? [{ id: "team", label: "Team access" }] : [])] },
+      { label: "Storefront", items: [item("brand", "Storefront setup"), item("products", "Products & inventory"), ...(has("marketing.read") ? [item("campaigns", "Marketing")] : [])].filter((navItem) => navItem.id !== "brand" || has("merchant.storefront.write")) },
+      { label: "Sales & service", items: [...(has("orders.read") ? [item("orders", "Orders & fulfillment")] : []), ...(has("after-sales.read") ? [item("after-sales", "After-sales")] : [])] },
+      { label: "Workspace", items: [item("operations", "Analytics & launch"), ...(canConfigure ? [item("integrations", "Payments & email")] : []), ...(canTeam ? [item("team", "Team access")] : [])] },
     ].filter((group) => group.items.length);
   }, [canConfigure, canTeam, capabilities, mode]);
   const paypal = overview?.integrations.find((item) => item.provider === "paypal");

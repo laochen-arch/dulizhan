@@ -1,11 +1,13 @@
 import { registerEmailUser } from "../../../../../db/email-auth";
-import { sendAuthEmail, sessionCookie } from "../helpers";
+import { authRateLimit, sendAuthEmail, sessionCookie } from "../helpers";
 
 export const dynamic = "force-dynamic";
 
 export async function POST(request: Request) {
   try {
     const payload = await request.json().catch(() => ({})) as { email?: string; password?: string; displayName?: string };
+    const rateLimit = await authRateLimit(request, "register", payload.email || "", 5);
+    if (rateLimit) return rateLimit;
     const result = await registerEmailUser({ email: payload.email || "", password: payload.password || "", displayName: payload.displayName || "" });
     const verificationSent = await sendAuthEmail({ request, to: result.user.email, kind: "verify", token: result.verificationToken });
     const response = Response.json({ user: result.user, verificationSent }, { status: 201, headers: { "Cache-Control": "no-store" } });

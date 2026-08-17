@@ -25,14 +25,15 @@ export function ProductShare({ productName }: { productName: string }) {
 
   async function share() {
     try {
-      if (navigator.share) {
+      const canNativeShare = typeof navigator.share === "function";
+      if (canNativeShare) {
         await navigator.share({ title: productName, text: `Take a look at ${productName}.`, url: window.location.href });
       } else {
         await copyCurrentUrl();
         setShared(true);
         window.setTimeout(() => setShared(false), 1800);
       }
-      showToast(navigator.share ? "Share sheet opened." : "Product link copied.", "info");
+      showToast(canNativeShare ? "Share sheet opened." : "Product link copied.", "info");
     } catch (cause) {
       if (cause instanceof DOMException && cause.name === "AbortError") return;
       showToast("This product link could not be shared.", "error");

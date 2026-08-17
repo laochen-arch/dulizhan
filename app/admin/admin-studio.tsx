@@ -113,7 +113,7 @@ export function AdminStudio() {
   function patchColor(key: ColorKey, value: string) {
     updateConfig((current) => { current.theme.colors[key] = value; return current; });
   }
-  function patchHome(key: keyof EditableSiteConfig["content"]["home"], value: string) {
+  function patchHome(key: Exclude<keyof EditableSiteConfig["content"]["home"], "modules">, value: string) {
     updateConfig((current) => { current.content.home[key] = value; return current; });
   }
   function patchContact(key: keyof EditableSiteConfig["content"]["contact"], value: string) {

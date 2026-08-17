@@ -16,7 +16,7 @@ export async function GET(request: Request) {
 
 export async function POST(request: Request) {
   try {
-    const payload = await request.json().catch(() => ({})) as { siteId?: string; type?: "coupon" | "bundle" | "collection" | "recommendation" | "schedule"; id?: string; code?: string; discountType?: string; discountValue?: number; minSubtotal?: number; maxUses?: number | null; active?: boolean; name?: string; slug?: string; description?: string; productIds?: string[]; sortOrder?: number; strategy?: string; sourceProductId?: string; category?: string; startsAt?: string; endsAt?: string | null; targetType?: string; targetId?: string };
+    const payload = await request.json().catch(() => ({})) as { siteId?: string; type?: "coupon" | "bundle" | "collection" | "recommendation" | "schedule"; id?: string; code?: string; discountType?: "fixed" | "percent"; discountValue?: number; minSubtotal?: number; maxUses?: number | null; active?: boolean; name?: string; slug?: string; description?: string; productIds?: string[]; sortOrder?: number; strategy?: string; sourceProductId?: string; category?: string; startsAt?: string; endsAt?: string | null; targetType?: string; targetId?: string };
     const access = await requireMerchantCapability(request, "marketing.write", payload.siteId);
     if (payload.type === "collection") return Response.json({ collections: await saveMerchantCollection(access.site.id, payload, access.user!.userId, access.user!.email) }, { headers: { "Cache-Control": "no-store" } });
     if (payload.type === "recommendation") return Response.json({ recommendations: await saveMerchantRecommendation(access.site.id, payload, access.user!.userId, access.user!.email) }, { headers: { "Cache-Control": "no-store" } });

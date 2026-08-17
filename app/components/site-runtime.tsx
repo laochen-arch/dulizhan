@@ -160,7 +160,7 @@ export function SiteRuntimeProvider({ children, initialPayload }: { children: Re
   });
   const [site, setSite] = useState<CmsSite | null>(initialPayload?.site ?? null);
   const [cmsRole, setCmsRole] = useState<CmsRole | undefined>(initialPayload?.role);
-  const saveTimer = useRef<ReturnType<typeof window.setTimeout> | null>(null);
+  const saveTimer = useRef<number | null>(null);
   const cmsDirty = useRef(false);
   const changeVersion = useRef(0);
 

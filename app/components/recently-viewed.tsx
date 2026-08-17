@@ -46,7 +46,10 @@ export function RecentlyViewed({ excludeId }: { excludeId?: string } = {}) {
   // Device-local history is intentionally loaded after the first paint.
   // eslint-disable-next-line react-hooks/set-state-in-effect
   useEffect(() => { setIds(readRecent(siteId)); }, [siteId]);
-  const products = ids.map((id) => catalog.find((product) => product.id === id)).filter((product): product is Product => Boolean(product) && product.id !== excludeId && product.status === "active").slice(0, 4);
+  const products = ids.map((id) => catalog.find((product) => product.id === id)).filter((product): product is Product => {
+    if (!product) return false;
+    return product.id !== excludeId && product.status === "active";
+  }).slice(0, 4);
   if (!products.length) return null;
   return <section className="recently-viewed appstore-discovery-rail"><div className="appstore-section-heading compact"><div><p className="appstore-kicker">Pick up where you left off</p><h2>Recently<br /><em>viewed.</em></h2></div></div><div className="appstore-product-rail">{products.map((product) => <ProductCard product={product} variant="rail" key={product.id} />)}</div></section>;
 }

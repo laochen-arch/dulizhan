@@ -1,11 +1,13 @@
 import { loginEmailUser } from "../../../../../db/email-auth";
-import { sessionCookie } from "../helpers";
+import { authRateLimit, sessionCookie } from "../helpers";
 
 export const dynamic = "force-dynamic";
 
 export async function POST(request: Request) {
   try {
     const payload = await request.json().catch(() => ({})) as { email?: string; password?: string };
+    const rateLimit = await authRateLimit(request, "login", payload.email || "", 10);
+    if (rateLimit) return rateLimit;
     const result = await loginEmailUser(payload.email || "", payload.password || "");
     const response = Response.json({ user: result.user }, { headers: { "Cache-Control": "no-store" } });
     response.headers.append("Set-Cookie", sessionCookie(result.sessionToken));
