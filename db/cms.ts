@@ -767,7 +767,9 @@ async function initializeCmsSchema(database: D1DatabaseLike) {
       id TEXT PRIMARY KEY,
       user_id TEXT,
       email TEXT NOT NULL,
+      applicant_type TEXT NOT NULL DEFAULT 'business',
       contact_name TEXT NOT NULL,
+      phone TEXT,
       company_name TEXT NOT NULL,
       brand_name TEXT NOT NULL,
       category TEXT NOT NULL,
@@ -776,8 +778,67 @@ async function initializeCmsSchema(database: D1DatabaseLike) {
       markets TEXT,
       product_source TEXT,
       notes TEXT,
+      template_site_id TEXT NOT NULL DEFAULT 'default',
+      brand_logo_url TEXT,
+      brand_primary_color TEXT,
+      home_copy TEXT,
+      product_import_payload TEXT,
+      access_token_hash TEXT,
+      access_token_expires_at TEXT,
+      agreement_version TEXT,
+      agreement_accepted_at TEXT,
       status TEXT NOT NULL DEFAULT 'submitted',
       assigned_site_id TEXT,
+      admin_note TEXT,
+      created_at TEXT NOT NULL,
+      updated_at TEXT NOT NULL
+    )`),
+    database.prepare(`CREATE TABLE IF NOT EXISTS platform_application_events (
+      id TEXT PRIMARY KEY,
+      application_id TEXT NOT NULL,
+      event_type TEXT NOT NULL,
+      from_status TEXT,
+      to_status TEXT,
+      note TEXT,
+      actor_user_id TEXT,
+      actor_email TEXT,
+      payload TEXT,
+      created_at TEXT NOT NULL
+    )`),
+    database.prepare(`CREATE TABLE IF NOT EXISTS platform_domain_requests (
+      id TEXT PRIMARY KEY,
+      application_id TEXT NOT NULL,
+      site_id TEXT,
+      hostname TEXT NOT NULL,
+      status TEXT NOT NULL DEFAULT 'pending',
+      note TEXT,
+      requested_by TEXT NOT NULL,
+      requested_by_email TEXT NOT NULL,
+      created_at TEXT NOT NULL,
+      updated_at TEXT NOT NULL
+    )`),
+    database.prepare(`CREATE TABLE IF NOT EXISTS platform_application_assets (
+      id TEXT PRIMARY KEY,
+      application_id TEXT NOT NULL,
+      asset_key TEXT NOT NULL,
+      kind TEXT NOT NULL DEFAULT 'general',
+      url TEXT NOT NULL,
+      object_key TEXT,
+      alt TEXT,
+      mime_type TEXT NOT NULL,
+      size_bytes INTEGER NOT NULL DEFAULT 0,
+      created_at TEXT NOT NULL,
+      created_by TEXT NOT NULL
+    )`),
+    database.prepare(`CREATE TABLE IF NOT EXISTS platform_support_tickets (
+      id TEXT PRIMARY KEY,
+      application_id TEXT NOT NULL,
+      subject TEXT NOT NULL,
+      message TEXT NOT NULL,
+      status TEXT NOT NULL DEFAULT 'open',
+      created_by TEXT NOT NULL,
+      created_by_email TEXT NOT NULL,
+      assigned_to TEXT,
       admin_note TEXT,
       created_at TEXT NOT NULL,
       updated_at TEXT NOT NULL
@@ -861,6 +922,11 @@ async function initializeCmsSchema(database: D1DatabaseLike) {
     database.prepare("CREATE INDEX IF NOT EXISTS merchant_members_site_email_idx ON merchant_members(site_id, email)"),
     database.prepare("CREATE INDEX IF NOT EXISTS platform_applications_email_idx ON platform_applications(email, created_at)"),
     database.prepare("CREATE INDEX IF NOT EXISTS platform_applications_status_idx ON platform_applications(status, updated_at)"),
+    database.prepare("CREATE INDEX IF NOT EXISTS platform_application_events_idx ON platform_application_events(application_id, created_at)"),
+    database.prepare("CREATE INDEX IF NOT EXISTS platform_domain_requests_idx ON platform_domain_requests(application_id, status, updated_at)"),
+    database.prepare("CREATE UNIQUE INDEX IF NOT EXISTS platform_domain_requests_hostname_idx ON platform_domain_requests(hostname) WHERE status IN ('pending', 'reviewing', 'active')"),
+    database.prepare("CREATE INDEX IF NOT EXISTS platform_application_assets_idx ON platform_application_assets(application_id, created_at)"),
+    database.prepare("CREATE INDEX IF NOT EXISTS platform_support_tickets_idx ON platform_support_tickets(application_id, status, updated_at)"),
     database.prepare("CREATE INDEX IF NOT EXISTS store_customers_site_email_idx ON store_customers(site_id, email)"),
     database.prepare("CREATE INDEX IF NOT EXISTS customer_addresses_user_idx ON customer_addresses(site_id, user_id, is_default, updated_at)"),
   ]);
@@ -887,6 +953,17 @@ async function initializeCmsSchema(database: D1DatabaseLike) {
   await ensureColumn(database, "cms_site_domains", "dns_target", "TEXT");
   await ensureColumn(database, "cms_site_domains", "ssl_status", "TEXT");
   await ensureColumn(database, "cms_site_domains", "last_error", "TEXT");
+  await ensureColumn(database, "platform_applications", "applicant_type", "TEXT NOT NULL DEFAULT 'business'");
+  await ensureColumn(database, "platform_applications", "phone", "TEXT");
+  await ensureColumn(database, "platform_applications", "template_site_id", "TEXT NOT NULL DEFAULT 'default'");
+  await ensureColumn(database, "platform_applications", "brand_logo_url", "TEXT");
+  await ensureColumn(database, "platform_applications", "brand_primary_color", "TEXT");
+  await ensureColumn(database, "platform_applications", "home_copy", "TEXT");
+  await ensureColumn(database, "platform_applications", "product_import_payload", "TEXT");
+  await ensureColumn(database, "platform_applications", "access_token_hash", "TEXT");
+  await ensureColumn(database, "platform_applications", "access_token_expires_at", "TEXT");
+  await ensureColumn(database, "platform_applications", "agreement_version", "TEXT");
+  await ensureColumn(database, "platform_applications", "agreement_accepted_at", "TEXT");
   await database.prepare("CREATE UNIQUE INDEX IF NOT EXISTS cms_inventory_tx_idempotency_unique ON cms_inventory_transactions(idempotency_key) WHERE idempotency_key IS NOT NULL").run();
 }
 

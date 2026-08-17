@@ -436,11 +436,30 @@ test("keeps V32 platform onboarding and merchant operations boundaries", async (
   const workerSource = await readFile(new URL("../worker/index.ts", import.meta.url), "utf8");
   const workspace = await readFile(new URL("../app/client/client-portal.tsx", import.meta.url), "utf8");
   const admin = await readFile(new URL("../app/admin/platform-applications-panel.tsx", import.meta.url), "utf8");
+  const status = await readFile(new URL("../app/platform/application-status.tsx", import.meta.url), "utf8");
+  const domainRoute = await readFile(new URL("../app/api/platform/applications/domain/route.ts", import.meta.url), "utf8");
+  const assetsRoute = await readFile(new URL("../app/api/platform/applications/assets/route.ts", import.meta.url), "utf8");
+  const supportRoute = await readFile(new URL("../app/api/platform/applications/support/route.ts", import.meta.url), "utf8");
+  const template = await readFile(new URL("../app/platform/templates/default/page.tsx", import.meta.url), "utf8");
+  const migration = await readFile(new URL("../drizzle/0016_v33_platform_portal.sql", import.meta.url), "utf8");
 
   assert.match(platform, /Apply to join/);
+  assert.match(platform, /Public template preview/);
   assert.match(applicationForm, /companyName/);
+  assert.match(applicationForm, /agreementAccepted/);
+  assert.match(applicationForm, /productImport/);
   assert.match(applicationsRoute, /createSiteFromTemplate/);
   assert.match(applicationsRoute, /merchant_owner/);
+  assert.match(applicationsRoute, /DUPLICATE_APPLICATION/);
+  assert.match(applicationsRoute, /ONBOARDING_APPLY_FAILED/);
+  assert.match(status, /Launch checklist/);
+  assert.match(status, /Send support request/);
+  assert.match(domainRoute, /createPlatformDomainRequest/);
+  assert.match(assetsRoute, /getMediaBucket/);
+  assert.match(supportRoute, /createPlatformSupportTicket/);
+  assert.match(template, /PUBLIC TEMPLATE PREVIEW/);
+  assert.match(migration, /platform_application_events/);
+  assert.match(migration, /platform_domain_requests/);
   assert.match(merchantProducts, /createClientProduct/);
   assert.match(merchantProducts, /deleteClientProduct/);
   assert.match(merchantCampaigns, /saveMerchantCollection/);
@@ -457,4 +476,6 @@ test("keeps V32 platform onboarding and merchant operations boundaries", async (
   assert.match(admin, /Create storefront/);
   assert.equal((await render("/platform")).status, 200);
   assert.equal((await render("/platform/apply")).status, 200);
+  assert.equal((await render("/platform/applications")).status, 200);
+  assert.equal((await render("/platform/templates/default")).status, 200);
 });

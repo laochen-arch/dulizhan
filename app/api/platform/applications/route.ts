@@ -1,12 +1,23 @@
 import { getChatGPTUser } from "../../../chatgpt-auth";
 import { createSiteFromTemplate, findMember } from "../../../../db/cms";
-import { getPlatformApplication, listPlatformApplications, createPlatformApplication, updatePlatformApplication } from "../../../../db/v32";
+import {
+  applyPlatformApplicationToSite,
+  createPlatformApplication,
+  getPlatformApplication,
+  getPlatformApplicationForAccess,
+  listPlatformApplicationAssets,
+  listPlatformApplicationEvents,
+  listPlatformApplications,
+  listPlatformDomainRequests,
+  listPlatformSupportTickets,
+  updatePlatformApplication,
+} from "../../../../db/v32";
 import { upsertMerchantMember } from "../../../../db/v25";
 
 export const dynamic = "force-dynamic";
 
-function responseError(message: string, status = 400, code = "PLATFORM_APPLICATION_ERROR") {
-  return Response.json({ error: message, code }, { status, headers: { "Cache-Control": "no-store" } });
+function responseError(message: string, status = 400, code = "PLATFORM_APPLICATION_ERROR", extra?: Record<string, unknown>) {
+  return Response.json({ error: message, code, ...extra }, { status, headers: { "Cache-Control": "no-store" } });
 }
 
 function slugify(value: string) {
@@ -20,11 +31,27 @@ async function isPlatformOwner() {
   return member?.role === "owner" ? user : null;
 }
 
-export async function GET() {
+async function resolveApplicantApplication(id: string, token: string | null, user: Awaited<ReturnType<typeof getChatGPTUser>>) {
+  if (token) return getPlatformApplicationForAccess(id, token);
+  if (!user) return null;
+  const application = await getPlatformApplication(id);
+  if (!application) return null;
+  return application.userId === user.userId || application.email.toLowerCase() === user.email.toLowerCase() ? application : null;
+}
+
+export async function GET(request: Request) {
   try {
+    const url = new URL(request.url);
+    const id = url.searchParams.get("id") || url.searchParams.get("application");
+    const token = url.searchParams.get("token");
     const user = await getChatGPTUser();
-    if (!user) return responseError("Sign in with ChatGPT to view application status.", 401, "AUTH_REQUIRED");
     const owner = await isPlatformOwner();
+    if (id) {
+      const application = owner ? await getPlatformApplication(id) : await resolveApplicantApplication(id, token, user);
+      if (!application) return responseError(token ? "This application link is invalid or expired." : "You do not have access to this application.", token ? 401 : 403, token ? "INVALID_APPLICATION_ACCESS" : "FORBIDDEN");
+      return Response.json({ application, events: await listPlatformApplicationEvents(id), domains: await listPlatformDomainRequests(id), assets: await listPlatformApplicationAssets(id), tickets: await listPlatformSupportTickets(id), canReview: Boolean(owner) }, { headers: { "Cache-Control": "no-store" } });
+    }
+    if (!user) return responseError("Sign in with ChatGPT or open the secure application link to view status.", 401, "AUTH_REQUIRED");
     return Response.json({ applications: await listPlatformApplications(owner ? {} : { userId: user.userId, email: user.email }), canReview: Boolean(owner) }, { headers: { "Cache-Control": "no-store" } });
   } catch (error) {
     return responseError(error instanceof Error ? error.message : "Unable to load applications.", 500);
@@ -35,33 +62,99 @@ export async function POST(request: Request) {
   try {
     const user = await getChatGPTUser();
     const payload = await request.json().catch(() => ({})) as Record<string, unknown>;
-    const application = await createPlatformApplication({ ...payload, userId: user?.userId || null, email: typeof payload.email === "string" ? payload.email : user?.email });
-    return Response.json({ application }, { status: 201, headers: { "Cache-Control": "no-store" } });
+    const result = await createPlatformApplication({ ...payload, userId: user?.userId || null, email: typeof payload.email === "string" ? payload.email : user?.email });
+    return Response.json(result, { status: 201, headers: { "Cache-Control": "no-store" } });
   } catch (error) {
-    const message = error instanceof Error ? error.message : "Unable to submit the merchant application.";
-    return responseError(message === "INVALID_APPLICATION" ? "Complete the required merchant details before submitting." : message, 400, message);
+    const raw = error instanceof Error ? error.message : "Unable to submit the merchant application.";
+    if (raw.startsWith("DUPLICATE_APPLICATION:")) return responseError("已有一条处理中申请，请直接查看申请进度。", 409, "DUPLICATE_APPLICATION", { applicationId: raw.split(":")[1] });
+    if (raw === "AGREEMENT_REQUIRED") return responseError("请先确认服务条款、隐私政策和平台入驻协议。", 400, raw);
+    return responseError(raw === "INVALID_APPLICATION" ? "请检查必填资料、邮箱、手机号、网址和品牌色。" : raw, 400, raw);
   }
 }
 
 export async function PATCH(request: Request) {
   try {
-    const owner = await isPlatformOwner();
-    if (!owner) return responseError("Only platform operators can review merchant applications.", 403, "FORBIDDEN");
-    const payload = await request.json().catch(() => ({})) as { id?: string; status?: string; assignedSiteId?: string | null; adminNote?: string | null; createSite?: boolean };
+    const payload = await request.json().catch(() => ({})) as {
+      id?: string;
+      token?: string;
+      status?: string;
+      assignedSiteId?: string | null;
+      adminNote?: string | null;
+      createSite?: boolean;
+      applicantType?: string;
+      contactName?: string;
+      phone?: string | null;
+      companyName?: string;
+      brandName?: string;
+      category?: string;
+      website?: string | null;
+      targetDomain?: string | null;
+      markets?: string | null;
+      productSource?: string | null;
+      notes?: string | null;
+      templateSiteId?: string;
+      brandLogoUrl?: string | null;
+      brandPrimaryColor?: string | null;
+      homeCopy?: string | null;
+      productImport?: unknown;
+    };
     if (!payload.id) return responseError("Application id is required.");
-    const current = await getPlatformApplication(payload.id);
-    if (!current) return responseError("The application was not found.", 404, "APPLICATION_NOT_FOUND");
+    const owner = await isPlatformOwner();
+    const user = await getChatGPTUser();
+    const current = owner ? await getPlatformApplication(payload.id) : await resolveApplicantApplication(payload.id, payload.token || null, user);
+    if (!current) return responseError("The application was not found or is not accessible.", 404, "APPLICATION_NOT_FOUND");
+    if (!owner) {
+      const application = await updatePlatformApplication(payload.id, {
+        status: "submitted",
+        applicantType: payload.applicantType,
+        contactName: payload.contactName,
+        phone: payload.phone,
+        companyName: payload.companyName,
+        brandName: payload.brandName,
+        category: payload.category,
+        website: payload.website,
+        targetDomain: payload.targetDomain,
+        markets: payload.markets,
+        productSource: payload.productSource,
+        notes: payload.notes,
+        templateSiteId: payload.templateSiteId,
+        brandLogoUrl: payload.brandLogoUrl,
+        brandPrimaryColor: payload.brandPrimaryColor,
+        homeCopy: payload.homeCopy,
+        productImport: payload.productImport,
+      }, { userId: user?.userId || `application:${current.id}`, email: user?.email || current.email, role: "applicant" });
+      return Response.json({ application }, { headers: { "Cache-Control": "no-store" } });
+    }
     let assignedSiteId = payload.assignedSiteId;
     let status = payload.status;
     if (payload.createSite || (payload.status === "approved" && !current.assignedSiteId)) {
-      const created = await createSiteFromTemplate(current.brandName || current.companyName, `${slugify(current.brandName || current.companyName)}-${current.id.slice(-6)}`, "default", owner.userId, owner.email);
-      assignedSiteId = created.id;
-      status = "site_created";
-      await upsertMerchantMember(created.id, { userId: current.userId || `applicant:${current.email}`, email: current.email, role: "merchant_owner" }, "invited");
+      if (current.assignedSiteId) {
+        assignedSiteId = current.assignedSiteId;
+        status = "site_created";
+        try {
+          await applyPlatformApplicationToSite(current.id, current.assignedSiteId, owner.userId, owner.email);
+        } catch {
+          await updatePlatformApplication(current.id, { status: "approved", assignedSiteId: current.assignedSiteId, adminNote: "Storefront exists. Onboarding materials need another retry from the platform team." }, { userId: owner.userId, email: owner.email, role: "platform" });
+          return responseError("站点已存在，但预配置资料暂未应用成功，请检查资料后重试。", 502, "ONBOARDING_APPLY_FAILED");
+        }
+      } else {
+        const created = await createSiteFromTemplate(current.brandName || current.companyName, `${slugify(current.brandName || current.companyName)}-${current.id.slice(-6)}`, current.templateSiteId || "default", owner.userId, owner.email);
+        assignedSiteId = created.id;
+        status = "site_created";
+        await upsertMerchantMember(created.id, { userId: current.userId || `applicant:${current.email}`, email: current.email, role: "merchant_owner" }, "invited");
+        try {
+          await applyPlatformApplicationToSite(current.id, created.id, owner.userId, owner.email);
+        } catch {
+          await updatePlatformApplication(current.id, { status: "approved", assignedSiteId: created.id, adminNote: "Storefront created. Onboarding materials need a retry from the platform team." }, { userId: owner.userId, email: owner.email, role: "platform" });
+          return responseError("站点已创建，但预配置资料暂未应用成功，请稍后重试。", 502, "ONBOARDING_APPLY_FAILED");
+        }
+      }
     }
-    return Response.json({ application: await updatePlatformApplication(payload.id, { status, assignedSiteId, adminNote: payload.adminNote }) }, { headers: { "Cache-Control": "no-store" } });
+    const application = await updatePlatformApplication(payload.id, { status, assignedSiteId, adminNote: payload.adminNote }, { userId: owner.userId, email: owner.email, role: "platform" });
+    return Response.json({ application }, { headers: { "Cache-Control": "no-store" } });
   } catch (error) {
     const message = error instanceof Error ? error.message : "Unable to update the application.";
-    return responseError(message, message === "APPLICATION_NOT_FOUND" ? 404 : 400, message);
+    const status = message === "APPLICATION_NOT_FOUND" ? 404 : message === "FORBIDDEN" ? 403 : 400;
+    return responseError(message, status, message);
   }
 }

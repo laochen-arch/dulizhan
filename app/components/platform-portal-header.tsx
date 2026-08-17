@@ -5,6 +5,7 @@ import { usePathname } from "next/navigation";
 
 const links = [
   { href: "/platform", label: "平台首页" },
+  { href: "/platform/templates/default", label: "模板预览" },
   { href: "/platform/apply", label: "申请入驻" },
   { href: "/platform/applications", label: "申请进度" },
 ];

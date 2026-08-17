@@ -385,8 +385,24 @@ export const merchantMembers = sqliteTable("merchant_members", {
 }, (table) => [primaryKey({ columns: [table.siteId, table.userId] }), index("merchant_members_site_role_idx").on(table.siteId, table.role, table.createdAt), index("merchant_members_site_email_idx").on(table.siteId, table.email)]);
 
 export const platformApplications = sqliteTable("platform_applications", {
-  id: text("id").primaryKey(), userId: text("user_id"), email: text("email").notNull(), contactName: text("contact_name").notNull(), companyName: text("company_name").notNull(), brandName: text("brand_name").notNull(), category: text("category").notNull(), website: text("website"), targetDomain: text("target_domain"), markets: text("markets"), productSource: text("product_source"), notes: text("notes"), status: text("status").notNull().default("submitted"), assignedSiteId: text("assigned_site_id"), adminNote: text("admin_note"), createdAt: text("created_at").notNull(), updatedAt: text("updated_at").notNull(),
+  id: text("id").primaryKey(), userId: text("user_id"), email: text("email").notNull(), applicantType: text("applicant_type").notNull().default("business"), contactName: text("contact_name").notNull(), phone: text("phone"), companyName: text("company_name").notNull(), brandName: text("brand_name").notNull(), category: text("category").notNull(), website: text("website"), targetDomain: text("target_domain"), markets: text("markets"), productSource: text("product_source"), notes: text("notes"), templateSiteId: text("template_site_id").notNull().default("default"), brandLogoUrl: text("brand_logo_url"), brandPrimaryColor: text("brand_primary_color"), homeCopy: text("home_copy"), productImportPayload: text("product_import_payload"), accessTokenHash: text("access_token_hash"), accessTokenExpiresAt: text("access_token_expires_at"), agreementVersion: text("agreement_version"), agreementAcceptedAt: text("agreement_accepted_at"), status: text("status").notNull().default("submitted"), assignedSiteId: text("assigned_site_id"), adminNote: text("admin_note"), createdAt: text("created_at").notNull(), updatedAt: text("updated_at").notNull(),
 }, (table) => [index("platform_applications_email_idx").on(table.email, table.createdAt), index("platform_applications_status_idx").on(table.status, table.updatedAt)]);
+
+export const platformApplicationEvents = sqliteTable("platform_application_events", {
+  id: text("id").primaryKey(), applicationId: text("application_id").notNull(), eventType: text("event_type").notNull(), fromStatus: text("from_status"), toStatus: text("to_status"), note: text("note"), actorUserId: text("actor_user_id"), actorEmail: text("actor_email"), payload: text("payload"), createdAt: text("created_at").notNull(),
+}, (table) => [index("platform_application_events_idx").on(table.applicationId, table.createdAt)]);
+
+export const platformDomainRequests = sqliteTable("platform_domain_requests", {
+  id: text("id").primaryKey(), applicationId: text("application_id").notNull(), siteId: text("site_id"), hostname: text("hostname").notNull(), status: text("status").notNull().default("pending"), note: text("note"), requestedBy: text("requested_by").notNull(), requestedByEmail: text("requested_by_email").notNull(), createdAt: text("created_at").notNull(), updatedAt: text("updated_at").notNull(),
+}, (table) => [index("platform_domain_requests_idx").on(table.applicationId, table.status, table.updatedAt)]);
+
+export const platformApplicationAssets = sqliteTable("platform_application_assets", {
+  id: text("id").primaryKey(), applicationId: text("application_id").notNull(), assetKey: text("asset_key").notNull(), kind: text("kind").notNull().default("general"), url: text("url").notNull(), objectKey: text("object_key"), alt: text("alt"), mimeType: text("mime_type").notNull(), sizeBytes: integer("size_bytes").notNull().default(0), createdAt: text("created_at").notNull(), createdBy: text("created_by").notNull(),
+}, (table) => [index("platform_application_assets_idx").on(table.applicationId, table.createdAt)]);
+
+export const platformSupportTickets = sqliteTable("platform_support_tickets", {
+  id: text("id").primaryKey(), applicationId: text("application_id").notNull(), subject: text("subject").notNull(), message: text("message").notNull(), status: text("status").notNull().default("open"), createdBy: text("created_by").notNull(), createdByEmail: text("created_by_email").notNull(), assignedTo: text("assigned_to"), adminNote: text("admin_note"), createdAt: text("created_at").notNull(), updatedAt: text("updated_at").notNull(),
+}, (table) => [index("platform_support_tickets_idx").on(table.applicationId, table.status, table.updatedAt)]);
 
 export const storeCustomers = sqliteTable("store_customers", {
   siteId: text("site_id").notNull(),
