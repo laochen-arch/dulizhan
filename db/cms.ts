@@ -1,6 +1,7 @@
 import { env } from "cloudflare:workers";
 import { getCatalogValidationErrors, products as defaultProducts, type Product } from "../app/data/products";
 import { siteConfig, type SiteConfig } from "../app/data/site-config";
+import { applyPlatformTemplateVariant, getPlatformTemplate } from "../app/platform/template-catalog";
 import { getSiteIntegrationReadiness } from "./site-integrations";
 
 export type CmsMode = "draft" | "published";
@@ -843,6 +844,20 @@ async function initializeCmsSchema(database: D1DatabaseLike) {
       created_at TEXT NOT NULL,
       updated_at TEXT NOT NULL
     )`),
+    database.prepare(`CREATE TABLE IF NOT EXISTS platform_application_notifications (
+      id TEXT PRIMARY KEY,
+      application_id TEXT NOT NULL,
+      dedupe_key TEXT NOT NULL UNIQUE,
+      event_type TEXT NOT NULL,
+      recipient TEXT NOT NULL,
+      subject TEXT NOT NULL,
+      status TEXT NOT NULL DEFAULT 'pending',
+      attempts INTEGER NOT NULL DEFAULT 0,
+      last_error TEXT,
+      sent_at TEXT,
+      created_at TEXT NOT NULL,
+      updated_at TEXT NOT NULL
+    )`),
     database.prepare(`CREATE TABLE IF NOT EXISTS store_customers (
       site_id TEXT NOT NULL,
       user_id TEXT NOT NULL,
@@ -927,6 +942,7 @@ async function initializeCmsSchema(database: D1DatabaseLike) {
     database.prepare("CREATE UNIQUE INDEX IF NOT EXISTS platform_domain_requests_hostname_idx ON platform_domain_requests(hostname) WHERE status IN ('pending', 'reviewing', 'active')"),
     database.prepare("CREATE INDEX IF NOT EXISTS platform_application_assets_idx ON platform_application_assets(application_id, created_at)"),
     database.prepare("CREATE INDEX IF NOT EXISTS platform_support_tickets_idx ON platform_support_tickets(application_id, status, updated_at)"),
+    database.prepare("CREATE INDEX IF NOT EXISTS platform_application_notifications_idx ON platform_application_notifications(application_id, status, created_at)"),
     database.prepare("CREATE INDEX IF NOT EXISTS store_customers_site_email_idx ON store_customers(site_id, email)"),
     database.prepare("CREATE INDEX IF NOT EXISTS customer_addresses_user_idx ON customer_addresses(site_id, user_id, is_default, updated_at)"),
   ]);
@@ -1171,27 +1187,34 @@ export async function createSiteFromTemplate(name: string, slug: string, templat
   const database = getD1();
   await ensureCmsSchema(database);
   const normalizedTemplate = templateSiteId || DEFAULT_SITE_ID;
-  if (normalizedTemplate !== DEFAULT_SITE_ID) {
-    const sourceMember = await ensureMember(normalizedTemplate, userId, email, database);
+  const publicTemplate = getPlatformTemplate(normalizedTemplate);
+  const sourceSiteId = publicTemplate?.sourceSiteId || normalizedTemplate;
+  if (!publicTemplate && normalizedTemplate === DEFAULT_SITE_ID) throw new Error("INVALID_TEMPLATE");
+  if (sourceSiteId !== DEFAULT_SITE_ID) {
+    const sourceMember = await ensureMember(sourceSiteId, userId, email, database);
     if (sourceMember.role === "viewer") throw new Error("FORBIDDEN");
   }
-  const source = await readSnapshot(normalizedTemplate, "published");
-  const sourceAssets = await listAssets(normalizedTemplate, userId, email);
+  const source = await readSnapshot(sourceSiteId, "published");
+  const sourceAssets = await listAssets(sourceSiteId, userId, email);
   const siteId = `site_${crypto.randomUUID()}`;
   const site: CmsSite = { id: siteId, slug, name, status: "active", domain: null, createdAt: now(), updatedAt: now() };
-  const copiedAssets = await copySiteAssets(normalizedTemplate, siteId, userId, sourceAssets);
+  const copiedAssets = await copySiteAssets(sourceSiteId, siteId, userId, sourceAssets);
   const editableConfig = replaceAssetUrls(clone(source.config), copiedAssets.replacements) as unknown as { client: { demoName: string }; brand: { name: string }; content: { home: { heroLabel: string } } };
-  const config = editableConfig as unknown as SiteConfig;
+  const config = publicTemplate
+    ? applyPlatformTemplateVariant(editableConfig as unknown as SiteConfig, publicTemplate.id)
+    : editableConfig as unknown as SiteConfig;
+  // The tenant's submitted brand identity remains authoritative after the
+  // visual template variant is applied.
+  config.client.demoName = name;
+  config.brand.name = name;
+  config.content.home.heroLabel = `${name} / Client draft`;
   const catalog = replaceAssetUrls(clone(source.catalog), copiedAssets.replacements);
-  editableConfig.client.demoName = name;
-  editableConfig.brand.name = name;
-  editableConfig.content.home.heroLabel = `${name} / Client draft`;
   await insertSite(database, site, config, catalog, { userId, email });
   if (copiedAssets.copied.length) {
     await database.batch(copiedAssets.copied.map((asset) => database.prepare(`INSERT INTO cms_assets (id, site_id, asset_key, kind, url, object_key, alt, mime_type, size_bytes, created_at, created_by)
       VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11)`).bind(asset.id, asset.siteId, asset.assetKey, asset.kind, asset.url, asset.objectKey, asset.alt, asset.mimeType, asset.sizeBytes, asset.createdAt, userId)));
   }
-  await recordAudit(database, siteId, { userId, email }, "site.created_from_template", "site", siteId, { templateSiteId: normalizedTemplate, copiedProducts: catalog.length, copiedAssets: copiedAssets.copied.length });
+  await recordAudit(database, siteId, { userId, email }, "site.created_from_template", "site", siteId, { templateSiteId: normalizedTemplate, sourceSiteId, copiedProducts: catalog.length, copiedAssets: copiedAssets.copied.length });
   return { ...site, role: "owner" as const, templateSiteId: normalizedTemplate, copiedProducts: catalog.length, copiedAssets: copiedAssets.copied.length };
 }
 

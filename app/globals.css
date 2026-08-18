@@ -1818,7 +1818,7 @@ button:disabled, .button:disabled { cursor: not-allowed; opacity: .45; }
 .platform-status-badge { display: inline-flex; align-items: center; width: fit-content; border: 1px solid #b9d2ec; background: #eef6ff; padding: 6px 9px; color: #1769d2; font-size: 9px; letter-spacing: .08em; text-transform: uppercase; white-space: nowrap; }
 .platform-status-badge.needs_info, .platform-status-badge.rejected, .platform-status-badge.failed { border-color: #e6b9c0; background: #fff5f6; color: #b53f4e; }
 .platform-status-badge.site_created, .platform-status-badge.active, .platform-status-badge.resolved { border-color: #abd9d0; background: #f1fbf8; color: #0b8d7d; }
-.platform-status-progress { display: grid; grid-template-columns: repeat(4, 1fr); gap: 1px; border: 1px solid #c9d9e8; background: #c9d9e8; }
+.platform-status-progress { display: grid; grid-template-columns: repeat(5, 1fr); gap: 1px; border: 1px solid #c9d9e8; background: #c9d9e8; }
 .platform-status-progress > div { display: grid; gap: 8px; background: #fff; padding: 14px; color: #8aa0b4; }
 .platform-status-progress > div.is-done { background: #eef6ff; color: #1769d2; }
 .platform-status-progress span { font-size: 10px; letter-spacing: .12em; }
@@ -1844,6 +1844,17 @@ button:disabled, .button:disabled { cursor: not-allowed; opacity: .45; }
 .platform-event-list span { color: #1769d2; }
 .platform-upload-controls { display: flex; align-items: end; gap: 12px; padding: 16px 0; }
 .platform-upload-controls .v6-field { flex: 1; }
+.platform-upload-status, .platform-notification-list, .platform-application-switcher { display: grid; gap: 10px; }
+.platform-upload-status { border: 1px dashed #b9d2ec; background: #f8fbfe; padding: 10px 12px; color: #55708d; font-size: 10px; line-height: 1.5; }
+.platform-notification-list > div { display: grid; grid-template-columns: 1fr auto; gap: 8px 12px; border-bottom: 1px solid #e0eaf3; padding: 13px 0; }
+.platform-notification-list > div:last-child { border-bottom: 0; }
+.platform-notification-list strong { display: block; color: #10253d; font-size: 11px; font-weight: 600; }
+.platform-notification-list small { display: block; margin-top: 4px; color: #7890a5; font-size: 10px; line-height: 1.5; }
+.platform-notification-list > div > small { grid-column: 1 / -1; }
+.platform-notification-list .button { justify-self: end; }
+.platform-application-switcher { margin-bottom: 18px; }
+.platform-application-switcher span { color: #55708d; font-size: 10px; letter-spacing: .08em; text-transform: uppercase; }
+.platform-application-switcher select { width: 100%; border: 1px solid #c9d9e8; background: #fff; padding: 12px; color: #10253d; }
 .platform-file-button { position: relative; display: inline-flex; align-items: center; justify-content: center; cursor: pointer; white-space: nowrap; }
 .platform-file-button input { position: absolute; inset: 0; width: 100%; height: 100%; cursor: pointer; opacity: 0; }
 .platform-asset-grid { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 10px; }

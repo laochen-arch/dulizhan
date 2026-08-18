@@ -1,6 +1,7 @@
 import { ensureCmsSchema, getCmsDatabase, getMediaBucket, insertAsset, importClientData, normalizeDomain, readSnapshot, recordAudit } from "./cms";
+import { getPlatformTemplate } from "../app/platform/template-catalog";
 
-export type PlatformApplicationStatus = "submitted" | "reviewing" | "needs_info" | "approved" | "rejected" | "site_created";
+export type PlatformApplicationStatus = "draft" | "submitted" | "reviewing" | "needs_info" | "approved" | "rejected" | "site_created";
 export type PlatformApplicationActorRole = "platform" | "applicant";
 
 export type PlatformProductImport = {
@@ -94,6 +95,21 @@ export type PlatformSupportTicket = {
   updatedAt: string;
 };
 
+export type PlatformApplicationNotification = {
+  id: string;
+  applicationId: string;
+  dedupeKey: string;
+  eventType: string;
+  recipient: string;
+  subject: string;
+  status: "pending" | "sent" | "failed";
+  attempts: number;
+  lastError: string | null;
+  sentAt: string | null;
+  createdAt: string;
+  updatedAt: string;
+};
+
 type ApplicationRow = {
   id: string;
   userId: string | null;
@@ -141,7 +157,7 @@ function now() {
 }
 
 function statusValue(value: string): PlatformApplicationStatus {
-  return ["submitted", "reviewing", "needs_info", "approved", "rejected", "site_created"].includes(value) ? value as PlatformApplicationStatus : "submitted";
+  return ["draft", "submitted", "reviewing", "needs_info", "approved", "rejected", "site_created"].includes(value) ? value as PlatformApplicationStatus : "submitted";
 }
 
 function clean(value: unknown, max: number) {
@@ -253,6 +269,7 @@ export async function recordPlatformApplicationEvent(applicationId: string, inpu
 export async function createPlatformApplication(input: {
   userId?: string | null;
   email?: string;
+  draft?: boolean;
   applicantType?: string;
   contactName?: string;
   phone?: string;
@@ -288,12 +305,15 @@ export async function createPlatformApplication(input: {
   const targetDomain = rawTargetDomain ? normalizeDomain(rawTargetDomain) : null;
   if (rawTargetDomain && !targetDomain) throw new Error("INVALID_APPLICATION");
   const templateSiteId = /^[a-zA-Z0-9_-]{2,80}$/.test(clean(input.templateSiteId, 80)) ? clean(input.templateSiteId, 80) : "default";
+  if (!getPlatformTemplate(templateSiteId)) throw new Error("INVALID_TEMPLATE");
   const brandLogoUrl = optionalWebsite(input.brandLogoUrl);
   const brandPrimaryColor = clean(input.brandPrimaryColor, 20);
   const homeCopy = clean(input.homeCopy, 800) || null;
   const productImport = sanitizeProductImport(input.productImport);
   if (brandPrimaryColor && !/^#[0-9a-f]{6}$/i.test(brandPrimaryColor)) throw new Error("INVALID_APPLICATION");
-  if (!contactName || !companyName || !brandName || !category || input.agreementAccepted !== true) throw new Error(input.agreementAccepted === true ? "INVALID_APPLICATION" : "AGREEMENT_REQUIRED");
+  const draft = input.draft === true;
+  if (!contactName || !companyName || !brandName || !category) throw new Error("INVALID_APPLICATION");
+  if (!draft && input.agreementAccepted !== true) throw new Error("AGREEMENT_REQUIRED");
   const duplicate = await database.prepare(`SELECT id FROM platform_applications
     WHERE lower(email) = lower(?1) AND status IN ('submitted', 'reviewing', 'needs_info', 'approved', 'site_created')
     ORDER BY created_at DESC LIMIT 1`).bind(email).first<{ id: string }>();
@@ -303,19 +323,19 @@ export async function createPlatformApplication(input: {
   const accessToken = createAccessToken();
   const accessTokenHash = await hashAccessToken(accessToken);
   const accessTokenExpiresAt = new Date(Date.now() + 90 * 24 * 60 * 60 * 1000).toISOString();
-  const agreementVersion = clean(input.agreementVersion, 40) || "platform-v1";
+  const agreementVersion = draft ? null : clean(input.agreementVersion, 40) || "platform-v1";
   const locale = input.locale === "zh-CN" ? "zh-CN" : "en-US";
   const referralCode = clean(input.referralCode, 40).toUpperCase().replace(/[^A-Z0-9_-]/g, "") || null;
   await database.prepare(`INSERT INTO platform_applications
     (id, user_id, email, applicant_type, contact_name, phone, company_name, brand_name, category, website, target_domain, markets, product_source, notes,
      template_site_id, brand_logo_url, brand_primary_color, home_copy, product_import_payload, access_token_hash, access_token_expires_at,
      agreement_version, agreement_accepted_at, locale, referral_code, status, assigned_site_id, admin_note, created_at, updated_at)
-    VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16, ?17, ?18, ?19, ?20, ?21, ?22, ?23, ?24, ?25, 'submitted', NULL, NULL, ?26, ?26)`)
+     VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16, ?17, ?18, ?19, ?20, ?21, ?22, ?23, ?24, ?25, ?26, NULL, NULL, ?27, ?27)`)
     .bind(id, typeof input.userId === "string" ? input.userId : null, email, applicantType, contactName, phone, companyName, brandName, category,
       website, targetDomain, clean(input.markets, 240) || null, clean(input.productSource, 240) || null, clean(input.notes, 3000) || null,
       templateSiteId, brandLogoUrl, brandPrimaryColor || null, homeCopy, productImport ? JSON.stringify(productImport) : null, accessTokenHash, accessTokenExpiresAt,
-      agreementVersion, timestamp, locale, referralCode, timestamp).run();
-  await recordApplicationEvent(database, id, { eventType: "submitted", toStatus: "submitted", actor: input.userId ? { userId: input.userId, email, role: "applicant" } : undefined, payload: { applicantType, templateSiteId } });
+      agreementVersion, draft && input.agreementAccepted === true ? timestamp : null, locale, referralCode, draft ? "draft" : "submitted", timestamp).run();
+  await recordApplicationEvent(database, id, { eventType: draft ? "draft_saved" : "submitted", toStatus: draft ? "draft" : "submitted", actor: input.userId ? { userId: input.userId, email, role: "applicant" } : undefined, payload: { applicantType, templateSiteId } });
   const application = await getPlatformApplication(id);
   if (!application) throw new Error("APPLICATION_NOT_CREATED");
   return { application, accessToken, statusUrl: `/platform/applications?application=${encodeURIComponent(id)}&token=${encodeURIComponent(accessToken)}` };
@@ -375,6 +395,8 @@ export async function updatePlatformApplication(id: string, input: {
   brandPrimaryColor?: string | null;
   homeCopy?: string | null;
   productImport?: unknown;
+  agreementAccepted?: boolean;
+  agreementVersion?: string | null;
   locale?: string;
   referralCode?: string | null;
 }, actor?: ApplicationActor) {
@@ -383,14 +405,16 @@ export async function updatePlatformApplication(id: string, input: {
   const current = await getPlatformApplication(id);
   if (!current) throw new Error("APPLICATION_NOT_FOUND");
   const status = input.status ? statusValue(input.status) : current.status;
-  if (actor?.role === "applicant" && status !== "submitted") throw new Error("INVALID_STATUS_TRANSITION");
-  if (actor?.role === "applicant" && !["needs_info", "rejected"].includes(current.status)) throw new Error("APPLICATION_NOT_EDITABLE");
+  if (actor?.role === "applicant" && !["draft", "submitted"].includes(status)) throw new Error("INVALID_STATUS_TRANSITION");
+  if (actor?.role === "applicant" && !["draft", "needs_info", "rejected"].includes(current.status)) throw new Error("APPLICATION_NOT_EDITABLE");
+  if (actor?.role === "applicant" && status === "submitted" && input.agreementAccepted !== true && !current.agreementAcceptedAt) throw new Error("AGREEMENT_REQUIRED");
   const allowedTransitions: Record<string, string[]> = {
+    draft: ["draft", "submitted"],
     submitted: ["submitted", "reviewing", "needs_info", "approved", "rejected"],
     reviewing: ["reviewing", "needs_info", "approved", "rejected"],
-    needs_info: ["needs_info", "submitted", "reviewing", "approved", "rejected"],
+    needs_info: ["needs_info", "draft", "submitted", "reviewing", "approved", "rejected"],
     approved: ["approved", "site_created", "rejected"],
-    rejected: ["rejected", "reviewing", "needs_info", "approved"],
+    rejected: ["rejected", "draft", "reviewing", "needs_info", "approved"],
     site_created: ["site_created"],
   };
   const creatingSite = status === "site_created" && Boolean(input.assignedSiteId || current.assignedSiteId) && actor?.role === "platform";
@@ -419,7 +443,11 @@ export async function updatePlatformApplication(id: string, input: {
   if (input.markets !== undefined) add("markets", clean(input.markets, 240) || null);
   if (input.productSource !== undefined) add("product_source", clean(input.productSource, 240) || null);
   if (input.notes !== undefined) add("notes", clean(input.notes, 3000) || null);
-  if (input.templateSiteId !== undefined) add("template_site_id", /^[a-zA-Z0-9_-]{2,80}$/.test(clean(input.templateSiteId, 80)) ? clean(input.templateSiteId, 80) : "default");
+  if (input.templateSiteId !== undefined) {
+    const templateSiteId = /^[a-zA-Z0-9_-]{2,80}$/.test(clean(input.templateSiteId, 80)) ? clean(input.templateSiteId, 80) : "default";
+    if (!getPlatformTemplate(templateSiteId)) throw new Error("INVALID_TEMPLATE");
+    add("template_site_id", templateSiteId);
+  }
   if (input.brandLogoUrl !== undefined) add("brand_logo_url", optionalWebsite(input.brandLogoUrl));
   if (input.brandPrimaryColor !== undefined) {
     const color = clean(input.brandPrimaryColor, 20);
@@ -431,6 +459,8 @@ export async function updatePlatformApplication(id: string, input: {
     const productImport = sanitizeProductImport(input.productImport);
     add("product_import_payload", productImport ? JSON.stringify(productImport) : null);
   }
+  if (input.agreementVersion !== undefined) add("agreement_version", clean(input.agreementVersion, 40) || null);
+  if (input.agreementAccepted === true) add("agreement_accepted_at", now());
   if (input.locale !== undefined) add("locale", input.locale === "zh-CN" ? "zh-CN" : "en-US");
   if (input.referralCode !== undefined) add("referral_code", clean(input.referralCode, 40).toUpperCase().replace(/[^A-Z0-9_-]/g, "") || null);
   if (!updates.length) return current;
@@ -574,6 +604,101 @@ export async function createPlatformSupportTicket(applicationId: string, input: 
     VALUES (?1, ?2, ?3, ?4, 'open', ?5, ?6, NULL, NULL, ?7, ?7)`).bind(`ticket_${crypto.randomUUID()}`, applicationId, subject, message, actor.userId, actor.email, timestamp).run();
   await recordApplicationEvent(database, applicationId, { eventType: "support_ticket_created", actor, payload: { subject } });
   return listPlatformSupportTickets(applicationId);
+}
+
+function notificationFromRow(row: Record<string, unknown>): PlatformApplicationNotification {
+  const status = ["sent", "failed"].includes(String(row.status)) ? String(row.status) as PlatformApplicationNotification["status"] : "pending";
+  return {
+    id: String(row.id),
+    applicationId: String(row.applicationId),
+    dedupeKey: String(row.dedupeKey),
+    eventType: String(row.eventType),
+    recipient: String(row.recipient),
+    subject: String(row.subject),
+    status,
+    attempts: Number(row.attempts || 0),
+    lastError: row.lastError ? String(row.lastError) : null,
+    sentAt: row.sentAt ? String(row.sentAt) : null,
+    createdAt: String(row.createdAt),
+    updatedAt: String(row.updatedAt),
+  };
+}
+
+export async function createPlatformApplicationNotification(input: {
+  applicationId: string;
+  dedupeKey: string;
+  eventType: string;
+  recipient: string;
+  subject: string;
+}) {
+  const database = getCmsDatabase();
+  await ensureCmsSchema(database);
+  const existing = await database.prepare(`SELECT id, application_id AS applicationId, dedupe_key AS dedupeKey,
+      event_type AS eventType, recipient, subject, status, attempts, last_error AS lastError, sent_at AS sentAt,
+      created_at AS createdAt, updated_at AS updatedAt
+    FROM platform_application_notifications WHERE dedupe_key = ?1 LIMIT 1`).bind(input.dedupeKey).first<Record<string, unknown>>();
+  if (existing) return notificationFromRow(existing);
+  const timestamp = now();
+  const id = `platform_notification_${crypto.randomUUID()}`;
+  await database.prepare(`INSERT INTO platform_application_notifications
+      (id, application_id, dedupe_key, event_type, recipient, subject, status, attempts, last_error, sent_at, created_at, updated_at)
+    VALUES (?1, ?2, ?3, ?4, ?5, ?6, 'pending', 0, NULL, NULL, ?7, ?7)`).bind(
+    id,
+    input.applicationId,
+    clean(input.dedupeKey, 240),
+    clean(input.eventType, 80),
+    normalizeEmail(input.recipient),
+    clean(input.subject, 200),
+    timestamp,
+  ).run();
+  return {
+    id,
+    applicationId: input.applicationId,
+    dedupeKey: input.dedupeKey,
+    eventType: input.eventType,
+    recipient: input.recipient,
+    subject: input.subject,
+    status: "pending" as const,
+    attempts: 0,
+    lastError: null,
+    sentAt: null,
+    createdAt: timestamp,
+    updatedAt: timestamp,
+  };
+}
+
+export async function updatePlatformApplicationNotification(id: string, input: { status: "pending" | "sent" | "failed"; attempts?: number; lastError?: string | null; sentAt?: string | null }) {
+  const database = getCmsDatabase();
+  await ensureCmsSchema(database);
+  const timestamp = now();
+  await database.prepare(`UPDATE platform_application_notifications
+    SET status = ?1, attempts = ?2, last_error = ?3, sent_at = ?4, updated_at = ?5 WHERE id = ?6`)
+    .bind(input.status, input.attempts ?? 0, clean(input.lastError, 500) || null, input.sentAt || null, timestamp, id).run();
+  const row = await database.prepare(`SELECT id, application_id AS applicationId, dedupe_key AS dedupeKey,
+      event_type AS eventType, recipient, subject, status, attempts, last_error AS lastError, sent_at AS sentAt,
+      created_at AS createdAt, updated_at AS updatedAt
+    FROM platform_application_notifications WHERE id = ?1`).bind(id).first<Record<string, unknown>>();
+  return row ? notificationFromRow(row) : null;
+}
+
+export async function listPlatformApplicationNotifications(applicationId: string) {
+  const database = getCmsDatabase();
+  await ensureCmsSchema(database);
+  const rows = await database.prepare(`SELECT id, application_id AS applicationId, dedupe_key AS dedupeKey,
+      event_type AS eventType, recipient, subject, status, attempts, last_error AS lastError, sent_at AS sentAt,
+      created_at AS createdAt, updated_at AS updatedAt
+    FROM platform_application_notifications WHERE application_id = ?1 ORDER BY created_at DESC LIMIT 100`).bind(applicationId).all<Record<string, unknown>>();
+  return rows.results.map(notificationFromRow);
+}
+
+export async function getPlatformApplicationNotification(id: string, applicationId: string) {
+  const database = getCmsDatabase();
+  await ensureCmsSchema(database);
+  const row = await database.prepare(`SELECT id, application_id AS applicationId, dedupe_key AS dedupeKey,
+      event_type AS eventType, recipient, subject, status, attempts, last_error AS lastError, sent_at AS sentAt,
+      created_at AS createdAt, updated_at AS updatedAt
+    FROM platform_application_notifications WHERE id = ?1 AND application_id = ?2 LIMIT 1`).bind(id, applicationId).first<Record<string, unknown>>();
+  return row ? notificationFromRow(row) : null;
 }
 
 export async function applyPlatformApplicationToSite(applicationId: string, siteId: string, userId: string, email: string) {

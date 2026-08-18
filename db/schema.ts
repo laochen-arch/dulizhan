@@ -404,6 +404,10 @@ export const platformSupportTickets = sqliteTable("platform_support_tickets", {
   id: text("id").primaryKey(), applicationId: text("application_id").notNull(), subject: text("subject").notNull(), message: text("message").notNull(), status: text("status").notNull().default("open"), createdBy: text("created_by").notNull(), createdByEmail: text("created_by_email").notNull(), assignedTo: text("assigned_to"), adminNote: text("admin_note"), createdAt: text("created_at").notNull(), updatedAt: text("updated_at").notNull(),
 }, (table) => [index("platform_support_tickets_idx").on(table.applicationId, table.status, table.updatedAt)]);
 
+export const platformApplicationNotifications = sqliteTable("platform_application_notifications", {
+  id: text("id").primaryKey(), applicationId: text("application_id").notNull(), dedupeKey: text("dedupe_key").notNull().unique(), eventType: text("event_type").notNull(), recipient: text("recipient").notNull(), subject: text("subject").notNull(), status: text("status").notNull().default("pending"), attempts: integer("attempts").notNull().default(0), lastError: text("last_error"), sentAt: text("sent_at"), createdAt: text("created_at").notNull(), updatedAt: text("updated_at").notNull(),
+}, (table) => [index("platform_application_notifications_idx").on(table.applicationId, table.status, table.createdAt)]);
+
 export const storeCustomers = sqliteTable("store_customers", {
   siteId: text("site_id").notNull(),
   userId: text("user_id").notNull(),

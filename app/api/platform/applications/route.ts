@@ -7,6 +7,7 @@ import {
   getPlatformApplicationForAccess,
   listPlatformApplicationAssets,
   listPlatformApplicationEvents,
+  listPlatformApplicationNotifications,
   listPlatformApplications,
   listPlatformDomainRequests,
   listPlatformSupportTickets,
@@ -15,6 +16,7 @@ import {
 import { upsertMerchantMember } from "../../../../db/v25";
 import { attachPlatformReferral, getPlatformCommercialSnapshot, getPlatformPlan, getReferralCodeSummary, qualifyPlatformReferral, selectPlatformPlan } from "../../../../db/v34";
 import { applicationAccessCookieName } from "../application-access";
+import { sendPlatformApplicationNotification } from "../../../../app/platform/application-notifications";
 
 export const dynamic = "force-dynamic";
 
@@ -51,11 +53,11 @@ export async function GET(request: Request) {
     if (id) {
       const application = owner ? await getPlatformApplication(id) : await resolveApplicantApplication(id, token, user);
       if (!application) return responseError(token ? "This application link is invalid or expired." : "You do not have access to this application.", token ? 401 : 403, token ? "INVALID_APPLICATION_ACCESS" : "FORBIDDEN");
-      const response = Response.json({ application, events: await listPlatformApplicationEvents(id), domains: await listPlatformDomainRequests(id), assets: await listPlatformApplicationAssets(id), tickets: await listPlatformSupportTickets(id), commercial: await getPlatformCommercialSnapshot(id), canReview: Boolean(owner) }, { headers: { "Cache-Control": "no-store" } });
+      const response = Response.json({ application, events: await listPlatformApplicationEvents(id), domains: await listPlatformDomainRequests(id), assets: await listPlatformApplicationAssets(id), tickets: await listPlatformSupportTickets(id), notifications: await listPlatformApplicationNotifications(id), commercial: await getPlatformCommercialSnapshot(id), canReview: Boolean(owner) }, { headers: { "Cache-Control": "no-store" } });
       if (token && !owner) response.headers.set("Set-Cookie", `${applicationAccessCookieName(id)}=${encodeURIComponent(token)}; Path=/api/platform/applications; Max-Age=7776000; HttpOnly; SameSite=Lax; Secure`);
       return response;
     }
-    if (!user) return responseError("Sign in with ChatGPT or open the secure application link to view status.", 401, "AUTH_REQUIRED");
+    if (!user) return responseError("Sign in with email or open the secure application link to view application status.", 401, "AUTH_REQUIRED");
     return Response.json({ applications: await listPlatformApplications(owner ? {} : { userId: user.userId, email: user.email }), canReview: Boolean(owner) }, { headers: { "Cache-Control": "no-store" } });
   } catch (error) {
     return responseError(error instanceof Error ? error.message : "Unable to load applications.", 500);
@@ -74,11 +76,16 @@ export async function POST(request: Request) {
     const actor = { userId: user?.userId || `application:${result.application.id}`, email: result.application.email, role: "applicant" as const };
     if (planId) await selectPlatformPlan(result.application.id, planId, payload.billingInterval === "annual" ? "annual" : "monthly", actor);
     if (referralCode) await attachPlatformReferral(result.application.id, referralCode, actor);
-    return Response.json({ ...result, application: await getPlatformApplication(result.application.id), commercial: await getPlatformCommercialSnapshot(result.application.id) }, { status: 201, headers: { "Cache-Control": "no-store" } });
+    const application = await getPlatformApplication(result.application.id);
+    const notification = !payload.draft && application
+      ? await sendPlatformApplicationNotification({ request, application, eventType: "application_submitted", dedupeKey: `${application.id}:application_submitted`, accessToken: result.accessToken })
+      : null;
+    return Response.json({ ...result, application, notification, commercial: await getPlatformCommercialSnapshot(result.application.id) }, { status: 201, headers: { "Cache-Control": "no-store" } });
   } catch (error) {
     const raw = error instanceof Error ? error.message : "Unable to submit the merchant application.";
     if (raw.startsWith("DUPLICATE_APPLICATION:")) return responseError("已有一条处理中申请，请直接查看申请进度。", 409, "DUPLICATE_APPLICATION", { applicationId: raw.split(":")[1] });
     if (raw === "AGREEMENT_REQUIRED") return responseError("请先确认服务条款、隐私政策和平台入驻协议。", 400, raw);
+    if (raw === "INVALID_TEMPLATE") return responseError("请选择有效的站点模板。", 400, raw);
     if (raw === "SITE_REQUIRED_FOR_CREATED_STATUS") return responseError("只有已绑定独立站的申请才能标记为“站点已创建”。", 409, raw);
     if (raw === "INVALID_STATUS_TRANSITION") return responseError("申请当前状态不允许直接切换到该状态。", 409, raw);
     return responseError(raw === "INVALID_APPLICATION" ? "请检查必填资料、邮箱、手机号、网址和品牌色。" : raw, 400, raw);
@@ -112,6 +119,9 @@ export async function PATCH(request: Request) {
       productImport?: unknown;
       locale?: string;
       referralCode?: string | null;
+      draft?: boolean;
+      agreementAccepted?: boolean;
+      agreementVersion?: string | null;
     };
     if (!payload.id) return responseError("Application id is required.");
     const owner = await isPlatformOwner();
@@ -120,7 +130,7 @@ export async function PATCH(request: Request) {
     if (!current) return responseError("The application was not found or is not accessible.", 404, "APPLICATION_NOT_FOUND");
     if (!owner) {
       const application = await updatePlatformApplication(payload.id, {
-        status: "submitted",
+        status: payload.draft === true ? "draft" : "submitted",
         applicantType: payload.applicantType,
         contactName: payload.contactName,
         phone: payload.phone,
@@ -137,13 +147,19 @@ export async function PATCH(request: Request) {
         brandPrimaryColor: payload.brandPrimaryColor,
         homeCopy: payload.homeCopy,
         productImport: payload.productImport,
+        agreementAccepted: payload.agreementAccepted,
+        agreementVersion: payload.agreementVersion,
         locale: payload.locale,
         referralCode: payload.referralCode,
       }, { userId: user?.userId || `application:${current.id}`, email: user?.email || current.email, role: "applicant" });
-      return Response.json({ application }, { headers: { "Cache-Control": "no-store" } });
+      const notification = application && payload.draft !== true
+        ? await sendPlatformApplicationNotification({ request, application, eventType: current.status === "draft" ? "application_submitted" : "supplement_submitted", dedupeKey: `${application.id}:${current.status === "draft" ? "application_submitted" : `supplement_submitted:${application.updatedAt}`}`, accessToken: payload.token })
+        : null;
+      return Response.json({ application, notification }, { headers: { "Cache-Control": "no-store" } });
     }
     let assignedSiteId = payload.assignedSiteId;
     let status = payload.status;
+    if (payload.createSite && current.status !== "approved" && payload.status !== "approved") return responseError("请先将申请审核通过，再创建商户站点。", 409, "APPLICATION_NOT_APPROVED");
     if (payload.createSite || (payload.status === "approved" && !current.assignedSiteId)) {
       if (current.assignedSiteId) {
         assignedSiteId = current.assignedSiteId;
@@ -169,10 +185,14 @@ export async function PATCH(request: Request) {
     }
     const application = await updatePlatformApplication(payload.id, { status, assignedSiteId, adminNote: payload.adminNote }, { userId: owner.userId, email: owner.email, role: "platform" });
     if (application && ["approved", "site_created"].includes(application.status)) await qualifyPlatformReferral(application.id, { userId: owner.userId, email: owner.email, role: "platform" });
-    return Response.json({ application }, { headers: { "Cache-Control": "no-store" } });
+    const notification = application && application.status !== current.status
+      ? await sendPlatformApplicationNotification({ request, application, eventType: `status_${application.status}`, dedupeKey: `${application.id}:status:${application.status}` })
+      : null;
+    return Response.json({ application, notification }, { headers: { "Cache-Control": "no-store" } });
   } catch (error) {
     const message = error instanceof Error ? error.message : "Unable to update the application.";
-    const status = message === "APPLICATION_NOT_FOUND" ? 404 : message === "FORBIDDEN" ? 403 : ["INVALID_STATUS_TRANSITION", "SITE_REQUIRED_FOR_CREATED_STATUS"].includes(message) ? 409 : 400;
-    return responseError(message, status, message);
+    const status = message === "APPLICATION_NOT_FOUND" ? 404 : message === "FORBIDDEN" ? 403 : ["INVALID_STATUS_TRANSITION", "APPLICATION_NOT_EDITABLE", "APPLICATION_NOT_APPROVED", "SITE_REQUIRED_FOR_CREATED_STATUS"].includes(message) ? 409 : 400;
+    const userMessage = message === "AGREEMENT_REQUIRED" ? "请先确认服务条款、隐私政策和平台入驻协议。" : message === "INVALID_TEMPLATE" ? "请选择有效的站点模板。" : message;
+    return responseError(userMessage, status, message);
   }
 }

@@ -488,6 +488,35 @@ test("keeps V32 platform onboarding and merchant operations boundaries", async (
   assert.equal((await render("/platform/agreement")).status, 200);
 });
 
+test("keeps V46 P0 portal draft, template and notification closure", async () => {
+  const form = await readFile(new URL("../app/platform/platform-application-form.tsx", import.meta.url), "utf8");
+  const status = await readFile(new URL("../app/platform/application-status.tsx", import.meta.url), "utf8");
+  const templates = await readFile(new URL("../app/platform/template-catalog.ts", import.meta.url), "utf8");
+  const templatePreview = await readFile(new URL("../app/platform/templates/default/page.tsx", import.meta.url), "utf8");
+  const applications = await readFile(new URL("../app/api/platform/applications/route.ts", import.meta.url), "utf8");
+  const notifications = await readFile(new URL("../app/platform/application-notifications.ts", import.meta.url), "utf8");
+  const notificationRoute = await readFile(new URL("../app/api/platform/applications/notifications/route.ts", import.meta.url), "utf8");
+  const v32 = await readFile(new URL("../db/v32.ts", import.meta.url), "utf8");
+  const migration = await readFile(new URL("../drizzle/0019_v46_platform_portal_p0.sql", import.meta.url), "utf8");
+
+  assert.match(form, /Save and continue/);
+  assert.match(form, /applicationId/);
+  assert.match(form, /platformTemplates/);
+  assert.match(status, /Resume application/);
+  assert.match(status, /Status notifications/);
+  assert.match(templates, /studio/);
+  assert.match(templates, /applyPlatformTemplateVariant/);
+  assert.match(templatePreview, /searchParams/);
+  assert.match(applications, /draft/);
+  assert.match(applications, /sendPlatformApplicationNotification/);
+  assert.match(notifications, /RESEND_NOT_CONFIGURED/);
+  assert.match(notifications, /retryPlatformApplicationNotification/);
+  assert.match(notificationRoute, /Only platform operators can retry/);
+  assert.match(v32, /platform_application_notifications/);
+  assert.match(migration, /dedupe_key/);
+  assert.equal((await render("/platform/templates/default")).status, 200);
+});
+
 test("keeps V34 platform commercial, referral and email identity loops", async () => {
   const plans = await readFile(new URL("../app/platform/plans/page.tsx", import.meta.url), "utf8");
   const commercial = await readFile(new URL("../db/v34.ts", import.meta.url), "utf8");
