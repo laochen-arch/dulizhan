@@ -21,33 +21,41 @@ type CommerceConfiguration = { paypal: { clientId: boolean; clientSecret: boolea
 type OnboardingState = { domain?: { hostname: string; status: string } | null; checks: CmsLaunchCheck[]; manualChecks?: CmsManualLaunchCheck[]; replacements: CmsReplacementItem[]; progress: { done: number; total: number }; readiness?: { score: number; done: number; total: number } };
 
 const tabs: Array<{ id: AdminTab; label: string }> = [
-  { id: "overview", label: "Overview" },
+  { id: "overview", label: "Workstation" },
   { id: "merchants", label: "Merchant applications" },
-  { id: "setup", label: "Launch setup" },
+  { id: "setup", label: "Platform setup" },
   { id: "delivery", label: "Client delivery" },
-  { id: "brand", label: "Brand & content" },
-  { id: "content", label: "Content modules" },
-  { id: "products", label: "Product templates" },
+  { id: "brand", label: "Storefront identity" },
+  { id: "content", label: "Homepage content" },
+  { id: "products", label: "Global templates" },
   { id: "media", label: "Media library" },
-  { id: "access", label: "Access" },
-  { id: "team", label: "Invitations" },
+  { id: "access", label: "Site permissions" },
+  { id: "team", label: "Team invitations" },
   { id: "domains", label: "Domains" },
-  { id: "activity", label: "Activity" },
-  { id: "release", label: "Release control" },
-  { id: "commerce", label: "Orders & stock" },
-  { id: "versions", label: "Versions" },
-  { id: "v21", label: "V21 operations" },
-  { id: "v22", label: "V22 control" },
-  { id: "v23", label: "V23 configuration" },
-  { id: "v24", label: "V24 launch center" },
+  { id: "activity", label: "Activity log" },
+  { id: "release", label: "Publish & rollback" },
+  { id: "commerce", label: "Cross-merchant support" },
+  { id: "versions", label: "Release history" },
+  { id: "v21", label: "Operations health" },
+  { id: "v22", label: "Delivery controls" },
+  { id: "v23", label: "Environment settings" },
+  { id: "v24", label: "Launch checklist" },
 ];
 
 const adminNavGroups: Array<{ label: string; items: AdminTab[] }> = [
-  { label: "Merchant lifecycle", items: ["overview", "merchants", "setup", "delivery"] },
-  { label: "Storefront setup", items: ["brand", "content", "products", "media"] },
-  { label: "People & connections", items: ["access", "team", "domains"] },
-  { label: "Launch & support", items: ["activity", "release", "commerce", "versions"] },
+  { label: "Platform work", items: ["overview", "merchants"] },
+  { label: "Client delivery", items: ["setup", "delivery", "domains", "v24"] },
+  { label: "Global templates", items: ["brand", "content", "products", "media"] },
+  { label: "People & permissions", items: ["access", "team"] },
+  { label: "Operations & support", items: ["activity", "commerce", "v21", "v22", "v23"] },
+  { label: "Publishing", items: ["release", "versions"] },
 ];
+
+const roleVisibleAdminTabs: Record<CmsRole, AdminTab[]> = {
+  owner: tabs.map((item) => item.id),
+  editor: ["overview", "merchants", "setup", "delivery", "brand", "content", "products", "media", "domains", "activity", "release", "commerce", "versions", "v21", "v22", "v23", "v24"],
+  viewer: ["overview", "merchants", "delivery", "domains", "activity", "versions", "v24"],
+};
 
 function clone<T>(value: T): T {
   return JSON.parse(JSON.stringify(value)) as T;
@@ -333,6 +341,8 @@ export function AdminStudioV6() {
     const matchesStatus = productFilter === "all" || product.status === productFilter;
     return matchesQuery && matchesStatus;
   }), [catalog, productFilter, productSearch]);
+  const visibleAdminTabs = useMemo(() => new Set<AdminTab>(cmsRole ? roleVisibleAdminTabs[cmsRole] : tabs.map((item) => item.id)), [cmsRole]);
+  const visibleAdminNavGroups = useMemo(() => adminNavGroups.map((group) => ({ ...group, items: group.items.filter((item) => visibleAdminTabs.has(item)) })).filter((group) => group.items.length), [visibleAdminTabs]);
 
   const loadSites = useCallback(async () => {
     const response = await fetch("/api/cms/sites", { cache: "no-store" });
@@ -349,12 +359,13 @@ export function AdminStudioV6() {
   }, [activeSiteId, setActiveSiteId]);
 
   const selectTab = useCallback((nextTab: AdminTab) => {
+    if (cmsRole && !roleVisibleAdminTabs[cmsRole].includes(nextTab)) return;
     setTab(nextTab);
     const params = new URLSearchParams(window.location.search);
     params.set("tab", nextTab);
     params.set("siteId", activeSiteId);
     window.history.pushState({}, "", `/admin?${params.toString()}`);
-  }, [activeSiteId]);
+  }, [activeSiteId, cmsRole]);
 
   const selectSite = useCallback((nextSiteId: string) => {
     setActiveSiteId(nextSiteId);
@@ -817,8 +828,8 @@ export function AdminStudioV6() {
             <div className="admin-sidebar-site-meta"><strong>{site?.name || "Loading site..."}</strong><span>{cmsRole ? `${cmsRole} access` : "Draft workspace"}</span><span className={`v6-status ${cmsStatus}`}>{cmsStatus.replace("-", " ")}</span></div>
           </div>
 
-          <nav className="admin-sidebar-nav" aria-label="CMS sections">
-            {adminNavGroups.map((group) => <div className="admin-nav-group" key={group.label}>
+          <nav className="admin-sidebar-nav" aria-label="Platform administration sections">
+            {visibleAdminNavGroups.map((group) => <div className="admin-nav-group" key={group.label}>
               <p>{group.label}</p>
               {group.items.map((itemId) => {
                 const item = tabs.find((candidate) => candidate.id === itemId);
@@ -836,7 +847,8 @@ export function AdminStudioV6() {
         </aside>
 
         <div className="admin-main">
-          <div className="admin-topbar"><span>Platform control center</span><span>{site?.name || "Merchant storefront"} · {cmsStatus.replace("-", " ")}</span></div>
+          <div className="admin-topbar"><span>Platform admin</span><span>{site?.name || "Merchant storefront"} · {cmsRole || "checking access"}</span></div>
+          <nav className="workspace-breadcrumb" aria-label="Breadcrumb"><a href="/admin">Platform admin</a><span aria-hidden="true">/</span><span>{tabs.find((item) => item.id === tab)?.label || "Workstation"}</span></nav>
         <header className="admin-hero v6-hero">
           <div>
             <p className="eyebrow">Platform operations / Merchant delivery</p>

@@ -1190,11 +1190,12 @@ button:disabled, .button:disabled { cursor: not-allowed; opacity: .45; }
 }
 
 /* V25 identity-aware storefront surfaces. */
-.access-menu { display: inline-flex; align-items: center; gap: 11px; min-height: 28px; }
+.access-menu { display: inline-flex; align-items: center; justify-content: flex-end; flex-wrap: wrap; gap: 8px 11px; max-width: 420px; min-height: 28px; }
 .access-menu-loading { width: 48px; border-bottom: 1px solid var(--line); opacity: .55; }
 .access-menu-link { color: var(--muted); font-size: 9px; letter-spacing: .1em; text-transform: uppercase; white-space: nowrap; transition: color .2s ease, border-color .2s ease; }
 .access-menu-link:hover, .access-menu-link:focus-visible, .access-menu-link.is-active { border-bottom: 1px solid var(--ink); color: var(--ink); }
 .access-menu-signin { border-bottom: 1px solid var(--ink); color: var(--ink); }
+.access-menu-workspace { color: var(--rust); }
 .account-shell, .manage-shell { padding-top: clamp(45px, 7vw, 88px); padding-bottom: 110px; }
 .account-header, .manage-header { display: flex; align-items: end; justify-content: space-between; gap: 30px; border-bottom: 1px solid var(--line); padding-bottom: 48px; }
 .account-header h1, .manage-header h1 { margin: 12px 0 0; font-size: clamp(52px, 8vw, 104px); font-weight: 400; letter-spacing: -.07em; line-height: .9; }
@@ -1698,6 +1699,11 @@ button:disabled, .button:disabled { cursor: not-allowed; opacity: .45; }
 
 .client-portal { width: min(1280px, calc(100% - 48px)); margin: 0 auto; padding: 0 0 90px; }
 .client-portal-header { padding-top: 48px; }
+.workspace-breadcrumb { display: flex; align-items: center; flex-wrap: wrap; gap: 8px; margin-bottom: 25px; color: #7890a5; font-size: 10px; letter-spacing: .04em; }
+.workspace-breadcrumb a { color: #1769d2; text-decoration: none; }
+.workspace-breadcrumb a:hover, .workspace-breadcrumb a:focus-visible { text-decoration: underline; text-underline-offset: 3px; }
+.workspace-breadcrumb span:last-child { color: #0b2239; font-weight: 600; }
+.client-portal-header .workspace-breadcrumb { margin-bottom: 30px; }
 .client-portal-layout { display: grid; grid-template-columns: 232px minmax(0, 1fr); gap: 24px; align-items: start; }
 .client-portal-sidebar { position: sticky; top: 18px; display: grid; gap: 23px; border: 1px solid #c9d9e8; background: #fff; padding: 18px 12px; }
 .client-portal-sidebar-heading { display: grid; gap: 7px; padding: 2px 8px 15px; border-bottom: 1px solid #e0eaf3; }

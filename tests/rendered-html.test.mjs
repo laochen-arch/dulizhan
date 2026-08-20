@@ -46,7 +46,7 @@ test("keeps the storefront conversion and delivery controls rendered", async () 
 
   const admin = await render("/admin");
   const adminHtml = await admin.text();
-  assert.match(adminHtml, /Launch setup/);
+  assert.match(adminHtml, /Platform setup/);
   assert.match(adminHtml, /Client delivery/);
   const launchPanels = await readFile(new URL("../app/admin/launch-panels.tsx", import.meta.url), "utf8");
   assert.match(launchPanels, /Production launch setup/);
@@ -149,7 +149,7 @@ test("keeps V22 production control and durable delivery wizard in source", async
   assert.match(wizard, /Client delivery wizard/);
   assert.match(wizard, /Download package template/);
   assert.match(wizard, /Run all checks/);
-  assert.match(admin, /V22 control/);
+  assert.match(admin, /Delivery controls/);
   assert.match(deliveryRoute, /updateDeliveryRun/);
   assert.match(operationsRoute, /resolveOperationEvent/);
 });
@@ -544,7 +544,8 @@ test("keeps V34 platform commercial, referral and email identity loops", async (
   assert.match(header, /from "\.\/site-link"/);
   assert.doesNotMatch(header, /from "next\/link"/);
   assert.match(header, /auth\/login\?return_to=%2Fplatform/);
-  assert.match(header, /auth\/register\?return_to=%2Fplatform/);
+  assert.match(header, /申请入驻/);
+  assert.doesNotMatch(header, /auth\/register\?return_to=%2Fplatform/);
   assert.doesNotMatch(plans, /from "next\/link"/);
   assert.doesNotMatch(merchant, /from "next\/link"/);
   assert.doesNotMatch(clientPortal, /from "next\/link"/);
@@ -580,4 +581,25 @@ test("keeps V47 P0 portal delivery and identity recovery loops", async () => {
   assert.match(v32, /owner_invite_status/);
   assert.match(v32, /rotatePlatformApplicationAccessToken/);
   assert.match(migration, /owner_invite_token_hash/);
+});
+
+test("keeps role-specific navigation and canonical workspace entry points", async () => {
+  const storefrontHeader = await readFile(new URL("../app/components/site-header.tsx", import.meta.url), "utf8");
+  const accessMenu = await readFile(new URL("../app/components/storefront-access-menu.tsx", import.meta.url), "utf8");
+  const merchantWorkspace = await readFile(new URL("../app/client/client-portal.tsx", import.meta.url), "utf8");
+  const platformAdmin = await readFile(new URL("../app/admin/admin-v6.tsx", import.meta.url), "utf8");
+  const platformHeader = await readFile(new URL("../app/components/platform-portal-header.tsx", import.meta.url), "utf8");
+
+  assert.match(storefrontHeader, /slice\(0, 3\)/);
+  assert.doesNotMatch(storefrontHeader, />Track order<|>Wishlist</);
+  assert.match(accessMenu, /hasMerchantAccess/);
+  assert.match(accessMenu, /hasPlatformAccess/);
+  assert.match(merchantWorkspace, /selectSection/);
+  assert.match(merchantWorkspace, /params\.set\("section"/);
+  assert.match(merchantWorkspace, /workspace-breadcrumb/);
+  assert.match(platformAdmin, /roleVisibleAdminTabs/);
+  assert.match(platformAdmin, /Platform work/);
+  assert.match(platformAdmin, /workspace-breadcrumb/);
+  assert.match(platformHeader, /案例与资源/);
+  assert.doesNotMatch(platformHeader, /auth\/register\?return_to=%2Fplatform/);
 });

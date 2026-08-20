@@ -29,7 +29,7 @@ export function SiteHeader() {
       if (seen.has(item.href)) return false;
       seen.add(item.href);
       return true;
-    });
+    }).slice(0, 3);
   }, [config.navigation]);
   useEffect(() => {
     const timer = window.setTimeout(() => {
@@ -98,8 +98,6 @@ export function SiteHeader() {
         </Link>
         <nav id="storefront-main-navigation" className={`main-nav ${menuOpen ? "is-open" : ""}`} aria-label="Main navigation">
           {navigation.map((item) => <Link key={item.href} href={item.href} className={isActive(item.href) ? "is-active" : ""} aria-current={isActive(item.href) ? "page" : undefined} onClick={() => setMenuOpen(false)}>{item.label}</Link>)}
-          <Link href="/orders" className={isActive("/orders") ? "is-active" : ""} aria-current={isActive("/orders") ? "page" : undefined} onClick={() => setMenuOpen(false)}>Track order</Link>
-          <Link href="/wishlist" className={isActive("/wishlist") ? "is-active" : ""} aria-current={isActive("/wishlist") ? "page" : undefined} onClick={() => setMenuOpen(false)}>Wishlist</Link>
         </nav>
         <div className="nav-actions">
           <StorefrontAccessMenu />

@@ -26,6 +26,18 @@ type ClientOrderDetail = { order: PortalOrder & { shippingAddress: Record<string
 type MerchantAnalytics = { days: number; paidOrders: number; revenue: number; openAbandonedCheckouts: number; events: Array<{ eventType: string; count: number }> };
 type LaunchCenter = { readiness: { score: number; blockers: Array<{ key: string; label: string; detail: string; source: string }>; launch: { checks: Array<{ key: string; label: string; detail: string; done: boolean; required?: boolean }>; progress: { done: number; total: number } }; health: Array<{ key: string; status: string; detail: string; checkedAt: string }>; openOperations: number }; releases: Array<{ id: string; status: string; label: string; note: string | null; requestedByEmail: string; requestedAt: string; revisionId: string | null; publishedAt: string | null }>; diff: { totalChanges: number; changes: string[] }; operations: { orders: number; paidOrders: number; openAfterSales: number; lowStock: number; availableUnits: number; failedEvents: number } };
 
+const portalSectionLabels: Record<PortalSection, string> = {
+  brand: "Storefront settings",
+  products: "Products & inventory",
+  campaigns: "Marketing",
+  team: "Team & permissions",
+  orders: "Orders & fulfillment",
+  "after-sales": "After-sales",
+  operations: "Overview",
+  integrations: "Payments & email",
+};
+const portalSectionIds = Object.keys(portalSectionLabels) as PortalSection[];
+
 const csvHeaders = ["id", "name", "slug", "shortName", "category", "sku", "status", "featured", "price", "compareAt", "description", "details", "image", "images", "alt", "badge", "colors", "tags", "stock"] as const;
 
 function csvEscape(value: unknown) {
@@ -72,7 +84,10 @@ export function ClientPortal({ userName, mode = "client" }: { userName: string; 
   const [scheduleForm, setScheduleForm] = useState({ targetType: "coupon" as CampaignSchedule["targetType"], targetId: "", startsAt: "", endsAt: "" });
   const [teamMembers, setTeamMembers] = useState<MerchantTeamMember[]>([]);
   const [teamForm, setTeamForm] = useState({ email: "", role: "merchant_staff" as MerchantTeamMember["role"] });
-  const [section, setSection] = useState<PortalSection>(mode === "merchant" ? "products" : "brand");
+  const [section, setSection] = useState<PortalSection>(() => {
+    const requested = searchParams.get("section") as PortalSection | null;
+    return requested && portalSectionIds.includes(requested) ? requested : mode === "merchant" ? "operations" : "brand";
+  });
   const [brand, setBrand] = useState({ name: "", mark: "", descriptor: "", tagline: "", hero: "", contactEmail: "", tradeEmail: "" });
   const [colors, setColors] = useState<Record<string, string>>({});
   const [products, setProducts] = useState<PortalProduct[]>([]);
@@ -149,16 +164,31 @@ export function ClientPortal({ userName, mode = "client" }: { userName: string; 
   const merchantRoleLabel = overview?.merchantRole === "merchant_owner" ? "Merchant owner" : overview?.merchantRole === "merchant_manager" ? "Merchant manager" : overview?.merchantRole === "merchant_staff" ? "Merchant staff" : overview?.role || "Workspace";
   const workspaceNavGroups = useMemo<WorkspaceNavGroup[]>(() => {
     if (mode !== "merchant") {
-      return [{ label: "Site operations", items: [{ id: "brand", label: "Storefront setup" }, { id: "products", label: "Products & stock" }, { id: "orders", label: "Orders" }, { id: "after-sales", label: "After-sales" }, { id: "operations", label: "Launch & analytics" }, { id: "integrations", label: "Payments & email" }] }];
+      return [{ label: "Storefront delivery", items: [{ id: "brand", label: "Storefront settings" }, { id: "products", label: "Products & stock" }, { id: "operations", label: "Launch & analytics" }, { id: "integrations", label: "Payments & email" }] }];
     }
     const has = (capability: string) => capabilities.has(capability);
     const item = (id: PortalSection, label: string) => ({ id, label });
     return [
-      { label: "Storefront", items: [item("brand", "Storefront setup"), item("products", "Products & inventory"), ...(has("marketing.read") ? [item("campaigns", "Marketing")] : [])].filter((navItem) => navItem.id !== "brand" || has("merchant.storefront.write")) },
+      { label: "Store management", items: [item("operations", "Overview"), ...(has("merchant.storefront.write") ? [item("brand", "Storefront settings")] : []), ...(has("products.read") ? [item("products", "Products & inventory")] : []), ...(has("marketing.read") ? [item("campaigns", "Marketing")] : [])] },
       { label: "Sales & service", items: [...(has("orders.read") ? [item("orders", "Orders & fulfillment")] : []), ...(has("after-sales.read") ? [item("after-sales", "After-sales")] : [])] },
-      { label: "Workspace", items: [item("operations", "Analytics & launch"), ...(canConfigure ? [item("integrations", "Payments & email")] : []), ...(canTeam ? [item("team", "Team access")] : [])] },
+      { label: "Workspace", items: [...(canConfigure ? [item("integrations", "Payments & email")] : []), ...(canTeam ? [item("team", "Team & permissions")] : [])] },
     ].filter((group) => group.items.length);
   }, [canConfigure, canTeam, capabilities, mode]);
+  const selectSection = useCallback((nextSection: PortalSection) => {
+    setSection(nextSection);
+    const params = new URLSearchParams(window.location.search);
+    params.set("section", nextSection);
+    params.set("siteId", siteId);
+    window.history.pushState({}, "", `${mode === "merchant" ? "/merchant" : "/client"}?${params.toString()}`);
+  }, [mode, siteId]);
+  useEffect(() => {
+    const syncSectionFromHistory = () => {
+      const requested = new URLSearchParams(window.location.search).get("section") as PortalSection | null;
+      if (requested && portalSectionIds.includes(requested)) setSection(requested);
+    };
+    window.addEventListener("popstate", syncSectionFromHistory);
+    return () => window.removeEventListener("popstate", syncSectionFromHistory);
+  }, []);
   const paypal = overview?.integrations.find((item) => item.provider === "paypal");
   const resend = overview?.integrations.find((item) => item.provider === "resend");
 
@@ -468,12 +498,12 @@ export function ClientPortal({ userName, mode = "client" }: { userName: string; 
 
   return <main className="client-portal">
     <MerchantWorkspaceTopbar siteName={activeSite?.name || overview.siteId} userName={userName} accessLabel={merchantRoleLabel} />
-    <header className="client-portal-header"><div><p className="eyebrow">{mode === "merchant" ? "Merchant workspace / Store operations" : "Merchant workspace / Storefront operations"}</p><h1>{mode === "merchant" ? "Operate " + (activeSite?.name || overview.siteId) + "." : "Run " + (activeSite?.name || overview.siteId) + " yourself."}</h1><p className="v6-muted">Signed in as {userName}. Products, inventory, orders and storefront changes stay isolated to this merchant site.</p></div><div className="client-portal-actions"><button type="button" className="button button-outline" onClick={() => void copyPreviewShare()} disabled={!canEdit || busy}>Copy draft link</button>{mode === "merchant" && <a className="button button-dark" href={"/preview?siteId=" + encodeURIComponent(siteId)} target="_blank" rel="noreferrer">Preview storefront →</a>}</div></header>
+    <header className="client-portal-header"><nav className="workspace-breadcrumb" aria-label="Breadcrumb"><a href="/merchant">Merchant workspace</a><span aria-hidden="true">/</span><span>{activeSite?.name || overview.siteId}</span><span aria-hidden="true">/</span><span>{portalSectionLabels[section]}</span></nav><div><p className="eyebrow">Merchant workspace / Store operations</p><h1>Operate {activeSite?.name || overview.siteId}.</h1><p className="v6-muted">Signed in as {userName}. Products, inventory, orders and storefront changes stay isolated to this merchant site.</p></div><div className="client-portal-actions"><button type="button" className="button button-outline" onClick={() => void copyPreviewShare()} disabled={!canEdit || busy}>Copy draft link</button>{mode === "merchant" && <a className="button button-dark" href={"/preview?siteId=" + encodeURIComponent(siteId)} target="_blank" rel="noreferrer">Preview storefront →</a>}</div></header>
     {notice && <div className={`client-notice ${notice.tone}`} role="status">{notice.text}<button type="button" onClick={() => setNotice(null)} aria-label="Dismiss notification">×</button></div>}
     <div className="client-portal-layout">
       <aside className="client-portal-sidebar" aria-label={mode === "merchant" ? "Merchant workspace navigation" : "Storefront operations navigation"}>
         <div className="client-portal-sidebar-heading"><span className="eyebrow">Current workspace</span><strong>{merchantRoleLabel}</strong><small>Only functions available to this role are shown.</small></div>
-        {workspaceNavGroups.map((group) => <div className="client-portal-sidebar-group" key={group.label}><p>{group.label}</p>{group.items.map((item) => <button type="button" key={item.id} className={section === item.id ? "is-active" : ""} onClick={() => setSection(item.id)} aria-current={section === item.id ? "page" : undefined}>{item.label}</button>)}</div>)}
+        {workspaceNavGroups.map((group) => <div className="client-portal-sidebar-group" key={group.label}><p>{group.label}</p>{group.items.map((item) => <button type="button" key={item.id} className={section === item.id ? "is-active" : ""} onClick={() => selectSection(item.id)} aria-current={section === item.id ? "page" : undefined}>{item.label}</button>)}</div>)}
       </aside>
       <div className="client-portal-content">
         <section className="client-portal-toolbar"><label className="v6-field"><span>{mode === "merchant" ? "Merchant storefront" : "Client site"}</span><select value={siteId} onChange={(event) => setSiteId(event.target.value)}>{sites.map((site) => <option key={site.id} value={site.id}>{site.name} · {site.slug}</option>)}</select></label><div className="client-stat"><span>Role</span><strong>{overview.merchantRole || overview.role}</strong></div><div className="client-stat"><span>Draft products</span><strong>{overview.snapshot.catalog.length}</strong></div><div className="client-stat"><span>Orders</span><strong>{overview.orders.length}</strong></div><div className="client-stat"><span>Available units</span><strong>{overview.inventory.units}</strong></div></section>
