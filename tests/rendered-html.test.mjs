@@ -553,3 +553,31 @@ test("keeps V34 platform commercial, referral and email identity loops", async (
   assert.equal((await render("/auth/login")).status, 200);
   assert.equal((await render("/auth/register")).status, 200);
 });
+
+test("keeps V47 P0 portal delivery and identity recovery loops", async () => {
+  const applicationApi = await readFile(new URL("../app/api/platform/applications/route.ts", import.meta.url), "utf8");
+  const accessApi = await readFile(new URL("../app/api/platform/applications/access/route.ts", import.meta.url), "utf8");
+  const ownerInviteApi = await readFile(new URL("../app/api/platform/applications/owner-invite/route.ts", import.meta.url), "utf8");
+  const ownerPage = await readFile(new URL("../app/platform/owner-activate/page.tsx", import.meta.url), "utf8");
+  const supportApi = await readFile(new URL("../app/api/platform/applications/support/route.ts", import.meta.url), "utf8");
+  const admin = await readFile(new URL("../app/admin/platform-applications-panel.tsx", import.meta.url), "utf8");
+  const auth = await readFile(new URL("../db/email-auth.ts", import.meta.url), "utf8");
+  const v32 = await readFile(new URL("../db/v32.ts", import.meta.url), "utf8");
+  const migration = await readFile(new URL("../drizzle/0020_v47_platform_portal_p0.sql", import.meta.url), "utf8");
+
+  assert.match(applicationApi, /site_creating/);
+  assert.match(applicationApi, /selectPlatformPlan/);
+  assert.match(applicationApi, /createPlatformOwnerInvite/);
+  assert.match(accessApi, /resend_access_link/);
+  assert.match(ownerInviteApi, /acceptPlatformOwnerInvite/);
+  assert.match(ownerPage, /owner-invite/);
+  assert.match(supportApi, /updatePlatformSupportTicket/);
+  assert.match(admin, /View details/);
+  assert.match(admin, /Save domain status/);
+  assert.match(admin, /Retry/);
+  assert.match(auth, /EMAIL_NOT_VERIFIED/);
+  assert.match(auth, /email_verified_at IS NOT NULL/);
+  assert.match(v32, /owner_invite_status/);
+  assert.match(v32, /rotatePlatformApplicationAccessToken/);
+  assert.match(migration, /owner_invite_token_hash/);
+});

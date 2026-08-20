@@ -791,6 +791,11 @@ async function initializeCmsSchema(database: D1DatabaseLike) {
       status TEXT NOT NULL DEFAULT 'submitted',
       assigned_site_id TEXT,
       admin_note TEXT,
+      owner_invite_token_hash TEXT,
+      owner_invite_expires_at TEXT,
+      owner_invite_status TEXT NOT NULL DEFAULT 'not_sent',
+      owner_invited_at TEXT,
+      owner_activated_at TEXT,
       created_at TEXT NOT NULL,
       updated_at TEXT NOT NULL
     )`),
@@ -982,6 +987,11 @@ async function initializeCmsSchema(database: D1DatabaseLike) {
   await ensureColumn(database, "platform_applications", "agreement_accepted_at", "TEXT");
   await ensureColumn(database, "platform_applications", "locale", "TEXT NOT NULL DEFAULT 'en-US'");
   await ensureColumn(database, "platform_applications", "referral_code", "TEXT");
+  await ensureColumn(database, "platform_applications", "owner_invite_token_hash", "TEXT");
+  await ensureColumn(database, "platform_applications", "owner_invite_expires_at", "TEXT");
+  await ensureColumn(database, "platform_applications", "owner_invite_status", "TEXT NOT NULL DEFAULT 'not_sent'");
+  await ensureColumn(database, "platform_applications", "owner_invited_at", "TEXT");
+  await ensureColumn(database, "platform_applications", "owner_activated_at", "TEXT");
   await database.prepare("CREATE UNIQUE INDEX IF NOT EXISTS cms_inventory_tx_idempotency_unique ON cms_inventory_transactions(idempotency_key) WHERE idempotency_key IS NOT NULL").run();
 }
 

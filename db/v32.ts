@@ -1,7 +1,8 @@
 import { ensureCmsSchema, getCmsDatabase, getMediaBucket, insertAsset, importClientData, normalizeDomain, readSnapshot, recordAudit } from "./cms";
+import { upsertMerchantMember } from "./v25";
 import { getPlatformTemplate } from "../app/platform/template-catalog";
 
-export type PlatformApplicationStatus = "draft" | "submitted" | "reviewing" | "needs_info" | "approved" | "rejected" | "site_created";
+export type PlatformApplicationStatus = "draft" | "submitted" | "reviewing" | "needs_info" | "approved" | "commercial_pending" | "site_creating" | "onboarding_failed" | "rejected" | "site_created" | "live" | "suspended";
 export type PlatformApplicationActorRole = "platform" | "applicant";
 
 export type PlatformProductImport = {
@@ -37,6 +38,9 @@ export type PlatformApplication = {
   status: PlatformApplicationStatus;
   assignedSiteId: string | null;
   adminNote: string | null;
+  ownerInviteStatus: "not_sent" | "pending" | "accepted" | "expired";
+  ownerInvitedAt: string | null;
+  ownerActivatedAt: string | null;
   createdAt: string;
   updatedAt: string;
 };
@@ -137,6 +141,9 @@ type ApplicationRow = {
   status: string;
   assignedSiteId: string | null;
   adminNote: string | null;
+  ownerInviteStatus: string | null;
+  ownerInvitedAt: string | null;
+  ownerActivatedAt: string | null;
   createdAt: string;
   updatedAt: string;
 };
@@ -149,7 +156,8 @@ const APPLICATION_SELECT = `SELECT id, user_id AS userId, email, applicant_type 
     template_site_id AS templateSiteId, brand_logo_url AS brandLogoUrl, brand_primary_color AS brandPrimaryColor,
     home_copy AS homeCopy, product_import_payload AS productImportPayload, agreement_version AS agreementVersion,
     agreement_accepted_at AS agreementAcceptedAt, locale, referral_code AS referralCode, status, assigned_site_id AS assignedSiteId,
-    admin_note AS adminNote, created_at AS createdAt, updated_at AS updatedAt
+    admin_note AS adminNote, owner_invite_status AS ownerInviteStatus, owner_invited_at AS ownerInvitedAt,
+    owner_activated_at AS ownerActivatedAt, created_at AS createdAt, updated_at AS updatedAt
   FROM platform_applications`;
 
 function now() {
@@ -157,7 +165,7 @@ function now() {
 }
 
 function statusValue(value: string): PlatformApplicationStatus {
-  return ["draft", "submitted", "reviewing", "needs_info", "approved", "rejected", "site_created"].includes(value) ? value as PlatformApplicationStatus : "submitted";
+  return ["draft", "submitted", "reviewing", "needs_info", "approved", "commercial_pending", "site_creating", "onboarding_failed", "rejected", "site_created", "live", "suspended"].includes(value) ? value as PlatformApplicationStatus : "submitted";
 }
 
 function clean(value: unknown, max: number) {
@@ -238,6 +246,9 @@ function applicationFromRow(row: ApplicationRow): PlatformApplication {
     status: statusValue(row.status),
     assignedSiteId: row.assignedSiteId || null,
     adminNote: row.adminNote || null,
+    ownerInviteStatus: ["pending", "accepted", "expired"].includes(String(row.ownerInviteStatus)) ? String(row.ownerInviteStatus) as PlatformApplication["ownerInviteStatus"] : "not_sent",
+    ownerInvitedAt: row.ownerInvitedAt ? String(row.ownerInvitedAt) : null,
+    ownerActivatedAt: row.ownerActivatedAt ? String(row.ownerActivatedAt) : null,
     createdAt: row.createdAt,
     updatedAt: row.updatedAt,
   };
@@ -315,7 +326,7 @@ export async function createPlatformApplication(input: {
   if (!contactName || !companyName || !brandName || !category) throw new Error("INVALID_APPLICATION");
   if (!draft && input.agreementAccepted !== true) throw new Error("AGREEMENT_REQUIRED");
   const duplicate = await database.prepare(`SELECT id FROM platform_applications
-    WHERE lower(email) = lower(?1) AND status IN ('submitted', 'reviewing', 'needs_info', 'approved', 'site_created')
+    WHERE lower(email) = lower(?1) AND status IN ('submitted', 'reviewing', 'needs_info', 'approved', 'commercial_pending', 'site_creating', 'onboarding_failed', 'site_created', 'live')
     ORDER BY created_at DESC LIMIT 1`).bind(email).first<{ id: string }>();
   if (duplicate) throw new Error(`DUPLICATE_APPLICATION:${duplicate.id}`);
   const timestamp = now();
@@ -413,9 +424,14 @@ export async function updatePlatformApplication(id: string, input: {
     submitted: ["submitted", "reviewing", "needs_info", "approved", "rejected"],
     reviewing: ["reviewing", "needs_info", "approved", "rejected"],
     needs_info: ["needs_info", "draft", "submitted", "reviewing", "approved", "rejected"],
-    approved: ["approved", "site_created", "rejected"],
+    approved: ["approved", "commercial_pending", "site_creating", "site_created", "rejected"],
+    commercial_pending: ["commercial_pending", "approved", "site_creating", "rejected"],
+    site_creating: ["site_creating", "onboarding_failed", "site_created", "rejected"],
+    onboarding_failed: ["onboarding_failed", "approved", "site_creating", "rejected"],
     rejected: ["rejected", "draft", "reviewing", "needs_info", "approved"],
-    site_created: ["site_created"],
+    site_created: ["site_created", "live", "suspended"],
+    live: ["live", "suspended"],
+    suspended: ["suspended", "live"],
   };
   const creatingSite = status === "site_created" && Boolean(input.assignedSiteId || current.assignedSiteId) && actor?.role === "platform";
   if (status === "site_created" && !(input.assignedSiteId || current.assignedSiteId)) throw new Error("SITE_REQUIRED_FOR_CREATED_STATUS");
@@ -479,6 +495,63 @@ export async function updatePlatformApplication(id: string, input: {
   });
   if (actor && current.assignedSiteId) await recordAudit(database, current.assignedSiteId, { userId: actor.userId, email: actor.email }, "platform.application.updated", "platform_application", id, { status, actorRole: actor.role });
   return getPlatformApplication(id);
+}
+
+export async function rotatePlatformApplicationAccessToken(id: string, actor: ApplicationActor) {
+  const database = getCmsDatabase();
+  await ensureCmsSchema(database);
+  const application = await getPlatformApplication(id);
+  if (!application) throw new Error("APPLICATION_NOT_FOUND");
+  if (actor.role === "applicant" && actor.email.toLowerCase() !== application.email.toLowerCase() && actor.userId !== application.userId) throw new Error("FORBIDDEN");
+  const accessToken = createAccessToken();
+  const accessTokenHash = await hashAccessToken(accessToken);
+  const accessTokenExpiresAt = new Date(Date.now() + 90 * 24 * 60 * 60 * 1000).toISOString();
+  await database.prepare("UPDATE platform_applications SET access_token_hash = ?1, access_token_expires_at = ?2, updated_at = ?3 WHERE id = ?4")
+    .bind(accessTokenHash, accessTokenExpiresAt, now(), id).run();
+  await recordApplicationEvent(database, id, { eventType: "access_link_issued", actor, payload: { expiresAt: accessTokenExpiresAt } });
+  return { accessToken, accessTokenExpiresAt, statusUrl: `/platform/applications?application=${encodeURIComponent(id)}&token=${encodeURIComponent(accessToken)}` };
+}
+
+export async function createPlatformOwnerInvite(applicationId: string, actor: ApplicationActor) {
+  if (actor.role !== "platform") throw new Error("FORBIDDEN");
+  const database = getCmsDatabase();
+  await ensureCmsSchema(database);
+  const application = await getPlatformApplication(applicationId);
+  if (!application) throw new Error("APPLICATION_NOT_FOUND");
+  if (!application.assignedSiteId) throw new Error("SITE_REQUIRED_FOR_OWNER_INVITE");
+  const rawToken = createAccessToken();
+  const tokenHash = await hashAccessToken(rawToken);
+  const expiresAt = new Date(Date.now() + 7 * 24 * 60 * 60 * 1000).toISOString();
+  const timestamp = now();
+  await database.prepare(`UPDATE platform_applications SET owner_invite_token_hash = ?1, owner_invite_expires_at = ?2,
+      owner_invite_status = 'pending', owner_invited_at = ?3, owner_activated_at = NULL, updated_at = ?3 WHERE id = ?4`)
+    .bind(tokenHash, expiresAt, timestamp, applicationId).run();
+  await recordApplicationEvent(database, applicationId, { eventType: "owner_invite_created", actor, payload: { expiresAt, recipient: application.email } });
+  return { token: rawToken, expiresAt, application: await getPlatformApplication(applicationId) };
+}
+
+export async function acceptPlatformOwnerInvite(applicationId: string, rawToken: string, actor: ApplicationActor) {
+  if (actor.role !== "applicant") throw new Error("FORBIDDEN");
+  const database = getCmsDatabase();
+  await ensureCmsSchema(database);
+  const application = await getPlatformApplication(applicationId);
+  if (!application) throw new Error("APPLICATION_NOT_FOUND");
+  if (actor.email.toLowerCase() !== application.email.toLowerCase()) throw new Error("OWNER_INVITE_EMAIL_MISMATCH");
+  const row = await database.prepare(`SELECT owner_invite_token_hash AS tokenHash, owner_invite_expires_at AS expiresAt,
+      owner_invite_status AS status FROM platform_applications WHERE id = ?1`).bind(applicationId).first<{ tokenHash: string | null; expiresAt: string | null; status: string | null }>();
+  if (!row?.tokenHash || row.status !== "pending") throw new Error("OWNER_INVITE_INVALID");
+  if (row.expiresAt && row.expiresAt <= now()) {
+    await database.prepare("UPDATE platform_applications SET owner_invite_status = 'expired', updated_at = ?1 WHERE id = ?2").bind(now(), applicationId).run();
+    throw new Error("OWNER_INVITE_EXPIRED");
+  }
+  if (await hashAccessToken(rawToken) !== row.tokenHash) throw new Error("OWNER_INVITE_INVALID");
+  if (!application.assignedSiteId) throw new Error("SITE_REQUIRED_FOR_OWNER_INVITE");
+  await upsertMerchantMember(application.assignedSiteId, { userId: actor.userId, email: actor.email, role: "merchant_owner" }, "invited");
+  const timestamp = now();
+  await database.prepare(`UPDATE platform_applications SET owner_invite_status = 'accepted', owner_invite_token_hash = NULL,
+      owner_invite_expires_at = NULL, owner_activated_at = ?1, updated_at = ?1 WHERE id = ?2`).bind(timestamp, applicationId).run();
+  await recordApplicationEvent(database, applicationId, { eventType: "owner_invite_accepted", actor, payload: { siteId: application.assignedSiteId } });
+  return getPlatformApplication(applicationId);
 }
 
 export async function listPlatformApplicationEvents(applicationId: string): Promise<PlatformApplicationEvent[]> {
@@ -603,6 +676,20 @@ export async function createPlatformSupportTicket(applicationId: string, input: 
   await database.prepare(`INSERT INTO platform_support_tickets (id, application_id, subject, message, status, created_by, created_by_email, assigned_to, admin_note, created_at, updated_at)
     VALUES (?1, ?2, ?3, ?4, 'open', ?5, ?6, NULL, NULL, ?7, ?7)`).bind(`ticket_${crypto.randomUUID()}`, applicationId, subject, message, actor.userId, actor.email, timestamp).run();
   await recordApplicationEvent(database, applicationId, { eventType: "support_ticket_created", actor, payload: { subject } });
+  return listPlatformSupportTickets(applicationId);
+}
+
+export async function updatePlatformSupportTicket(applicationId: string, ticketId: string, input: { status?: string; assignedTo?: string | null; adminNote?: string | null }, actor: ApplicationActor) {
+  if (actor.role !== "platform") throw new Error("FORBIDDEN");
+  const database = getCmsDatabase();
+  await ensureCmsSchema(database);
+  const current = await database.prepare("SELECT id, status FROM platform_support_tickets WHERE id = ?1 AND application_id = ?2").bind(ticketId, applicationId).first<{ id: string; status: string }>();
+  if (!current) throw new Error("TICKET_NOT_FOUND");
+  const status = ["open", "in_progress", "resolved"].includes(String(input.status)) ? String(input.status) : current.status;
+  const timestamp = now();
+  await database.prepare(`UPDATE platform_support_tickets SET status = ?1, assigned_to = ?2, admin_note = ?3, updated_at = ?4
+    WHERE id = ?5 AND application_id = ?6`).bind(status, clean(input.assignedTo, 160) || null, clean(input.adminNote, 3000) || null, timestamp, ticketId, applicationId).run();
+  await recordApplicationEvent(database, applicationId, { eventType: "support_ticket_updated", actor, payload: { ticketId, status } });
   return listPlatformSupportTickets(applicationId);
 }
 

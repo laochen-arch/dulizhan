@@ -11,7 +11,7 @@ export async function POST(request: Request) {
     const result = await registerEmailUser({ email: payload.email || "", password: payload.password || "", displayName: payload.displayName || "" });
     const verificationSent = await sendAuthEmail({ request, to: result.user.email, kind: "verify", token: result.verificationToken });
     const response = Response.json({ user: result.user, verificationSent }, { status: 201, headers: { "Cache-Control": "no-store" } });
-    response.headers.append("Set-Cookie", sessionCookie(result.sessionToken));
+    if (result.sessionToken) response.headers.append("Set-Cookie", sessionCookie(result.sessionToken));
     return response;
   } catch (error) {
     const message = error instanceof Error ? error.message : "REGISTER_FAILED";

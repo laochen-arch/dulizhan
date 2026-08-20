@@ -14,6 +14,7 @@ type NotificationRequest = {
   eventType: string;
   dedupeKey: string;
   accessToken?: string | null;
+  urlOverride?: string;
 };
 
 function escapeHtml(value: string) {
@@ -22,8 +23,8 @@ function escapeHtml(value: string) {
 
 function statusLabel(status: string, locale: PlatformApplication["locale"]) {
   const labels = locale === "zh-CN"
-    ? { draft: "草稿", submitted: "已提交", reviewing: "审核中", needs_info: "需要补充资料", approved: "审核通过", rejected: "未通过", site_created: "站点已创建" }
-    : { draft: "Draft", submitted: "Submitted", reviewing: "In review", needs_info: "Action required", approved: "Approved", rejected: "Not approved", site_created: "Storefront ready" };
+    ? { draft: "草稿", submitted: "已提交", reviewing: "审核中", needs_info: "需要补充资料", approved: "审核通过", commercial_pending: "待签署协议", site_creating: "站点创建中", onboarding_failed: "站点配置失败", rejected: "未通过", site_created: "站点已创建", live: "已上线", suspended: "已暂停" }
+    : { draft: "Draft", submitted: "Submitted", reviewing: "In review", needs_info: "Action required", approved: "Approved", commercial_pending: "Agreement pending", site_creating: "Storefront creating", onboarding_failed: "Onboarding failed", rejected: "Not approved", site_created: "Storefront ready", live: "Live", suspended: "Suspended" };
   return labels[status as keyof typeof labels] || status.replaceAll("_", " ");
 }
 
@@ -35,12 +36,16 @@ function notificationCopy(application: PlatformApplication, eventType: string) {
     if (eventType === "supplement_submitted") return { subject: "补充资料已收到", title: "补充资料已收到", body: "平台团队会继续审核这次更新。" };
     if (eventType === "domain_requested") return { subject: "域名接入申请已提交", title: "域名接入申请已提交", body: "平台团队会在申请工作区更新域名处理状态。" };
     if (eventType === "domain_status_changed") return { subject: "域名接入状态已更新", title: "域名接入状态已更新", body: application.adminNote || "请打开申请工作区查看域名处理结果。" };
+    if (eventType === "owner_invite") return { subject: "商户负责人邀请", title: "你的商户负责人账号已准备好", body: "请使用申请邮箱登录并接受邀请，激活商户工作台权限。" };
+    if (eventType === "access_link_issued") return { subject: "申请工作区安全链接", title: "你的申请工作区链接已更新", body: "请使用这条安全链接继续查看申请进度和补充资料。" };
     return { subject: `入驻申请状态更新：${status}`, title: `申请状态：${status}`, body: application.adminNote || "请打开申请工作区查看下一步操作。" };
   }
   if (eventType === "application_submitted") return { subject: "Your merchant application was submitted", title: "Your application is on its way", body: "The platform team will keep the review status updated in your launch workspace." };
   if (eventType === "supplement_submitted") return { subject: "Your updated launch materials were received", title: "Your updates are back with the platform team", body: "The platform team will continue reviewing the updated application." };
   if (eventType === "domain_requested") return { subject: "Your domain request was submitted", title: "Your domain request is on its way", body: "The platform team will update the domain status in your launch workspace." };
   if (eventType === "domain_status_changed") return { subject: "Your domain request was updated", title: "Your domain request was updated", body: application.adminNote || "Open your launch workspace to see the domain result." };
+  if (eventType === "owner_invite") return { subject: "Your merchant owner invitation is ready", title: "Activate your merchant workspace", body: "Sign in with the application email and accept the invitation to manage the new storefront." };
+  if (eventType === "access_link_issued") return { subject: "Your secure application workspace link", title: "Your application workspace link was refreshed", body: "Use this secure link to continue your application and view the latest status." };
   return { subject: `Application status update: ${status}`, title: `Application status: ${status}`, body: application.adminNote || "Open your launch workspace to see the next action." };
 }
 
@@ -50,10 +55,10 @@ function applicationWorkspaceUrl(request: Request, applicationId: string, access
   return url.toString();
 }
 
-async function deliver(notification: PlatformApplicationNotification, application: PlatformApplication, request: Request, accessToken?: string | null) {
+async function deliver(notification: PlatformApplicationNotification, application: PlatformApplication, request: Request, accessToken?: string | null, urlOverride?: string) {
   const bindings = env as unknown as { RESEND_API_KEY?: string; RESEND_FROM_EMAIL?: string };
   const copy = notificationCopy(application, notification.eventType);
-  const workspaceUrl = applicationWorkspaceUrl(request, application.id, accessToken);
+  const workspaceUrl = urlOverride || applicationWorkspaceUrl(request, application.id, accessToken);
   let attempts = notification.attempts;
 
   if (!bindings.RESEND_API_KEY || !bindings.RESEND_FROM_EMAIL) {
@@ -104,6 +109,14 @@ export async function sendPlatformApplicationNotification(input: NotificationReq
   });
   if (notification.status === "sent") return notification;
   return deliver(notification, input.application, input.request, input.accessToken);
+}
+
+export async function sendPlatformOwnerInviteNotification(input: { request: Request; application: PlatformApplication; inviteToken: string; dedupeKey: string }) {
+  const copy = notificationCopy(input.application, "owner_invite");
+  const inviteUrl = new URL(`/platform/owner-activate?application=${encodeURIComponent(input.application.id)}&token=${encodeURIComponent(input.inviteToken)}`, input.request.url).toString();
+  const notification = await createPlatformApplicationNotification({ applicationId: input.application.id, dedupeKey: input.dedupeKey, eventType: "owner_invite", recipient: input.application.email, subject: copy.subject });
+  if (notification.status === "sent") return notification;
+  return deliver(notification, input.application, input.request, null, inviteUrl);
 }
 
 export async function retryPlatformApplicationNotification(input: { request: Request; applicationId: string; notificationId: string }) {

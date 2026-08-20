@@ -55,8 +55,7 @@ export async function registerEmailUser(input: { email: string; password: string
   const user = await findEmailUser(email);
   if (!user) throw new Error("AUTH_USER_NOT_CREATED");
   const verificationToken = await issueEmailAuthToken(id, "verify_email");
-  const sessionToken = await createEmailSession(id);
-  return { user, verificationToken, sessionToken };
+  return { user, verificationToken, sessionToken: null };
 }
 
 export async function loginEmailUser(emailInput: string, password: string) {
@@ -65,6 +64,7 @@ export async function loginEmailUser(emailInput: string, password: string) {
   const database = getCmsDatabase();
   const row = await database.prepare("SELECT id, email, display_name AS displayName, email_verified_at AS emailVerifiedAt, password_hash AS passwordHash, password_salt AS passwordSalt FROM email_users WHERE lower(email) = lower(?1) AND status = 'active'").bind(email).first<Record<string, unknown>>();
   if (!row || typeof row.id !== "string" || typeof row.passwordHash !== "string" || typeof row.passwordSalt !== "string" || await hashPassword(password, row.passwordSalt) !== row.passwordHash) throw new Error("INVALID_CREDENTIALS");
+  if (!row.emailVerifiedAt) throw new Error("EMAIL_NOT_VERIFIED");
   return { user: userFromRow(row), sessionToken: await createEmailSession(String(row.id)) };
 }
 
@@ -82,7 +82,7 @@ export async function getEmailUserBySessionToken(rawToken: string) {
   const database = getCmsDatabase();
   const row = await database.prepare(`SELECT u.id, u.email, u.display_name AS displayName, u.email_verified_at AS emailVerifiedAt
     FROM email_sessions s JOIN email_users u ON u.id = s.user_id
-    WHERE s.token_hash = ?1 AND s.expires_at > ?2 AND u.status = 'active'`).bind(await hash(rawToken), now()).first<Record<string, unknown>>();
+    WHERE s.token_hash = ?1 AND s.expires_at > ?2 AND u.status = 'active' AND u.email_verified_at IS NOT NULL`).bind(await hash(rawToken), now()).first<Record<string, unknown>>();
   return row ? userFromRow(row) : null;
 }
 

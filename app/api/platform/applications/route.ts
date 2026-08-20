@@ -2,6 +2,7 @@ import { getChatGPTUser } from "../../../chatgpt-auth";
 import { createSiteFromTemplate, findMember } from "../../../../db/cms";
 import {
   applyPlatformApplicationToSite,
+  createPlatformOwnerInvite,
   createPlatformApplication,
   getPlatformApplication,
   getPlatformApplicationForAccess,
@@ -16,7 +17,7 @@ import {
 import { upsertMerchantMember } from "../../../../db/v25";
 import { attachPlatformReferral, getPlatformCommercialSnapshot, getPlatformPlan, getReferralCodeSummary, qualifyPlatformReferral, selectPlatformPlan } from "../../../../db/v34";
 import { applicationAccessCookieName } from "../application-access";
-import { sendPlatformApplicationNotification } from "../../../../app/platform/application-notifications";
+import { sendPlatformApplicationNotification, sendPlatformOwnerInviteNotification } from "../../../../app/platform/application-notifications";
 
 export const dynamic = "force-dynamic";
 
@@ -122,6 +123,8 @@ export async function PATCH(request: Request) {
       draft?: boolean;
       agreementAccepted?: boolean;
       agreementVersion?: string | null;
+      planId?: string;
+      billingInterval?: "monthly" | "annual";
     };
     if (!payload.id) return responseError("Application id is required.");
     const owner = await isPlatformOwner();
@@ -152,43 +155,50 @@ export async function PATCH(request: Request) {
         locale: payload.locale,
         referralCode: payload.referralCode,
       }, { userId: user?.userId || `application:${current.id}`, email: user?.email || current.email, role: "applicant" });
+      if (payload.planId) await selectPlatformPlan(payload.id, payload.planId, payload.billingInterval === "annual" ? "annual" : "monthly", { userId: user?.userId || `application:${current.id}`, email: user?.email || current.email, role: "applicant" });
       const notification = application && payload.draft !== true
         ? await sendPlatformApplicationNotification({ request, application, eventType: current.status === "draft" ? "application_submitted" : "supplement_submitted", dedupeKey: `${application.id}:${current.status === "draft" ? "application_submitted" : `supplement_submitted:${application.updatedAt}`}`, accessToken: payload.token })
         : null;
-      return Response.json({ application, notification }, { headers: { "Cache-Control": "no-store" } });
+      return Response.json({ application, notification, commercial: await getPlatformCommercialSnapshot(payload.id) }, { headers: { "Cache-Control": "no-store" } });
     }
     let assignedSiteId = payload.assignedSiteId;
     let status = payload.status;
-    if (payload.createSite && current.status !== "approved" && payload.status !== "approved") return responseError("请先将申请审核通过，再创建商户站点。", 409, "APPLICATION_NOT_APPROVED");
+    const platformActor = { userId: owner.userId, email: owner.email, role: "platform" as const };
+    if (payload.createSite && !["approved", "commercial_pending", "onboarding_failed", "site_creating"].includes(current.status) && payload.status !== "approved") return responseError("请先将申请审核通过，再创建商户站点。", 409, "APPLICATION_NOT_APPROVED");
     if (payload.createSite || (payload.status === "approved" && !current.assignedSiteId)) {
-      if (current.assignedSiteId) {
-        assignedSiteId = current.assignedSiteId;
-        status = "site_created";
-        try {
+      await updatePlatformApplication(current.id, { status: "site_creating", assignedSiteId: current.assignedSiteId, adminNote: "Storefront delivery is in progress." }, platformActor);
+      status = "site_created";
+      try {
+        if (current.assignedSiteId) {
+          assignedSiteId = current.assignedSiteId;
           await applyPlatformApplicationToSite(current.id, current.assignedSiteId, owner.userId, owner.email);
-        } catch {
-          await updatePlatformApplication(current.id, { status: "approved", assignedSiteId: current.assignedSiteId, adminNote: "Storefront exists. Onboarding materials need another retry from the platform team." }, { userId: owner.userId, email: owner.email, role: "platform" });
-          return responseError("站点已存在，但预配置资料暂未应用成功，请检查资料后重试。", 502, "ONBOARDING_APPLY_FAILED");
-        }
-      } else {
-        const created = await createSiteFromTemplate(current.brandName || current.companyName, `${slugify(current.brandName || current.companyName)}-${current.id.slice(-6)}`, current.templateSiteId || "default", owner.userId, owner.email);
-        assignedSiteId = created.id;
-        status = "site_created";
-        await upsertMerchantMember(created.id, { userId: current.userId || `applicant:${current.email}`, email: current.email, role: "merchant_owner" }, "invited");
-        try {
+        } else {
+          const created = await createSiteFromTemplate(current.brandName || current.companyName, `${slugify(current.brandName || current.companyName)}-${current.id.slice(-6)}`, current.templateSiteId || "default", owner.userId, owner.email);
+          assignedSiteId = created.id;
+          await upsertMerchantMember(created.id, { userId: current.userId || `applicant:${current.email}`, email: current.email, role: "merchant_owner" }, "invited");
           await applyPlatformApplicationToSite(current.id, created.id, owner.userId, owner.email);
-        } catch {
-          await updatePlatformApplication(current.id, { status: "approved", assignedSiteId: created.id, adminNote: "Storefront created. Onboarding materials need a retry from the platform team." }, { userId: owner.userId, email: owner.email, role: "platform" });
-          return responseError("站点已创建，但预配置资料暂未应用成功，请稍后重试。", 502, "ONBOARDING_APPLY_FAILED");
         }
+      } catch (deliveryError) {
+        const errorNote = deliveryError instanceof Error ? deliveryError.message : "Storefront delivery failed.";
+        await updatePlatformApplication(current.id, { status: "onboarding_failed", assignedSiteId: assignedSiteId || current.assignedSiteId, adminNote: `交付失败：${errorNote}。请修复资料后重试。` }, platformActor);
+        return responseError("站点交付未完成，已记录失败状态，请修复资料后重试。", 502, "ONBOARDING_APPLY_FAILED");
       }
     }
-    const application = await updatePlatformApplication(payload.id, { status, assignedSiteId, adminNote: payload.adminNote }, { userId: owner.userId, email: owner.email, role: "platform" });
-    if (application && ["approved", "site_created"].includes(application.status)) await qualifyPlatformReferral(application.id, { userId: owner.userId, email: owner.email, role: "platform" });
+    const application = await updatePlatformApplication(payload.id, { status, assignedSiteId, adminNote: payload.adminNote }, platformActor);
+    if (application && ["approved", "site_created", "live"].includes(application.status)) await qualifyPlatformReferral(application.id, platformActor);
     const notification = application && application.status !== current.status
       ? await sendPlatformApplicationNotification({ request, application, eventType: `status_${application.status}`, dedupeKey: `${application.id}:status:${application.status}` })
       : null;
-    return Response.json({ application, notification }, { headers: { "Cache-Control": "no-store" } });
+    let ownerInviteNotification = null;
+    let latestApplication = application;
+    if (application?.status === "site_created" && application.ownerInviteStatus !== "accepted") {
+      const invite = await createPlatformOwnerInvite(application.id, platformActor);
+      if (invite.application) {
+        latestApplication = invite.application;
+        ownerInviteNotification = await sendPlatformOwnerInviteNotification({ request, application: invite.application, inviteToken: invite.token, dedupeKey: `${invite.application.id}:owner_invite:${invite.expiresAt}` });
+      }
+    }
+    return Response.json({ application: latestApplication, notification, ownerInviteNotification }, { headers: { "Cache-Control": "no-store" } });
   } catch (error) {
     const message = error instanceof Error ? error.message : "Unable to update the application.";
     const status = message === "APPLICATION_NOT_FOUND" ? 404 : message === "FORBIDDEN" ? 403 : ["INVALID_STATUS_TRANSITION", "APPLICATION_NOT_EDITABLE", "APPLICATION_NOT_APPROVED", "SITE_REQUIRED_FOR_CREATED_STATUS"].includes(message) ? 409 : 400;

@@ -14,6 +14,7 @@ export async function POST(request: Request) {
     return response;
   } catch (error) {
     const message = error instanceof Error ? error.message : "INVALID_CREDENTIALS";
-    return Response.json({ error: message === "INVALID_EMAIL" ? "请输入有效邮箱。" : "邮箱或密码不正确。", code: message }, { status: 401 });
+    const status = message === "EMAIL_NOT_VERIFIED" ? 403 : 401;
+    return Response.json({ error: message === "INVALID_EMAIL" ? "请输入有效邮箱。" : message === "EMAIL_NOT_VERIFIED" ? "请先验证邮箱，再登录。" : "邮箱或密码不正确。", code: message }, { status });
   }
 }
