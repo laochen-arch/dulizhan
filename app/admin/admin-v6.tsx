@@ -21,34 +21,56 @@ type CommerceConfiguration = { paypal: { clientId: boolean; clientSecret: boolea
 type OnboardingState = { domain?: { hostname: string; status: string } | null; checks: CmsLaunchCheck[]; manualChecks?: CmsManualLaunchCheck[]; replacements: CmsReplacementItem[]; progress: { done: number; total: number }; readiness?: { score: number; done: number; total: number } };
 
 const tabs: Array<{ id: AdminTab; label: string }> = [
-  { id: "overview", label: "Workstation" },
+  { id: "overview", label: "Home" },
   { id: "merchants", label: "Merchant applications" },
-  { id: "setup", label: "Platform setup" },
-  { id: "delivery", label: "Client delivery" },
-  { id: "brand", label: "Storefront identity" },
-  { id: "content", label: "Homepage content" },
-  { id: "products", label: "Global templates" },
-  { id: "media", label: "Media library" },
-  { id: "access", label: "Site permissions" },
-  { id: "team", label: "Team invitations" },
+  { id: "setup", label: "Platform settings" },
+  { id: "delivery", label: "Create client site" },
+  { id: "brand", label: "Brand" },
+  { id: "content", label: "Homepage" },
+  { id: "products", label: "Product templates" },
+  { id: "media", label: "Media" },
+  { id: "access", label: "Site members" },
+  { id: "team", label: "Invitations" },
   { id: "domains", label: "Domains" },
-  { id: "activity", label: "Activity log" },
-  { id: "release", label: "Publish & rollback" },
-  { id: "commerce", label: "Cross-merchant support" },
-  { id: "versions", label: "Release history" },
+  { id: "activity", label: "Activity" },
+  { id: "release", label: "Publish" },
+  { id: "commerce", label: "Order support" },
+  { id: "versions", label: "Versions" },
   { id: "v21", label: "Operations health" },
   { id: "v22", label: "Delivery controls" },
-  { id: "v23", label: "Environment settings" },
+  { id: "v23", label: "Environment" },
   { id: "v24", label: "Launch checklist" },
 ];
 
+const adminPageCopy: Record<AdminTab, { eyebrow: string; title: string; accent: string; description: string }> = {
+  overview: { eyebrow: "Workspace home", title: "Keep every client site", accent: "ready to launch.", description: "See what needs attention, create a new client site and publish only after the launch checks pass." },
+  merchants: { eyebrow: "Merchant applications", title: "Review new business", accent: "with confidence.", description: "Approve applications, request missing information and move qualified merchants into site setup." },
+  setup: { eyebrow: "Platform settings", title: "Set the rules once", accent: "for every site.", description: "Check payment, email and domain readiness before a client storefront goes live." },
+  delivery: { eyebrow: "Client sites", title: "Create a storefront", accent: "from a clear handoff.", description: "Turn a merchant brief into an isolated site with brand, products, media and a review link." },
+  brand: { eyebrow: "Brand", title: "Make the storefront", accent: "look like the client.", description: "Update the visual identity and homepage story without touching code." },
+  content: { eyebrow: "Homepage", title: "Shape the first visit", accent: "around the offer.", description: "Edit the homepage sections that help customers understand the brand and take action." },
+  products: { eyebrow: "Product templates", title: "Prepare products", accent: "for faster delivery.", description: "Maintain reusable product data, variants and media that can be copied into client sites." },
+  media: { eyebrow: "Media", title: "Keep brand assets", accent: "easy to find.", description: "Upload, review and reuse images that belong to the selected client site." },
+  access: { eyebrow: "Site members", title: "Give people", accent: "the right access.", description: "Keep client site permissions simple and limited to the work each person needs to do." },
+  team: { eyebrow: "Invitations", title: "Bring the right people", accent: "into the workspace.", description: "Invite platform collaborators and keep access changes visible to the team." },
+  domains: { eyebrow: "Domains", title: "Connect the right address", accent: "before launch.", description: "Track domain requests, verification and the next action for each client storefront." },
+  activity: { eyebrow: "Activity", title: "See what changed", accent: "and why.", description: "Use a plain-language timeline to trace important actions across the selected site." },
+  release: { eyebrow: "Publish", title: "Release changes", accent: "when they are ready.", description: "Compare the draft, run checks and publish or roll back a client storefront safely." },
+  commerce: { eyebrow: "Order support", title: "Resolve customer issues", accent: "from one place.", description: "Review payments, fulfillment, refunds and notifications without taking over daily merchant work." },
+  versions: { eyebrow: "Versions", title: "Keep a safe history", accent: "of every release.", description: "Review published versions and restore a known-good storefront draft when needed." },
+  v21: { eyebrow: "Operations health", title: "Spot issues early", accent: "before customers do.", description: "Monitor orders, inventory, after-sales cases and failed events across the selected site." },
+  v22: { eyebrow: "Delivery controls", title: "Move each handoff", accent: "to the next step.", description: "Follow the client delivery workflow from intake to preview, approval and launch." },
+  v23: { eyebrow: "Environment", title: "Keep production settings", accent: "separate and clear.", description: "Review which payment, email and domain settings are ready for this site." },
+  v24: { eyebrow: "Launch checklist", title: "Make launch day", accent: "predictable.", description: "Complete the final checks, record ownership and keep a clear rollback path." },
+};
+
 const adminNavGroups: Array<{ label: string; items: AdminTab[] }> = [
-  { label: "Platform work", items: ["overview", "merchants"] },
-  { label: "Client delivery", items: ["setup", "delivery", "domains", "v24"] },
-  { label: "Global templates", items: ["brand", "content", "products", "media"] },
-  { label: "People & permissions", items: ["access", "team"] },
-  { label: "Operations & support", items: ["activity", "commerce", "v21", "v22", "v23"] },
-  { label: "Publishing", items: ["release", "versions"] },
+  { label: "Platform", items: ["overview", "merchants"] },
+  { label: "Client sites", items: ["setup", "delivery", "domains", "v24"] },
+  { label: "Templates", items: ["brand", "content", "products", "media"] },
+  { label: "People", items: ["access", "team"] },
+  { label: "Orders & support", items: ["activity", "commerce", "v21", "v22", "v23"] },
+  { label: "Publish", items: ["release", "versions"] },
 ];
 
 const roleVisibleAdminTabs: Record<CmsRole, AdminTab[]> = {
@@ -301,6 +323,7 @@ export function AdminStudioV6() {
   const { config, catalog, cmsError, cmsMode, cmsRole, cmsStatus, activeSiteId, site, updateCatalog, updateConfig, refreshCms, setActiveSiteId, publishCms, fetchRevisions, rollbackCms } = runtime;
   const searchParams = useSearchParams();
   const [tab, setTab] = useState<AdminTab>("overview");
+  const [openAdminGroups, setOpenAdminGroups] = useState<string[]>([]);
   const [sites, setSites] = useState<CmsSite[]>([]);
   const [members, setMembers] = useState<CmsMember[]>([]);
   const [assets, setAssets] = useState<CmsAsset[]>([]);
@@ -343,6 +366,13 @@ export function AdminStudioV6() {
   }), [catalog, productFilter, productSearch]);
   const visibleAdminTabs = useMemo(() => new Set<AdminTab>(cmsRole ? roleVisibleAdminTabs[cmsRole] : tabs.map((item) => item.id)), [cmsRole]);
   const visibleAdminNavGroups = useMemo(() => adminNavGroups.map((group) => ({ ...group, items: group.items.filter((item) => visibleAdminTabs.has(item)) })).filter((group) => group.items.length), [visibleAdminTabs]);
+  const activePageCopy = adminPageCopy[tab];
+  // Open the group containing the current page, while keeping manual collapse available.
+  // eslint-disable-next-line react-hooks/set-state-in-effect
+  useEffect(() => {
+    const activeGroup = visibleAdminNavGroups.find((group) => group.items.includes(tab))?.label;
+    if (activeGroup) setOpenAdminGroups((current) => current.includes(activeGroup) ? current : [...current, activeGroup]);
+  }, [tab, visibleAdminNavGroups]);
 
   const loadSites = useCallback(async () => {
     const response = await fetch("/api/cms/sites", { cache: "no-store" });
@@ -829,15 +859,23 @@ export function AdminStudioV6() {
           </div>
 
           <nav className="admin-sidebar-nav" aria-label="Platform administration sections">
-            {visibleAdminNavGroups.map((group) => <div className="admin-nav-group" key={group.label}>
-              <p>{group.label}</p>
-              {group.items.map((itemId) => {
-                const item = tabs.find((candidate) => candidate.id === itemId);
-                const index = tabs.findIndex((candidate) => candidate.id === itemId);
-                if (!item) return null;
-                return <button key={item.id} className={tab === item.id ? "is-active" : ""} onClick={() => selectTab(item.id)} aria-current={tab === item.id ? "page" : undefined}><span className="admin-nav-index">{String(index + 1).padStart(2, "0")}</span><span>{item.label}</span></button>;
-              })}
-            </div>)}
+            {visibleAdminNavGroups.map((group, groupIndex) => {
+              const isOpen = openAdminGroups.includes(group.label);
+              const hasActiveItem = group.items.includes(tab);
+              const submenuId = `admin-sidebar-group-${groupIndex}`;
+              return <div className={`admin-nav-group${isOpen ? " is-open" : ""}${hasActiveItem ? " has-active" : ""}`} key={group.label}>
+                <button type="button" className="admin-nav-group-toggle" aria-expanded={isOpen} aria-controls={submenuId} onClick={() => setOpenAdminGroups((current) => current.includes(group.label) ? current.filter((label) => label !== group.label) : [...current, group.label])}>
+                  <span>{group.label}</span><span className="admin-nav-chevron" aria-hidden="true">⌄</span>
+                </button>
+                <div id={submenuId} className="admin-nav-submenu" hidden={!isOpen}>
+                  {group.items.map((itemId) => {
+                    const item = tabs.find((candidate) => candidate.id === itemId);
+                    if (!item) return null;
+                    return <button type="button" key={item.id} className={`admin-nav-item${tab === item.id ? " is-active" : ""}`} onClick={() => selectTab(item.id)} aria-current={tab === item.id ? "page" : undefined}>{item.label}</button>;
+                  })}
+                </div>
+              </div>;
+            })}
           </nav>
 
           <div className="admin-sidebar-footer">
@@ -846,14 +884,14 @@ export function AdminStudioV6() {
           </div>
         </aside>
 
-        <div className="admin-main">
+        <div className={`admin-main admin-main-tab-${tab}`}>
           <div className="admin-topbar"><span>Platform admin</span><span>{site?.name || "Merchant storefront"} · {cmsRole || "checking access"}</span></div>
           <nav className="workspace-breadcrumb" aria-label="Breadcrumb"><a href="/admin">Platform admin</a><span aria-hidden="true">/</span><span>{tabs.find((item) => item.id === tab)?.label || "Workstation"}</span></nav>
         <header className="admin-hero v6-hero">
           <div>
-            <p className="eyebrow">Platform operations / Merchant delivery</p>
-            <h1>Merchant storefronts,<br /><em>ready to grow.</em></h1>
-            <p>Review applications, create isolated storefronts, prepare the launch package and keep platform support separate from each merchant&apos;s daily catalog operations.</p>
+            <p className="eyebrow">Platform admin / {activePageCopy.eyebrow}</p>
+            <h1>{activePageCopy.title}<br /><em>{activePageCopy.accent}</em></h1>
+            <p>{activePageCopy.description}</p>
           </div>
           <div className="admin-hero-actions">
             <a className="button button-outline" href={`/preview?siteId=${encodeURIComponent(activeSiteId)}`} target="_blank" rel="noreferrer">Open preview <span>↗</span></a>

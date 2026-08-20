@@ -27,14 +27,24 @@ type MerchantAnalytics = { days: number; paidOrders: number; revenue: number; op
 type LaunchCenter = { readiness: { score: number; blockers: Array<{ key: string; label: string; detail: string; source: string }>; launch: { checks: Array<{ key: string; label: string; detail: string; done: boolean; required?: boolean }>; progress: { done: number; total: number } }; health: Array<{ key: string; status: string; detail: string; checkedAt: string }>; openOperations: number }; releases: Array<{ id: string; status: string; label: string; note: string | null; requestedByEmail: string; requestedAt: string; revisionId: string | null; publishedAt: string | null }>; diff: { totalChanges: number; changes: string[] }; operations: { orders: number; paidOrders: number; openAfterSales: number; lowStock: number; availableUnits: number; failedEvents: number } };
 
 const portalSectionLabels: Record<PortalSection, string> = {
-  brand: "Storefront settings",
-  products: "Products & inventory",
-  campaigns: "Marketing",
-  team: "Team & permissions",
-  orders: "Orders & fulfillment",
-  "after-sales": "After-sales",
+  brand: "Storefront",
+  products: "Products",
+  campaigns: "Promotions",
+  team: "Team",
+  orders: "Orders",
+  "after-sales": "Returns & support",
   operations: "Overview",
   integrations: "Payments & email",
+};
+const workspacePageCopy: Record<PortalSection, { eyebrow: string; title: string; description: string }> = {
+  brand: { eyebrow: "Storefront", title: "Make the storefront feel like your brand.", description: "Update the name, story, contact details and colors that customers see." },
+  products: { eyebrow: "Products", title: "Keep the catalog ready to sell.", description: "Create products, update variants, manage stock and import changes in one place." },
+  campaigns: { eyebrow: "Promotions", title: "Give customers a reason to come back.", description: "Set up coupons, bundles, collections and recommendations without code." },
+  team: { eyebrow: "Team", title: "Let every teammate do their part.", description: "Invite operators and keep access limited to the work they need." },
+  orders: { eyebrow: "Orders", title: "Move every order to the next step.", description: "Review payment, fulfillment, tracking and customer details from one workspace." },
+  "after-sales": { eyebrow: "Returns & support", title: "Resolve issues with a clear record.", description: "Track requests, update the case status and keep the customer handoff visible." },
+  operations: { eyebrow: "Overview", title: "Know what needs attention today.", description: "See launch readiness, store activity and the operating signals for this site." },
+  integrations: { eyebrow: "Payments & email", title: "Keep the customer journey connected.", description: "Check PayPal, Resend and release settings before the storefront goes live." },
 };
 const portalSectionIds = Object.keys(portalSectionLabels) as PortalSection[];
 
@@ -88,6 +98,7 @@ export function ClientPortal({ userName, mode = "client" }: { userName: string; 
     const requested = searchParams.get("section") as PortalSection | null;
     return requested && portalSectionIds.includes(requested) ? requested : mode === "merchant" ? "operations" : "brand";
   });
+  const [openWorkspaceGroups, setOpenWorkspaceGroups] = useState<string[]>([]);
   const [brand, setBrand] = useState({ name: "", mark: "", descriptor: "", tagline: "", hero: "", contactEmail: "", tradeEmail: "" });
   const [colors, setColors] = useState<Record<string, string>>({});
   const [products, setProducts] = useState<PortalProduct[]>([]);
@@ -162,18 +173,25 @@ export function ClientPortal({ userName, mode = "client" }: { userName: string; 
   const canTeam = mode === "merchant" && capabilities.has("merchant.team.manage");
   const canConfigure = mode === "merchant" ? capabilities.has("merchant.settings.write") : overview?.role === "owner";
   const merchantRoleLabel = overview?.merchantRole === "merchant_owner" ? "Merchant owner" : overview?.merchantRole === "merchant_manager" ? "Merchant manager" : overview?.merchantRole === "merchant_staff" ? "Merchant staff" : overview?.role || "Workspace";
+  const activePageCopy = workspacePageCopy[section];
   const workspaceNavGroups = useMemo<WorkspaceNavGroup[]>(() => {
     if (mode !== "merchant") {
-      return [{ label: "Storefront delivery", items: [{ id: "brand", label: "Storefront settings" }, { id: "products", label: "Products & stock" }, { id: "operations", label: "Launch & analytics" }, { id: "integrations", label: "Payments & email" }] }];
+      return [{ label: "Store setup", items: [{ id: "brand", label: "Brand & homepage" }, { id: "products", label: "Products" }, { id: "operations", label: "Launch status" }, { id: "integrations", label: "Payments & email" }] }];
     }
     const has = (capability: string) => capabilities.has(capability);
     const item = (id: PortalSection, label: string) => ({ id, label });
     return [
-      { label: "Store management", items: [item("operations", "Overview"), ...(has("merchant.storefront.write") ? [item("brand", "Storefront settings")] : []), ...(has("products.read") ? [item("products", "Products & inventory")] : []), ...(has("marketing.read") ? [item("campaigns", "Marketing")] : [])] },
-      { label: "Sales & service", items: [...(has("orders.read") ? [item("orders", "Orders & fulfillment")] : []), ...(has("after-sales.read") ? [item("after-sales", "After-sales")] : [])] },
-      { label: "Workspace", items: [...(canConfigure ? [item("integrations", "Payments & email")] : []), ...(canTeam ? [item("team", "Team & permissions")] : [])] },
+      { label: "Store", items: [item("operations", "Overview"), ...(has("merchant.storefront.write") ? [item("brand", "Storefront")] : []), ...(has("products.read") ? [item("products", "Products")] : []), ...(has("marketing.read") ? [item("campaigns", "Promotions")] : [])] },
+      { label: "Sales", items: [...(has("orders.read") ? [item("orders", "Orders")] : []), ...(has("after-sales.read") ? [item("after-sales", "Returns & support")] : [])] },
+      { label: "Settings", items: [...(canConfigure ? [item("integrations", "Payments & email")] : []), ...(canTeam ? [item("team", "Team")] : [])] },
     ].filter((group) => group.items.length);
   }, [canConfigure, canTeam, capabilities, mode]);
+  // Keep the section that contains the current page open, while still allowing operators to collapse it.
+  // eslint-disable-next-line react-hooks/set-state-in-effect
+  useEffect(() => {
+    const activeGroup = workspaceNavGroups.find((group) => group.items.some((item) => item.id === section))?.label;
+    if (activeGroup) setOpenWorkspaceGroups((current) => current.includes(activeGroup) ? current : [...current, activeGroup]);
+  }, [section, workspaceNavGroups]);
   const selectSection = useCallback((nextSection: PortalSection) => {
     setSection(nextSection);
     const params = new URLSearchParams(window.location.search);
@@ -498,12 +516,24 @@ export function ClientPortal({ userName, mode = "client" }: { userName: string; 
 
   return <main className="client-portal">
     <MerchantWorkspaceTopbar siteName={activeSite?.name || overview.siteId} userName={userName} accessLabel={merchantRoleLabel} />
-    <header className="client-portal-header"><nav className="workspace-breadcrumb" aria-label="Breadcrumb"><a href="/merchant">Merchant workspace</a><span aria-hidden="true">/</span><span>{activeSite?.name || overview.siteId}</span><span aria-hidden="true">/</span><span>{portalSectionLabels[section]}</span></nav><div><p className="eyebrow">Merchant workspace / Store operations</p><h1>Operate {activeSite?.name || overview.siteId}.</h1><p className="v6-muted">Signed in as {userName}. Products, inventory, orders and storefront changes stay isolated to this merchant site.</p></div><div className="client-portal-actions"><button type="button" className="button button-outline" onClick={() => void copyPreviewShare()} disabled={!canEdit || busy}>Copy draft link</button>{mode === "merchant" && <a className="button button-dark" href={"/preview?siteId=" + encodeURIComponent(siteId)} target="_blank" rel="noreferrer">Preview storefront →</a>}</div></header>
+    <header className={`client-portal-header client-portal-header-${section}`}><nav className="workspace-breadcrumb" aria-label="Breadcrumb"><a href="/merchant">Merchant workspace</a><span aria-hidden="true">/</span><span>{activeSite?.name || overview.siteId}</span><span aria-hidden="true">/</span><span>{portalSectionLabels[section]}</span></nav><div><p className="eyebrow">{mode === "merchant" ? "Merchant workspace" : "Client delivery"} / {activePageCopy.eyebrow}</p><h1>{activePageCopy.title}</h1><p className="v6-muted">{activePageCopy.description} Signed in as {userName}; this site&apos;s data stays isolated from other workspaces.</p></div><div className="client-portal-actions"><button type="button" className="button button-outline" onClick={() => void copyPreviewShare()} disabled={!canEdit || busy}>Copy draft link</button>{mode === "merchant" && <a className="button button-dark" href={"/preview?siteId=" + encodeURIComponent(siteId)} target="_blank" rel="noreferrer">Preview storefront →</a>}</div></header>
     {notice && <div className={`client-notice ${notice.tone}`} role="status">{notice.text}<button type="button" onClick={() => setNotice(null)} aria-label="Dismiss notification">×</button></div>}
     <div className="client-portal-layout">
       <aside className="client-portal-sidebar" aria-label={mode === "merchant" ? "Merchant workspace navigation" : "Storefront operations navigation"}>
         <div className="client-portal-sidebar-heading"><span className="eyebrow">Current workspace</span><strong>{merchantRoleLabel}</strong><small>Only functions available to this role are shown.</small></div>
-        {workspaceNavGroups.map((group) => <div className="client-portal-sidebar-group" key={group.label}><p>{group.label}</p>{group.items.map((item) => <button type="button" key={item.id} className={section === item.id ? "is-active" : ""} onClick={() => selectSection(item.id)} aria-current={section === item.id ? "page" : undefined}>{item.label}</button>)}</div>)}
+        {workspaceNavGroups.map((group, groupIndex) => {
+          const isOpen = openWorkspaceGroups.includes(group.label);
+          const hasActiveItem = group.items.some((item) => item.id === section);
+          const submenuId = `workspace-sidebar-group-${groupIndex}`;
+          return <div className={`client-portal-sidebar-group${isOpen ? " is-open" : ""}${hasActiveItem ? " has-active" : ""}`} key={group.label}>
+            <button type="button" className="client-portal-sidebar-group-toggle" aria-expanded={isOpen} aria-controls={submenuId} onClick={() => setOpenWorkspaceGroups((current) => current.includes(group.label) ? current.filter((label) => label !== group.label) : [...current, group.label])}>
+              <span>{group.label}</span><span className="client-sidebar-chevron" aria-hidden="true">⌄</span>
+            </button>
+            <div id={submenuId} className="client-portal-sidebar-submenu" hidden={!isOpen}>
+              {group.items.map((item) => <button type="button" key={item.id} className={section === item.id ? "is-active" : ""} onClick={() => selectSection(item.id)} aria-current={section === item.id ? "page" : undefined}>{item.label}</button>)}
+            </div>
+          </div>;
+        })}
       </aside>
       <div className="client-portal-content">
         <section className="client-portal-toolbar"><label className="v6-field"><span>{mode === "merchant" ? "Merchant storefront" : "Client site"}</span><select value={siteId} onChange={(event) => setSiteId(event.target.value)}>{sites.map((site) => <option key={site.id} value={site.id}>{site.name} · {site.slug}</option>)}</select></label><div className="client-stat"><span>Role</span><strong>{overview.merchantRole || overview.role}</strong></div><div className="client-stat"><span>Draft products</span><strong>{overview.snapshot.catalog.length}</strong></div><div className="client-stat"><span>Orders</span><strong>{overview.orders.length}</strong></div><div className="client-stat"><span>Available units</span><strong>{overview.inventory.units}</strong></div></section>
