@@ -165,7 +165,10 @@ export async function PATCH(request: Request) {
     let status = payload.status;
     const platformActor = { userId: owner.userId, email: owner.email, role: "platform" as const };
     if (payload.createSite && !["approved", "commercial_pending", "onboarding_failed", "site_creating"].includes(current.status) && payload.status !== "approved") return responseError("请先将申请审核通过，再创建商户站点。", 409, "APPLICATION_NOT_APPROVED");
-    if (payload.createSite || (payload.status === "approved" && !current.assignedSiteId)) {
+    // Approval and storefront delivery are separate business actions. A new
+    // application must be able to become approved before the operator starts
+    // the isolated storefront creation flow from the list action.
+    if (payload.createSite) {
       await updatePlatformApplication(current.id, { status: "site_creating", assignedSiteId: current.assignedSiteId, adminNote: "Storefront delivery is in progress." }, platformActor);
       status = "site_created";
       try {
