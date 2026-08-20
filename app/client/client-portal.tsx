@@ -58,7 +58,7 @@ function downloadText(filename: string, value: string, type: string) {
 }
 
 function MerchantWorkspaceTopbar({ siteName, userName, accessLabel }: { siteName: string; userName: string; accessLabel: string }) {
-  return <header className="merchant-workspace-topbar"><div className="merchant-workspace-topbar-inner"><Link href="/merchant" className="merchant-workspace-brand"><span className="merchant-workspace-mark">N</span><span><strong>Merchant workspace</strong><small>{siteName}</small></span></Link><div className="merchant-workspace-actions"><span className="merchant-workspace-user">{userName}</span><span className="merchant-workspace-role">{accessLabel}</span><Link href="/">View storefront ↗</Link><a href={"/signout-with-chatgpt?return_to=" + encodeURIComponent("/merchant")}>Sign out</a></div></div></header>;
+  return <header className="merchant-workspace-topbar"><div className="merchant-workspace-topbar-inner"><Link href="/merchant" className="merchant-workspace-brand"><span className="merchant-workspace-mark">N</span><span><strong>Merchant workspace</strong><small>{siteName}</small></span></Link><div className="merchant-workspace-actions"><span className="merchant-workspace-user">{userName}</span><span className="merchant-workspace-role">{accessLabel}</span><a href={"/signout-with-chatgpt?return_to=" + encodeURIComponent("/merchant")}>Sign out</a></div></div></header>;
 }
 
 export function ClientPortal({ userName, mode = "client" }: { userName: string; mode?: "client" | "merchant" }) {

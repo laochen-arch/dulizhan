@@ -22,15 +22,13 @@ export function StorefrontAccessMenu() {
 
   const capabilities = new Set(access.capabilities || []);
   const hasCustomerAccess = Boolean(access.customerRole || capabilities.has("customer.read"));
-  const hasMerchantAccess = Boolean(access.merchantRole || capabilities.has("merchant.read"));
-  const hasPlatformAccess = Boolean(access.cmsRole);
-
-  return <div className="access-menu" aria-label="Consumer account access">
+  // The storefront is the consumer surface. Merchant and platform users have
+  // their own dedicated entry URLs and workspaces, so do not mix role links
+  // into the customer navigation or turn the header into a role switcher.
+  return <div className="access-menu" aria-label="Customer account access">
     {hasCustomerAccess && <Link href="/account" className={"access-menu-link " + (pathname.startsWith("/account") ? "is-active" : "")}>Account</Link>}
     {hasCustomerAccess && <Link href="/orders" className={"access-menu-link " + (pathname.startsWith("/orders") ? "is-active" : "")}>Orders</Link>}
     {hasCustomerAccess && <Link href="/wishlist" className={"access-menu-link " + (pathname.startsWith("/wishlist") ? "is-active" : "")}>Saved</Link>}
-    {hasMerchantAccess && <Link href="/merchant" className={"access-menu-link access-menu-workspace " + (pathname.startsWith("/merchant") ? "is-active" : "")}>Merchant workspace</Link>}
-    {hasPlatformAccess && <Link href="/admin" className={"access-menu-link access-menu-workspace " + (pathname.startsWith("/admin") ? "is-active" : "")}>Platform admin</Link>}
     <a className="access-menu-link access-menu-signout" href={"/signout-with-chatgpt?return_to=" + encodeURIComponent(pathname || "/")}>Sign out</a>
   </div>;
 }
