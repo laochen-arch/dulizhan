@@ -1793,6 +1793,48 @@ button:disabled, .button:disabled { cursor: not-allowed; opacity: .45; }
   to { opacity: 1; transform: translateY(0); }
 }
 
+/* Data views use a compact list rhythm instead of exposing every record as a loose block. */
+.v6-product-list, .v6-version-list, .v24-release-list, .client-product-list, .client-order-list { display: grid; gap: 0; border: 1px solid #dbe7f0; border-radius: 12px; background: #fff; }
+.v6-product-list::before { content: "PRODUCT CATALOG  ·  NAME / SKU  ·  STATUS  ·  PRICE & STOCK  ·  ACTIONS"; display: block; border-bottom: 1px solid #dbe7f0; padding: 10px 16px; background: #f4f8fc; color: #6b8398; font-size: 9px; font-weight: 700; letter-spacing: .1em; }
+.v6-version-list::before { content: "RECORD LIST  ·  ITEM / DETAILS  ·  STATUS  ·  ACTION"; display: block; border-bottom: 1px solid #dbe7f0; padding: 10px 16px; background: #f4f8fc; color: #6b8398; font-size: 9px; font-weight: 700; letter-spacing: .1em; }
+.v24-release-list::before { content: "WORK QUEUE  ·  ITEM / DETAILS  ·  NEXT ACTION"; display: block; border-bottom: 1px solid #dbe7f0; padding: 10px 16px; background: #f4f8fc; color: #6b8398; font-size: 9px; font-weight: 700; letter-spacing: .1em; }
+.client-product-list::before { content: "PRODUCTS  ·  PRODUCT / SKU  ·  PRICE  ·  STOCK  ·  STATUS  ·  ACTION"; display: block; border-bottom: 1px solid #dbe7f0; padding: 10px 17px; background: #f4f8fc; color: #6b8398; font-size: 9px; font-weight: 700; letter-spacing: .1em; }
+.client-order-list::before { content: "ORDERS  ·  ORDER / CUSTOMER  ·  TOTAL  ·  PAYMENT & FULFILLMENT  ·  TRACKING"; display: block; border-bottom: 1px solid #dbe7f0; padding: 10px 17px; background: #f4f8fc; color: #6b8398; font-size: 9px; font-weight: 700; letter-spacing: .1em; }
+.v6-product-row, .v6-version-list > article, .v24-release-list > div, .client-product-row, .client-order-list > article { min-width: 0; background: #fff; }
+.v6-product-row + .v6-product-row, .v6-version-list > article + article, .v24-release-list > div + div, .client-product-row + .client-product-row, .client-order-list > article + article { border-top: 0; }
+.v6-product-row:hover, .v6-version-list > article:hover, .v24-release-list > div:hover, .client-product-row:hover, .client-order-list > article:hover { box-shadow: inset 3px 0 0 #1769d2; }
+.v6-product-row .product-status, .client-product-row small, .client-order-list .v22-status { white-space: nowrap; }
+.v6-version-list > article, .v24-release-list > div { min-height: 62px; }
+.v6-version-list > article > div, .v24-release-list > div > div:first-child { min-width: 0; }
+.v6-version-list > article strong, .v24-release-list > div strong, .client-order-list > article strong { color: #0b2239; }
+.v6-version-list > article span, .v24-release-list > div small, .client-order-list > article small { color: #6b8398; }
+.client-product-list { overflow: hidden; }
+.client-product-row { grid-template-columns: minmax(260px, 1.7fr) minmax(95px, .55fr) minmax(90px, .5fr) minmax(90px, .55fr) minmax(100px, .65fr) auto; align-items: start; padding: 14px 17px; }
+.client-product-row > .v6-field { min-width: 0; }
+.client-product-row > .v6-field input, .client-product-row > .v6-field select { padding: 9px 10px; }
+.client-product-main { padding-right: 13px; border-right: 1px solid #e2ebf2; }
+.client-product-main small { color: #6b8398; }
+.client-order-list > article { grid-template-columns: minmax(190px, 1.35fr) minmax(90px, .55fr) minmax(150px, .85fr) minmax(140px, .8fr); min-width: 700px; }
+.client-order-list { overflow-x: auto; }
+.v6-product-list { overflow-x: auto; }
+.v6-product-list .v6-product-row { min-width: 700px; }
+.v6-commerce-toolbar { padding: 14px 0 18px; }
+.v6-commerce-toolbar + .v6-version-list { margin-top: 2px; }
+.v6-inline-row { min-height: 58px; }
+.v6-member-list { overflow: hidden; border: 1px solid #dbe7f0; border-radius: 10px; padding: 0 15px; background: #fbfdff; }
+.v6-member-list > div { padding: 15px 0; }
+
+@media (max-width: 760px) {
+  .v6-product-list::before, .v6-version-list::before, .v24-release-list::before, .client-product-list::before, .client-order-list::before { letter-spacing: .06em; }
+  .client-product-row { grid-template-columns: 1fr 1fr; min-width: 0; }
+  .client-product-main { grid-column: 1 / -1; padding: 0 0 12px; border-right: 0; border-bottom: 1px solid #e2ebf2; }
+  .client-product-row > .v6-actions { grid-column: 1 / -1; }
+}
+
+@media (max-width: 520px) {
+  .v6-product-list::before, .v6-version-list::before, .v24-release-list::before, .client-product-list::before, .client-order-list::before { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+}
+
 /* V33 platform portal onboarding workspace. */
 .platform-hero-proof { display: flex; flex-wrap: wrap; gap: 28px; margin-top: 42px; }
 .platform-hero-proof span { display: grid; gap: 3px; border-left: 2px solid #1769d2; padding-left: 11px; }
