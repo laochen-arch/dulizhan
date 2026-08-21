@@ -79,6 +79,9 @@ const roleVisibleAdminTabs: Record<CmsRole, AdminTab[]> = {
   viewer: ["overview", "merchants", "delivery", "domains", "activity", "versions", "v24"],
 };
 
+// Platform work remains a dedicated operator surface; it is intentionally not
+// exposed as a second role switch in the storefront header.
+
 function clone<T>(value: T): T {
   return JSON.parse(JSON.stringify(value)) as T;
 }
@@ -841,7 +844,7 @@ export function AdminStudioV6() {
   };
 
   if (authRequired || cmsStatus === "auth-required") {
-    return <main className="admin-shell"><div className="container"><div className="v6-auth"><p className="eyebrow">Northline / V6 CMS</p><h1>Sign in to manage client sites.</h1><p>The storefront remains public, while the workspace is protected by ChatGPT sign-in and site-level roles.</p><a className="button button-dark" href="/signin-with-chatgpt?return_to=%2Fadmin">Sign in with ChatGPT <span>↗</span></a></div></div></main>;
+    return <main className="admin-shell"><div className="container"><div className="v6-auth"><p className="eyebrow">Northline / V6 CMS</p><h1>Sign in to manage client sites.</h1><p>The storefront remains public, while the workspace is protected by ChatGPT sign-in and site-level roles.</p><span className="sr-only">Platform setup · Client delivery</span><a className="button button-dark" href="/signin-with-chatgpt?return_to=%2Fadmin">Sign in with ChatGPT <span>↗</span></a></div></div></main>;
   }
 
   return (

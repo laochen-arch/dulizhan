@@ -25,6 +25,8 @@ export function StorefrontAccessMenu() {
   // The storefront is the consumer surface. Merchant and platform users have
   // their own dedicated entry URLs and workspaces, so do not mix role links
   // into the customer navigation or turn the header into a role switcher.
+  // hasMerchantAccess / hasPlatformAccess are deliberately resolved by their
+  // dedicated route guards instead of being rendered as extra header choices.
   return <div className="access-menu" aria-label="Customer account access">
     {hasCustomerAccess && <Link href="/account" className={"access-menu-link " + (pathname.startsWith("/account") ? "is-active" : "")}>Account</Link>}
     {hasCustomerAccess && <Link href="/orders" className={"access-menu-link " + (pathname.startsWith("/orders") ? "is-active" : "")}>Orders</Link>}
