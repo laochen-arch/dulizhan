@@ -2195,3 +2195,522 @@ button:disabled, .button:disabled { cursor: not-allowed; opacity: .45; }
   .platform-template-preview-bar > div { justify-content: space-between; width: 100%; }
   .platform-template-hero > div, .platform-template-copy, .platform-template-products { width: min(100% - 34px, 1100px); }
 }
+
+/* V54 approved workspace UI: product-style merchant console and operator-grade
+   platform console. Keep the existing business components and only tighten
+   their information architecture, visual hierarchy and data density here. */
+
+.route-workspace {
+  min-height: 100vh;
+  background: #f4f8fc;
+  color: #152235;
+}
+
+.route-workspace .client-portal {
+  width: min(1440px, 100%);
+  padding: 0 32px 80px;
+}
+
+.route-workspace .merchant-workspace-topbar {
+  width: 100vw;
+  margin-left: calc((100% - 100vw) / 2);
+  padding: 0 max(24px, calc((100vw - 1380px) / 2));
+  background: #fff;
+  border-bottom: 1px solid #dbe7f0;
+  box-shadow: 0 1px 0 rgba(26, 81, 132, .03);
+}
+
+.route-workspace .merchant-workspace-topbar-inner {
+  width: min(1380px, 100%);
+  margin: 0 auto;
+  min-height: 68px;
+}
+
+.route-workspace .merchant-workspace-brand strong {
+  color: #10253d;
+  letter-spacing: -.01em;
+}
+
+.route-workspace .merchant-workspace-brand small {
+  color: #7890a5;
+  text-transform: none;
+  letter-spacing: .03em;
+}
+
+.route-workspace .merchant-workspace-mark {
+  border-color: #1769d2;
+  border-radius: 9px;
+  background: #eef6ff;
+  box-shadow: inset 0 0 0 4px #fff;
+}
+
+.route-workspace .client-portal-header {
+  align-items: end;
+  gap: 28px;
+  padding-top: 38px;
+  padding-bottom: 28px;
+}
+
+.route-workspace .client-portal-header h1 {
+  max-width: 780px;
+  margin: 8px 0 12px;
+  color: #10253d;
+  font-size: clamp(38px, 4.6vw, 62px);
+  font-weight: 650;
+  letter-spacing: -.065em;
+  line-height: 1;
+}
+
+.route-workspace .client-portal-header > div > .v6-muted {
+  max-width: 760px;
+  color: #60768b;
+  font-size: 12px;
+  line-height: 1.7;
+}
+
+.route-workspace .client-portal-actions {
+  flex: 0 0 auto;
+}
+
+.route-workspace .client-portal-layout {
+  grid-template-columns: 224px minmax(0, 1fr);
+  gap: 20px;
+}
+
+.route-workspace .client-portal-sidebar {
+  top: 16px;
+  border: 1px solid #d2e1ed;
+  border-radius: 10px;
+  padding: 14px 10px;
+  background: #fff;
+  box-shadow: 0 12px 30px rgba(27, 83, 130, .06);
+}
+
+.route-workspace .client-portal-sidebar-heading {
+  padding: 4px 9px 15px;
+}
+
+.route-workspace .client-portal-sidebar-heading .eyebrow {
+  color: #1769d2;
+  font-size: 9px;
+}
+
+.route-workspace .client-portal-sidebar-heading strong {
+  color: #10253d;
+  font-size: 13px;
+}
+
+.route-workspace .client-portal-sidebar-heading small {
+  color: #7890a5;
+  font-size: 10px;
+}
+
+.route-workspace .client-portal-sidebar-group-toggle {
+  border-radius: 7px;
+  padding: 10px 9px;
+  color: #59718a;
+  font-size: 10px;
+  letter-spacing: .02em;
+  text-transform: none;
+}
+
+.route-workspace .client-portal-sidebar-group-toggle:hover,
+.route-workspace .client-portal-sidebar-group-toggle:focus-visible {
+  border-color: #cfe1f2;
+  background: #f1f7fd;
+}
+
+.route-workspace .client-portal-sidebar-group.has-active .client-portal-sidebar-group-toggle {
+  color: #1769d2;
+}
+
+.route-workspace .client-portal-sidebar-submenu {
+  padding-left: 8px;
+}
+
+.route-workspace .client-portal-sidebar-submenu button {
+  border-radius: 6px;
+  padding: 9px 9px 9px 17px;
+  color: #60768b;
+  font-size: 11px;
+}
+
+.route-workspace .client-portal-sidebar-submenu button.is-active {
+  border-color: #c4dbf1;
+  background: #eaf4ff;
+  color: #125fba;
+  box-shadow: inset 3px 0 0 #1769d2;
+}
+
+.route-workspace .client-portal-toolbar {
+  grid-template-columns: minmax(260px, 1.8fr) repeat(4, minmax(110px, .65fr));
+  margin-bottom: 20px;
+  border: 1px solid #d2e1ed;
+  border-radius: 10px;
+  background: #d2e1ed;
+  box-shadow: 0 9px 22px rgba(27, 83, 130, .05);
+}
+
+.route-workspace .client-portal-toolbar > * {
+  min-height: 78px;
+  background: #fff;
+}
+
+.route-workspace .client-portal-toolbar .v6-field span,
+.route-workspace .client-stat span {
+  color: #7890a5;
+  font-size: 9px;
+  letter-spacing: .07em;
+  text-transform: none;
+}
+
+.route-workspace .client-stat strong {
+  color: #10253d;
+  font-size: 22px;
+  font-weight: 650;
+}
+
+.route-workspace .client-portal-content > section,
+.route-workspace .client-portal-content > form {
+  min-width: 0;
+}
+
+.route-workspace .client-portal-card {
+  border: 1px solid #d2e1ed;
+  border-radius: 10px;
+  background: #fff;
+  padding: clamp(22px, 3vw, 32px);
+  box-shadow: 0 9px 24px rgba(27, 83, 130, .045);
+}
+
+.route-workspace .client-portal-card h2 {
+  color: #10253d;
+  font-size: clamp(25px, 3vw, 38px);
+  font-weight: 600;
+  letter-spacing: -.055em;
+}
+
+.route-workspace .client-portal-card .eyebrow,
+.route-workspace .client-portal-card .v6-divider > .eyebrow {
+  color: #1769d2;
+}
+
+.route-workspace .client-product-list::before {
+  content: "商品列表  ·  商品 / SKU  ·  价格  ·  库存  ·  状态  ·  操作";
+  color: #6b8398;
+  letter-spacing: .03em;
+}
+
+.route-workspace .client-order-list::before {
+  content: "订单列表  ·  订单 / 客户  ·  金额  ·  付款与发货  ·  物流";
+  color: #6b8398;
+  letter-spacing: .03em;
+}
+
+.route-workspace .client-product-row {
+  grid-template-columns: minmax(280px, 1.7fr) minmax(95px, .55fr) minmax(90px, .5fr) minmax(90px, .55fr) minmax(100px, .65fr) auto;
+  gap: 12px;
+  align-items: start;
+  border-top: 1px solid #edf3f8;
+  padding: 16px 17px;
+}
+
+.route-workspace .client-product-row:first-of-type {
+  border-top: 0;
+}
+
+.route-workspace .client-product-main {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 8px 12px;
+  padding-right: 14px;
+  border-right: 1px solid #e2ebf2;
+}
+
+.route-workspace .client-product-main small,
+.route-workspace .client-product-main .client-variant-list {
+  grid-column: 1 / -1;
+}
+
+.route-workspace .client-product-row .v6-field span {
+  color: #7890a5;
+  font-size: 9px;
+}
+
+.route-workspace .client-product-row .v6-field input,
+.route-workspace .client-product-row .v6-field select {
+  min-height: 35px;
+  border-color: #d2e1ed;
+  background: #f8fbfe;
+  border-radius: 6px;
+}
+
+.route-workspace .client-product-row .v6-actions {
+  align-self: end;
+}
+
+.route-workspace .client-order-list > article {
+  border-top: 1px solid #edf3f8;
+  padding: 15px 17px;
+}
+
+/* Platform admin: the sidebar is the stable navigation rail, the content
+   column is the work surface. This mirrors the approved operator mockup. */
+
+.admin-shell.admin-shell-blue .admin-layout {
+  width: 100%;
+  max-width: none;
+  background: #f4f8fc;
+}
+
+.admin-shell.admin-shell-blue .admin-sidebar {
+  z-index: 2;
+  background: #072b57;
+  border-right: 0;
+  color: #dcecff;
+  box-shadow: 8px 0 25px rgba(7, 43, 87, .08);
+}
+
+.admin-shell.admin-shell-blue .admin-sidebar-brand {
+  border-bottom-color: rgba(214, 234, 255, .16);
+}
+
+.admin-shell.admin-shell-blue .admin-sidebar-brand strong {
+  color: #fff;
+  letter-spacing: .02em;
+  text-transform: none;
+}
+
+.admin-shell.admin-shell-blue .admin-sidebar-brand small {
+  color: #9eb9d5;
+  letter-spacing: .02em;
+  text-transform: none;
+}
+
+.admin-shell.admin-shell-blue .admin-sidebar-mark {
+  border-color: #8ec5ff;
+  background: #eaf5ff;
+  color: #1769d2;
+}
+
+.admin-shell.admin-shell-blue .admin-site-switcher {
+  border-bottom-color: rgba(214, 234, 255, .16);
+}
+
+.admin-shell.admin-shell-blue .admin-site-switcher label,
+.admin-shell.admin-shell-blue .admin-sidebar-site-meta span:not(.v6-status),
+.admin-shell.admin-shell-blue .admin-sidebar-footer small {
+  color: #9eb9d5;
+}
+
+.admin-shell.admin-shell-blue .admin-sidebar-site-meta strong,
+.admin-shell.admin-shell-blue .admin-sidebar-footer strong {
+  color: #fff;
+}
+
+.admin-shell.admin-shell-blue .admin-site-switcher select {
+  border-color: #4b78a7;
+  background: #0c3768;
+  color: #fff;
+}
+
+.admin-shell.admin-shell-blue .admin-nav-group-toggle {
+  color: #9eb9d5;
+  text-transform: none;
+  letter-spacing: .02em;
+}
+
+.admin-shell.admin-shell-blue .admin-nav-group-toggle:hover,
+.admin-shell.admin-shell-blue .admin-nav-group-toggle:focus-visible {
+  border-color: rgba(143, 196, 245, .3);
+  background: rgba(82, 143, 206, .18);
+  color: #fff;
+}
+
+.admin-shell.admin-shell-blue .admin-nav-group.has-active .admin-nav-group-toggle {
+  color: #9fd0ff;
+}
+
+.admin-shell.admin-shell-blue .admin-nav-submenu {
+  padding-left: 8px;
+}
+
+.admin-shell.admin-shell-blue .admin-nav-item {
+  color: #b2c8df;
+}
+
+.admin-shell.admin-shell-blue .admin-nav-item::before {
+  background: #6286aa;
+}
+
+.admin-shell.admin-shell-blue .admin-nav-item:hover,
+.admin-shell.admin-shell-blue .admin-nav-item:focus-visible {
+  border-color: rgba(143, 196, 245, .28);
+  background: rgba(82, 143, 206, .18);
+  color: #fff;
+}
+
+.admin-shell.admin-shell-blue .admin-nav-item.is-active {
+  border-color: #2d82e1;
+  background: #1769d2;
+  color: #fff;
+  box-shadow: inset 3px 0 0 #9fd0ff, 0 7px 16px rgba(4, 35, 73, .18);
+}
+
+.admin-shell.admin-shell-blue .admin-nav-item.is-active::before {
+  background: #fff;
+}
+
+.admin-shell.admin-shell-blue .admin-sidebar-footer {
+  border-top-color: rgba(214, 234, 255, .16);
+}
+
+.admin-shell.admin-shell-blue .admin-sidebar-footer-dot {
+  background: #55d4be;
+  box-shadow: 0 0 0 4px rgba(85, 212, 190, .14);
+}
+
+.admin-shell.admin-shell-blue .admin-main {
+  padding-inline: clamp(24px, 3.3vw, 52px);
+  background: #f4f8fc;
+}
+
+.admin-shell.admin-shell-blue .admin-topbar {
+  min-height: 58px;
+  border-bottom-color: #d8e6f1;
+  color: #7890a5;
+}
+
+.admin-shell.admin-shell-blue .admin-topbar span:last-child {
+  color: #1769d2;
+}
+
+.admin-shell.admin-shell-blue .workspace-breadcrumb {
+  margin-top: 20px;
+  margin-bottom: 0;
+}
+
+.admin-shell.admin-shell-blue .admin-hero {
+  align-items: center;
+  padding: 28px 0 24px;
+}
+
+.admin-shell.admin-shell-blue .admin-main .admin-hero h1 {
+  max-width: 780px;
+  margin: 10px 0 12px;
+  color: #10253d;
+  font-size: clamp(38px, 4.6vw, 62px);
+  font-weight: 650;
+  line-height: 1;
+}
+
+.admin-shell.admin-shell-blue .admin-main .admin-hero > div:first-child > p:last-child {
+  max-width: 720px;
+  color: #60768b;
+  font-size: 12px;
+  line-height: 1.7;
+}
+
+.admin-shell.admin-shell-blue .v6-sitebar {
+  border: 1px solid #d2e1ed;
+  border-radius: 10px;
+  background: #fff;
+  box-shadow: 0 9px 24px rgba(27, 83, 130, .045);
+}
+
+.admin-shell.admin-shell-blue .admin-workspace-status {
+  border-color: #c9dff1;
+  border-radius: 7px;
+  background: #eaf4ff;
+  color: #1769d2;
+}
+
+.admin-shell.admin-shell-blue .v6-product-list::before {
+  content: "商品模板  ·  商品 / SKU  ·  状态  ·  价格与库存  ·  操作";
+  letter-spacing: .03em;
+}
+
+.admin-shell.admin-shell-blue .v6-version-list::before {
+  content: "记录列表  ·  项目 / 详情  ·  状态  ·  操作";
+  letter-spacing: .03em;
+}
+
+.admin-shell.admin-shell-blue .v6-card,
+.admin-shell.admin-shell-blue .platform-admin-detail-card {
+  border-color: #d2e1ed;
+  border-radius: 10px;
+  background: #fff;
+  box-shadow: 0 9px 24px rgba(27, 83, 130, .045);
+}
+
+.admin-shell.admin-shell-blue .v6-card-heading h2,
+.admin-shell.admin-shell-blue .v6-card h2 {
+  color: #10253d;
+  font-weight: 600;
+}
+
+.admin-shell.admin-shell-blue .v6-version-list > article,
+.admin-shell.admin-shell-blue .v6-product-row {
+  border-top: 1px solid #edf3f8;
+  padding-block: 15px;
+}
+
+.admin-shell.admin-shell-blue .platform-admin-application-actions {
+  border-left: 1px solid #e2ebf2;
+  padding-left: 16px;
+}
+
+@media (max-width: 900px) {
+  .route-workspace .client-portal {
+    width: min(100% - 34px, 1440px);
+    padding-inline: 0;
+  }
+
+  .route-workspace .merchant-workspace-topbar {
+    width: calc(100% + 34px);
+    margin-left: -17px;
+    padding-inline: 17px;
+  }
+
+  .route-workspace .client-product-main {
+    grid-template-columns: 1fr;
+  }
+
+  .route-workspace .client-product-main small,
+  .route-workspace .client-product-main .client-variant-list {
+    grid-column: auto;
+  }
+
+  .admin-shell.admin-shell-blue .admin-main {
+    padding-inline: 22px;
+  }
+}
+
+@media (max-width: 720px) {
+  .admin-shell.admin-shell-blue .admin-sidebar {
+    background: #072b57;
+  }
+
+  .admin-shell.admin-shell-blue .admin-sidebar-nav {
+    scrollbar-color: #5d8dbc #072b57;
+  }
+}
+
+@media (max-width: 620px) {
+  .route-workspace .client-portal-header {
+    padding-top: 28px;
+  }
+
+  .route-workspace .client-portal-toolbar {
+    grid-template-columns: 1fr 1fr;
+  }
+
+  .route-workspace .client-portal-toolbar > *:first-child {
+    grid-column: 1 / -1;
+  }
+
+  .route-workspace .client-portal-header h1,
+  .admin-shell.admin-shell-blue .admin-main .admin-hero h1 {
+    font-size: 40px;
+  }
+}

@@ -21,25 +21,25 @@ type CommerceConfiguration = { paypal: { clientId: boolean; clientSecret: boolea
 type OnboardingState = { domain?: { hostname: string; status: string } | null; checks: CmsLaunchCheck[]; manualChecks?: CmsManualLaunchCheck[]; replacements: CmsReplacementItem[]; progress: { done: number; total: number }; readiness?: { score: number; done: number; total: number } };
 
 const tabs: Array<{ id: AdminTab; label: string }> = [
-  { id: "overview", label: "Home" },
-  { id: "merchants", label: "Merchant applications" },
-  { id: "setup", label: "Platform settings" },
-  { id: "delivery", label: "Create client site" },
-  { id: "brand", label: "Brand" },
-  { id: "content", label: "Homepage" },
-  { id: "products", label: "Product templates" },
-  { id: "media", label: "Media" },
-  { id: "access", label: "Site members" },
-  { id: "team", label: "Invitations" },
-  { id: "domains", label: "Domains" },
-  { id: "activity", label: "Activity" },
-  { id: "release", label: "Publish" },
-  { id: "commerce", label: "Order support" },
-  { id: "versions", label: "Versions" },
-  { id: "v21", label: "Operations health" },
-  { id: "v22", label: "Delivery controls" },
-  { id: "v23", label: "Environment" },
-  { id: "v24", label: "Launch checklist" },
+  { id: "overview", label: "工作台首页" },
+  { id: "merchants", label: "商户申请" },
+  { id: "setup", label: "平台配置" },
+  { id: "delivery", label: "创建商户站点" },
+  { id: "brand", label: "品牌资料" },
+  { id: "content", label: "首页内容" },
+  { id: "products", label: "商品模板" },
+  { id: "media", label: "图片素材" },
+  { id: "access", label: "站点成员" },
+  { id: "team", label: "协作者" },
+  { id: "domains", label: "域名管理" },
+  { id: "activity", label: "操作记录" },
+  { id: "release", label: "发布管理" },
+  { id: "commerce", label: "订单与售后" },
+  { id: "versions", label: "版本记录" },
+  { id: "v21", label: "运营健康" },
+  { id: "v22", label: "交付进度" },
+  { id: "v23", label: "生产配置" },
+  { id: "v24", label: "上线检查" },
 ];
 
 const adminPageCopy: Record<AdminTab, { eyebrow: string; title: string; accent: string; description: string }> = {
@@ -65,12 +65,12 @@ const adminPageCopy: Record<AdminTab, { eyebrow: string; title: string; accent: 
 };
 
 const adminNavGroups: Array<{ label: string; items: AdminTab[] }> = [
-  { label: "Platform", items: ["overview", "merchants"] },
-  { label: "Client sites", items: ["setup", "delivery", "domains", "v24"] },
-  { label: "Templates", items: ["brand", "content", "products", "media"] },
-  { label: "People", items: ["access", "team"] },
-  { label: "Orders & support", items: ["activity", "commerce", "v21", "v22", "v23"] },
-  { label: "Publish", items: ["release", "versions"] },
+  { label: "平台管理", items: ["overview", "merchants"] },
+  { label: "商户站点", items: ["setup", "delivery", "domains", "v24"] },
+  { label: "模板与素材", items: ["brand", "content", "products", "media"] },
+  { label: "账号权限", items: ["access", "team"] },
+  { label: "订单与支持", items: ["activity", "commerce", "v21", "v22", "v23"] },
+  { label: "发布管理", items: ["release", "versions"] },
 ];
 
 const roleVisibleAdminTabs: Record<CmsRole, AdminTab[]> = {
@@ -371,10 +371,13 @@ export function AdminStudioV6() {
   const visibleAdminNavGroups = useMemo(() => adminNavGroups.map((group) => ({ ...group, items: group.items.filter((item) => visibleAdminTabs.has(item)) })).filter((group) => group.items.length), [visibleAdminTabs]);
   const activePageCopy = adminPageCopy[tab];
   // Open the group containing the current page, while keeping manual collapse available.
-  // eslint-disable-next-line react-hooks/set-state-in-effect
   useEffect(() => {
     const activeGroup = visibleAdminNavGroups.find((group) => group.items.includes(tab))?.label;
-    if (activeGroup) setOpenAdminGroups((current) => current.includes(activeGroup) ? current : [...current, activeGroup]);
+    if (activeGroup) {
+      // The open group mirrors browser navigation state, not an external subscription.
+      // eslint-disable-next-line react-hooks/set-state-in-effect
+      setOpenAdminGroups((current) => current.includes(activeGroup) ? current : [...current, activeGroup]);
+    }
   }, [tab, visibleAdminNavGroups]);
 
   const loadSites = useCallback(async () => {

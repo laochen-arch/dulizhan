@@ -27,24 +27,24 @@ type MerchantAnalytics = { days: number; paidOrders: number; revenue: number; op
 type LaunchCenter = { readiness: { score: number; blockers: Array<{ key: string; label: string; detail: string; source: string }>; launch: { checks: Array<{ key: string; label: string; detail: string; done: boolean; required?: boolean }>; progress: { done: number; total: number } }; health: Array<{ key: string; status: string; detail: string; checkedAt: string }>; openOperations: number }; releases: Array<{ id: string; status: string; label: string; note: string | null; requestedByEmail: string; requestedAt: string; revisionId: string | null; publishedAt: string | null }>; diff: { totalChanges: number; changes: string[] }; operations: { orders: number; paidOrders: number; openAfterSales: number; lowStock: number; availableUnits: number; failedEvents: number } };
 
 const portalSectionLabels: Record<PortalSection, string> = {
-  brand: "Storefront",
-  products: "Products",
-  campaigns: "Promotions",
-  team: "Team",
-  orders: "Orders",
-  "after-sales": "Returns & support",
-  operations: "Overview",
-  integrations: "Payments & email",
+  brand: "店铺装修",
+  products: "商品管理",
+  campaigns: "营销活动",
+  team: "员工权限",
+  orders: "订单管理",
+  "after-sales": "售后处理",
+  operations: "经营概览",
+  integrations: "支付与邮件",
 };
 const workspacePageCopy: Record<PortalSection, { eyebrow: string; title: string; description: string }> = {
-  brand: { eyebrow: "Storefront", title: "Make the storefront feel like your brand.", description: "Update the name, story, contact details and colors that customers see." },
-  products: { eyebrow: "Products", title: "Keep the catalog ready to sell.", description: "Create products, update variants, manage stock and import changes in one place." },
-  campaigns: { eyebrow: "Promotions", title: "Give customers a reason to come back.", description: "Set up coupons, bundles, collections and recommendations without code." },
-  team: { eyebrow: "Team", title: "Let every teammate do their part.", description: "Invite operators and keep access limited to the work they need." },
-  orders: { eyebrow: "Orders", title: "Move every order to the next step.", description: "Review payment, fulfillment, tracking and customer details from one workspace." },
-  "after-sales": { eyebrow: "Returns & support", title: "Resolve issues with a clear record.", description: "Track requests, update the case status and keep the customer handoff visible." },
-  operations: { eyebrow: "Overview", title: "Know what needs attention today.", description: "See launch readiness, store activity and the operating signals for this site." },
-  integrations: { eyebrow: "Payments & email", title: "Keep the customer journey connected.", description: "Check PayPal, Resend and release settings before the storefront goes live." },
+  brand: { eyebrow: "店铺装修", title: "让店铺保持统一的品牌形象。", description: "修改顾客看到的店铺名称、故事、联系方式和主题颜色。" },
+  products: { eyebrow: "商品管理", title: "把商品整理到可售状态。", description: "创建商品、修改规格、管理库存，并在一个页面导入商品资料。" },
+  campaigns: { eyebrow: "营销活动", title: "让顾客有再次购买的理由。", description: "设置优惠券、组合商品、商品集合和推荐规则。" },
+  team: { eyebrow: "员工权限", title: "让每位员工只处理自己的工作。", description: "邀请员工并按岗位限制可操作的功能范围。" },
+  orders: { eyebrow: "订单管理", title: "让每笔订单顺利进入下一步。", description: "查看付款、发货、物流和客户信息，及时处理订单异常。" },
+  "after-sales": { eyebrow: "售后处理", title: "清楚记录每一个售后问题。", description: "跟踪退款、退货和换货申请，保留完整的处理记录。" },
+  operations: { eyebrow: "经营概览", title: "今天需要处理什么，一眼看清。", description: "查看店铺准备度、订单、库存、售后和系统异常。" },
+  integrations: { eyebrow: "支付与邮件", title: "让支付和通知稳定工作。", description: "检查 PayPal、Resend 和发布配置，确保顾客流程顺畅。" },
 };
 const portalSectionIds = Object.keys(portalSectionLabels) as PortalSection[];
 
@@ -68,7 +68,7 @@ function downloadText(filename: string, value: string, type: string) {
 }
 
 function MerchantWorkspaceTopbar({ siteName, userName, accessLabel }: { siteName: string; userName: string; accessLabel: string }) {
-  return <header className="merchant-workspace-topbar"><div className="merchant-workspace-topbar-inner"><Link href="/merchant" className="merchant-workspace-brand"><span className="merchant-workspace-mark">N</span><span><strong>Merchant workspace</strong><small>{siteName}</small></span></Link><div className="merchant-workspace-actions"><span className="merchant-workspace-user">{userName}</span><span className="merchant-workspace-role">{accessLabel}</span><a href={"/signout-with-chatgpt?return_to=" + encodeURIComponent("/merchant")}>Sign out</a></div></div></header>;
+  return <header className="merchant-workspace-topbar"><div className="merchant-workspace-topbar-inner"><Link href="/merchant" className="merchant-workspace-brand"><span className="merchant-workspace-mark">N</span><span><strong>商家工作台</strong><small>{siteName}</small></span></Link><div className="merchant-workspace-actions"><span className="merchant-workspace-user">{userName}</span><span className="merchant-workspace-role">{accessLabel}</span><a href={"/signout-with-chatgpt?return_to=" + encodeURIComponent("/merchant")}>退出登录</a></div></div></header>;
 }
 
 export function ClientPortal({ userName, mode = "client" }: { userName: string; mode?: "client" | "merchant" }) {
@@ -176,21 +176,24 @@ export function ClientPortal({ userName, mode = "client" }: { userName: string; 
   const activePageCopy = workspacePageCopy[section];
   const workspaceNavGroups = useMemo<WorkspaceNavGroup[]>(() => {
     if (mode !== "merchant") {
-      return [{ label: "Store setup", items: [{ id: "brand", label: "Brand & homepage" }, { id: "products", label: "Products" }, { id: "operations", label: "Launch status" }, { id: "integrations", label: "Payments & email" }] }];
+      return [{ label: "店铺设置", items: [{ id: "brand", label: "店铺装修" }, { id: "products", label: "商品管理" }, { id: "operations", label: "上线检查" }, { id: "integrations", label: "支付与邮件" }] }];
     }
     const has = (capability: string) => capabilities.has(capability);
     const item = (id: PortalSection, label: string) => ({ id, label });
     return [
-      { label: "Store", items: [item("operations", "Overview"), ...(has("merchant.storefront.write") ? [item("brand", "Storefront")] : []), ...(has("products.read") ? [item("products", "Products")] : []), ...(has("marketing.read") ? [item("campaigns", "Promotions")] : [])] },
-      { label: "Sales", items: [...(has("orders.read") ? [item("orders", "Orders")] : []), ...(has("after-sales.read") ? [item("after-sales", "Returns & support")] : [])] },
-      { label: "Settings", items: [...(canConfigure ? [item("integrations", "Payments & email")] : []), ...(canTeam ? [item("team", "Team")] : [])] },
+      { label: "店铺经营", items: [item("operations", "经营概览"), ...(has("merchant.storefront.write") ? [item("brand", "店铺装修")] : []), ...(has("products.read") ? [item("products", "商品管理")] : []), ...(has("marketing.read") ? [item("campaigns", "营销活动")] : [])] },
+      { label: "订单售后", items: [...(has("orders.read") ? [item("orders", "订单管理")] : []), ...(has("after-sales.read") ? [item("after-sales", "售后处理")] : [])] },
+      { label: "设置与权限", items: [...(canConfigure ? [item("integrations", "支付与邮件")] : []), ...(canTeam ? [item("team", "员工权限")] : [])] },
     ].filter((group) => group.items.length);
   }, [canConfigure, canTeam, capabilities, mode]);
   // Keep the section that contains the current page open, while still allowing operators to collapse it.
-  // eslint-disable-next-line react-hooks/set-state-in-effect
   useEffect(() => {
     const activeGroup = workspaceNavGroups.find((group) => group.items.some((item) => item.id === section))?.label;
-    if (activeGroup) setOpenWorkspaceGroups((current) => current.includes(activeGroup) ? current : [...current, activeGroup]);
+    if (activeGroup) {
+      // The open group mirrors browser navigation state, not an external subscription.
+      // eslint-disable-next-line react-hooks/set-state-in-effect
+      setOpenWorkspaceGroups((current) => current.includes(activeGroup) ? current : [...current, activeGroup]);
+    }
   }, [section, workspaceNavGroups]);
   const selectSection = useCallback((nextSection: PortalSection) => {
     setSection(nextSection);
