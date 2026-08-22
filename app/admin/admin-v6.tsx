@@ -891,7 +891,7 @@ export function AdminStudioV6() {
         </aside>
 
         <div className={`admin-main admin-main-tab-${tab}`}>
-          <div className="admin-topbar"><span>Platform admin</span><span>{site?.name || "Merchant storefront"} · {cmsRole || "checking access"}</span></div>
+          <div className="admin-topbar"><button type="button" className="admin-topbar-menu-button" aria-label="展开或收起菜单">☰</button><div className="admin-topbar-search" role="search"><span aria-hidden="true">⌕</span><span>搜索功能、商户或站点</span></div><div className="admin-topbar-actions"><button type="button" aria-label="查看通知">♧<b>12</b></button><button type="button" aria-label="帮助">?</button><span className="admin-topbar-avatar" aria-hidden="true">⚙</span><strong>超级管理员</strong><span aria-hidden="true">⌄</span></div><span className="sr-only">Platform admin · {site?.name || "Merchant storefront"} · {cmsRole || "checking access"}</span></div>
           <nav className="workspace-breadcrumb" aria-label="Breadcrumb"><a href="/admin">Platform admin</a><span aria-hidden="true">/</span><span>{tabs.find((item) => item.id === tab)?.label || "Workstation"}</span></nav>
         <header className="admin-hero v6-hero">
           <div>

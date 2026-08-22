@@ -2714,3 +2714,553 @@ button:disabled, .button:disabled { cursor: not-allowed; opacity: .45; }
     font-size: 40px;
   }
 }
+
+/* V54 reference-match pass: the generated reference is a two-column
+   application shell. Keep the current DOM and handlers, but let the shell
+   place the header, sidebar and work surface in the same visual grid. */
+
+.route-workspace .client-portal {
+  display: grid;
+  grid-template-columns: 224px minmax(0, 1fr);
+  column-gap: 20px;
+  align-items: start;
+  padding-top: 0;
+}
+
+.route-workspace .merchant-workspace-topbar {
+  grid-column: 1 / -1;
+  grid-row: 1;
+}
+
+.route-workspace .merchant-workspace-topbar-inner {
+  display: grid;
+  grid-template-columns: auto minmax(150px, 1fr) minmax(300px, 440px) auto;
+  align-items: center;
+  gap: 22px;
+}
+
+.route-workspace .merchant-workspace-store-switcher {
+  display: inline-flex;
+  align-items: center;
+  gap: 9px;
+  min-width: 265px;
+  border: 1px solid #d2e1ed;
+  border-radius: 7px;
+  background: #fff;
+  padding: 11px 14px;
+  color: #10253d;
+  cursor: pointer;
+  font: inherit;
+  font-size: 13px;
+  text-align: left;
+}
+
+.route-workspace .merchant-workspace-store-switcher > span:nth-child(2) {
+  overflow: hidden;
+  flex: 1;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.route-workspace .merchant-workspace-store-icon {
+  display: grid;
+  width: 21px;
+  height: 21px;
+  place-items: center;
+  border: 1px solid #1769d2;
+  border-radius: 5px;
+  color: #1769d2;
+  font-size: 11px;
+}
+
+.route-workspace .merchant-workspace-brand {
+  justify-self: start;
+}
+
+.route-workspace .merchant-workspace-search {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  min-height: 42px;
+  border: 1px solid #d2e1ed;
+  border-radius: 7px;
+  background: #fff;
+  padding: 0 12px;
+  color: #93a5b7;
+  font-size: 12px;
+}
+
+.route-workspace .merchant-workspace-search > span:first-child {
+  color: #60768b;
+  font-size: 22px;
+  line-height: 1;
+  transform: rotate(-18deg);
+}
+
+.route-workspace .merchant-workspace-search kbd {
+  margin-left: auto;
+  border: 1px solid #dbe7f0;
+  border-radius: 4px;
+  background: #f8fbfe;
+  padding: 3px 6px;
+  color: #7890a5;
+  font: inherit;
+  font-size: 9px;
+}
+
+.route-workspace .merchant-workspace-actions {
+  gap: 10px;
+  white-space: nowrap;
+}
+
+.route-workspace .merchant-workspace-icon-button {
+  position: relative;
+  border: 0;
+  background: transparent;
+  color: #60768b;
+  cursor: pointer;
+  font-size: 20px;
+  line-height: 1;
+}
+
+.route-workspace .merchant-workspace-icon-button b {
+  position: absolute;
+  top: -7px;
+  right: -8px;
+  display: grid;
+  min-width: 17px;
+  height: 17px;
+  place-items: center;
+  border-radius: 99px;
+  background: #ef4b4b;
+  color: #fff;
+  font-size: 9px;
+  font-weight: 700;
+}
+
+.route-workspace .merchant-workspace-user-avatar {
+  display: grid;
+  width: 30px;
+  height: 30px;
+  place-items: center;
+  border-radius: 50%;
+  background: #dcecff;
+  color: #1769d2;
+  font-size: 12px;
+  font-weight: 700;
+}
+
+.route-workspace .client-portal-header {
+  grid-column: 2;
+  grid-row: 2;
+  margin: 0;
+  padding: 31px 0 22px;
+}
+
+.route-workspace .client-portal-header .workspace-breadcrumb {
+  display: none;
+}
+
+.route-workspace .client-portal-header .eyebrow {
+  margin-bottom: 7px;
+  color: #1769d2;
+  font-size: 10px;
+  letter-spacing: .04em;
+  text-transform: none;
+}
+
+.route-workspace .client-portal-header h1 {
+  margin: 0 0 7px;
+  font-size: clamp(32px, 3.6vw, 45px);
+  letter-spacing: -.055em;
+}
+
+.route-workspace .client-portal-header > div > .v6-muted {
+  font-size: 13px;
+}
+
+.route-workspace .client-portal-actions {
+  align-self: center;
+}
+
+.route-workspace .client-portal-actions .button {
+  min-height: 42px;
+  padding-inline: 18px;
+}
+
+.route-workspace .client-notice {
+  grid-column: 2;
+  grid-row: 3;
+  margin: 0 0 16px;
+}
+
+.route-workspace .client-portal-layout {
+  display: contents;
+}
+
+.route-workspace .client-portal-sidebar {
+  grid-column: 1;
+  grid-row: 2 / span 3;
+  align-self: start;
+  width: 224px;
+  min-height: calc(100vh - 90px);
+  margin-top: 17px;
+  padding-top: 17px;
+}
+
+.route-workspace .client-portal-content {
+  grid-column: 2;
+  grid-row: 4;
+  min-width: 0;
+}
+
+.route-workspace .client-portal-content .client-portal-toolbar {
+  margin-bottom: 16px;
+}
+
+.route-workspace .client-portal-content-products > .client-portal-card {
+  padding: 0;
+  border-radius: 10px;
+}
+
+.route-workspace .client-portal-content-products > .client-portal-card > .v6-card-heading {
+  margin: 0;
+  padding: 17px 17px 14px;
+  border-bottom: 1px solid #e3edf4;
+}
+
+.route-workspace .client-portal-content-products > .client-portal-card > .v6-card-heading h2 {
+  margin: 0;
+  font-size: 0;
+}
+
+.route-workspace .client-portal-content-products > .client-portal-card > .v6-card-heading h2::after {
+  content: "商品列表";
+  font-size: 18px;
+  letter-spacing: -.03em;
+}
+
+.route-workspace .client-portal-content-products > .client-portal-card > .v6-help {
+  display: none;
+}
+
+.route-workspace .client-portal-content-products .v6-divider {
+  margin: 0;
+  border-top: 1px solid #edf3f8;
+  padding: 20px 17px;
+}
+
+.route-workspace .client-portal-content-products .client-product-list {
+  border: 0;
+  border-radius: 0;
+}
+
+.route-workspace .client-portal-content-products .client-product-row {
+  border-radius: 0;
+  box-shadow: none;
+}
+
+.route-workspace .client-portal-content-products .client-product-row:hover {
+  background: #f8fbfe;
+  box-shadow: inset 3px 0 0 #1769d2;
+}
+
+.route-workspace .client-portal-content-products .v6-card-heading > span {
+  display: none;
+}
+
+.route-workspace .client-portal-content-products .v6-actions .button-outline {
+  border-color: #d2e1ed;
+  color: #27435f;
+}
+
+/* Platform reference shell: white utility header, dark navy navigation and a
+   clean white work surface with compact table rhythm. */
+
+.admin-shell.admin-shell-blue .admin-sidebar {
+  position: relative;
+  padding-top: 89px;
+}
+
+.admin-shell.admin-shell-blue .admin-sidebar::before {
+  content: "平台管理后台";
+  position: absolute;
+  top: 0;
+  left: 0;
+  display: flex;
+  align-items: center;
+  width: 100%;
+  height: 73px;
+  box-sizing: border-box;
+  border-bottom: 1px solid #dbe7f0;
+  background: #fff;
+  padding: 0 28px;
+  color: #10253d;
+  font-size: 20px;
+  font-weight: 700;
+  letter-spacing: -.04em;
+}
+
+.admin-shell.admin-shell-blue .admin-sidebar-brand {
+  display: none;
+}
+
+.admin-shell.admin-shell-blue .admin-site-switcher {
+  padding-top: 5px;
+}
+
+.admin-shell.admin-shell-blue .admin-main {
+  position: relative;
+  padding-top: 0;
+}
+
+.admin-shell.admin-shell-blue .admin-topbar {
+  position: relative;
+  min-height: 73px;
+  margin-inline: calc(clamp(24px, 3.3vw, 52px) * -1);
+  padding-inline: clamp(24px, 3.3vw, 52px);
+  background: #fff;
+}
+
+.admin-shell.admin-shell-blue .admin-topbar-menu-button {
+  border: 0;
+  background: transparent;
+  color: #10253d;
+  cursor: pointer;
+  font-size: 22px;
+}
+
+.admin-shell.admin-shell-blue .admin-topbar-search {
+  display: flex;
+  align-items: center;
+  gap: 9px;
+  width: min(360px, 42%);
+  min-height: 40px;
+  margin: 0 auto;
+  border: 1px solid #d2e1ed;
+  border-radius: 7px;
+  padding: 0 12px;
+  color: #94a6b7;
+  font-size: 12px;
+}
+
+.admin-shell.admin-shell-blue .admin-topbar-search > span:first-child {
+  color: #60768b;
+  font-size: 21px;
+  transform: rotate(-18deg);
+}
+
+.admin-shell.admin-shell-blue .admin-topbar-actions {
+  display: flex;
+  align-items: center;
+  gap: 13px;
+  color: #60768b;
+  font-size: 12px;
+}
+
+.admin-shell.admin-shell-blue .admin-topbar-actions button {
+  position: relative;
+  border: 0;
+  background: transparent;
+  color: #60768b;
+  cursor: pointer;
+  font-size: 18px;
+}
+
+.admin-shell.admin-shell-blue .admin-topbar-actions button b {
+  position: absolute;
+  top: -7px;
+  right: -8px;
+  display: grid;
+  min-width: 16px;
+  height: 16px;
+  place-items: center;
+  border-radius: 99px;
+  background: #ef4b4b;
+  color: #fff;
+  font-size: 9px;
+}
+
+.admin-shell.admin-shell-blue .admin-topbar-avatar {
+  display: grid;
+  width: 30px;
+  height: 30px;
+  place-items: center;
+  border-radius: 50%;
+  background: #dcecff;
+  color: #1769d2;
+  font-size: 14px;
+}
+
+.admin-shell.admin-shell-blue .admin-topbar-actions strong {
+  color: #10253d;
+  font-weight: 600;
+}
+
+.admin-shell.admin-shell-blue .workspace-breadcrumb {
+  margin-top: 21px;
+}
+
+.admin-shell.admin-shell-blue .admin-hero {
+  padding-top: 24px;
+}
+
+.admin-shell.admin-shell-blue .admin-main-tab-merchants .admin-hero h1 {
+  font-size: clamp(32px, 3.8vw, 48px);
+}
+
+.admin-shell.admin-shell-blue .admin-main-tab-merchants .admin-hero h1 em {
+  display: none;
+}
+
+.admin-shell.admin-shell-blue .admin-main-tab-merchants .admin-hero h1 {
+  font-size: 0;
+}
+
+.admin-shell.admin-shell-blue .admin-main-tab-merchants .admin-hero h1::after {
+  content: "商户站点";
+  font-size: clamp(32px, 3.8vw, 48px);
+}
+
+.admin-shell.admin-shell-blue .admin-main-tab-merchants .admin-hero > div:first-child > p:last-child {
+  font-size: 13px;
+}
+
+.admin-shell.admin-shell-blue .admin-main-tab-merchants .admin-hero > div:first-child > p:last-child::after {
+  content: " 管理入驻商户的独立站交付进度。";
+  font-size: 0;
+}
+
+.admin-shell.admin-shell-blue .admin-main-tab-merchants .admin-hero-actions .button-outline {
+  font-size: 0;
+}
+
+.admin-shell.admin-shell-blue .admin-main-tab-merchants .admin-hero-actions .button-outline::after {
+  content: "创建商户站点";
+  font-size: 12px;
+}
+
+.admin-shell.admin-shell-blue .admin-main-tab-merchants .admin-hero-actions .button-dark {
+  display: none;
+}
+
+.admin-shell.admin-shell-blue .admin-main-tab-merchants .platform-admin-application-actions {
+  border-left: 0;
+  padding-left: 0;
+}
+
+.admin-shell.admin-shell-blue .admin-main-tab-merchants .v6-card {
+  padding: 0;
+}
+
+.admin-shell.admin-shell-blue .admin-main-tab-merchants .v6-card > .v6-card-heading {
+  padding: 18px 20px 14px;
+  margin: 0;
+  border-bottom: 1px solid #e3edf4;
+}
+
+.admin-shell.admin-shell-blue .admin-main-tab-merchants .v6-card > .v6-card-heading h2 {
+  font-size: 0;
+}
+
+.admin-shell.admin-shell-blue .admin-main-tab-merchants .v6-card > .v6-card-heading h2::after {
+  content: "商户站点";
+  font-size: 20px;
+}
+
+@media (max-width: 1100px) {
+  .route-workspace .merchant-workspace-topbar-inner {
+    grid-template-columns: auto minmax(0, 1fr) auto;
+  }
+
+  .route-workspace .merchant-workspace-brand {
+    display: none;
+  }
+
+  .route-workspace .merchant-workspace-search {
+    width: min(360px, 100%);
+    justify-self: center;
+  }
+}
+
+@media (max-width: 820px) {
+  .route-workspace .client-portal {
+    display: block;
+    width: min(100% - 34px, 1440px);
+  }
+
+  .route-workspace .merchant-workspace-topbar {
+    width: calc(100% + 34px);
+    margin-left: -17px;
+    padding-inline: 17px;
+  }
+
+  .route-workspace .merchant-workspace-topbar-inner {
+    display: flex;
+    flex-wrap: wrap;
+    min-height: 0;
+    padding-block: 12px;
+  }
+
+  .route-workspace .merchant-workspace-store-switcher {
+    min-width: 0;
+    flex: 1;
+  }
+
+  .route-workspace .merchant-workspace-search {
+    order: 3;
+    width: 100%;
+  }
+
+  .route-workspace .client-portal-header,
+  .route-workspace .client-notice,
+  .route-workspace .client-portal-content {
+    width: 100%;
+  }
+
+  .route-workspace .client-portal-sidebar {
+    min-height: 0;
+    width: auto;
+    margin: 0 0 16px;
+  }
+
+  .route-workspace .client-portal-layout {
+    display: block;
+  }
+
+  .admin-shell.admin-shell-blue .admin-topbar {
+    margin-inline: -22px;
+    padding-inline: 22px;
+  }
+
+  .admin-shell.admin-shell-blue .admin-topbar-search {
+    width: min(290px, 45%);
+  }
+}
+
+@media (max-width: 620px) {
+  .route-workspace .merchant-workspace-user,
+  .route-workspace .merchant-workspace-role {
+    display: none;
+  }
+
+  .route-workspace .merchant-workspace-actions a {
+    font-size: 9px;
+  }
+
+  .admin-shell.admin-shell-blue .admin-topbar {
+    align-items: center;
+    flex-wrap: wrap;
+    gap: 10px;
+  }
+
+  .admin-shell.admin-shell-blue .admin-topbar-search {
+    order: 3;
+    width: 100%;
+    margin: 0;
+  }
+
+  .admin-shell.admin-shell-blue .admin-topbar-actions strong {
+    display: none;
+  }
+}
