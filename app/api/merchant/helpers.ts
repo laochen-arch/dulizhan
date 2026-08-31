@@ -38,6 +38,8 @@ export class MerchantApiError extends Error {
 export function merchantErrorResponse(error: unknown) {
   if (error instanceof MerchantApiError) return Response.json({ error: error.message, code: error.code }, { status: error.status, headers: { "Cache-Control": "no-store" } });
   const message = error instanceof Error ? error.message : "The merchant workspace is unavailable.";
+  const refundErrors: Record<string,string> = {ORDER_NOT_REFUNDABLE:"当前订单状态不允许退款。",INVALID_REFUND_AMOUNT:"金额超过当前可退余额，请刷新退款记录。",REFUND_PAYMENT_NOT_FOUND:"未找到可退款的支付凭证。",REFUND_PROVIDER_ERROR:"支付方未确认退款，请先查看退款记录，不要重复提交。"};
+  if(refundErrors[message])return Response.json({error:refundErrors[message],code:message},{status:message==="REFUND_PROVIDER_ERROR"?502:409,headers:{"Cache-Control":"no-store"}});
   const notFound = ["SITE_NOT_FOUND", "PRODUCT_NOT_FOUND", "ORDER_NOT_FOUND", "AFTER_SALES_NOT_FOUND", "APPLICATION_NOT_FOUND"];
   const invalid = ["INVALID_PRODUCT", "INVALID_IMPORT", "INVALID_INVENTORY", "INVENTORY_BELOW_RESERVED", "INVALID_ORDER_STATUS", "ORDER_NOT_PAID", "INVALID_AFTER_SALES", "INVALID_COUPON", "INVALID_BUNDLE", "INVALID_BRAND", "INVALID_INTEGRATION", "INVALID_MEMBER", "VIEWER_READ_ONLY", "LAST_OWNER", "CANNOT_REMOVE_SELF", "PRODUCT_IN_USE"];
   if (notFound.includes(message)) return Response.json({ error: "The requested record was not found.", code: message }, { status: 404, headers: { "Cache-Control": "no-store" } });

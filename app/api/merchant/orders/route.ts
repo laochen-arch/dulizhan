@@ -1,4 +1,5 @@
-import { getOrder, updateOrderAdminNote, updateOrderFulfillment } from "../../../../db/commerce";
+import { getCmsDatabase } from "../../../../db/cms";
+import { getOrder, readOrder, updateOrderAdminNote, updateOrderFulfillment } from "../../../../db/commerce";
 import { getClientOrderDetail, type ClientOrderDetail } from "../../../../db/v24";
 import { listClientOrders } from "../../../../db/v23";
 import { merchantErrorResponse, requireMerchantCapability } from "../helpers";
@@ -9,7 +10,11 @@ export async function GET(request: Request) {
   try {
     const access = await requireMerchantCapability(request, "orders.read");
     const orderId = new URL(request.url).searchParams.get("orderId");
-    if (orderId) return Response.json(await getClientOrderDetail(access.site.id, orderId, access.user!.userId, access.user!.email, true) as ClientOrderDetail, { headers: { "Cache-Control": "no-store" } });
+    if (orderId) {
+      const detail = await getClientOrderDetail(access.site.id, orderId, access.user!.userId, access.user!.email, true) as ClientOrderDetail;
+      const internal = await readOrder(getCmsDatabase(), orderId, access.site.id);
+      return Response.json({...detail,order:{...detail.order,adminNote:internal.order.adminNote}}, { headers: { "Cache-Control": "no-store" } });
+    }
     return Response.json({ orders: await listClientOrders(access.site.id, access.user!.userId, access.user!.email, true) }, { headers: { "Cache-Control": "no-store" } });
   } catch (error) {
     return merchantErrorResponse(error);

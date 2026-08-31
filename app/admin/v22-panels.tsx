@@ -1,4 +1,5 @@
 "use client";
+import { TaskSections } from "../components/backoffice";
 
 import { useCallback, useEffect, useMemo, useState, type ReactNode } from "react";
 import type { CmsSite } from "../../db/cms";
@@ -277,10 +278,10 @@ export function V22OperationsPanel({ activeSiteId, cmsRole, onNotice }: { active
 
   const readyHealth = readiness?.health.filter((item) => isReadyStatus(item.status)).length || 0;
   const totalHealth = readiness?.health.length || 0;
-  return <section className="v22-operations-shell">
+  return <TaskSections className="v22-operations-shell" labels={["交付概览","上线阻塞项","操作事件","相关配置"]}>
     <div className="v6-card v22-ops-hero"><div><p className="eyebrow">V22 / Production control</p><h2>One release gate for payments, domains and operations.</h2><p className="v6-muted">Run the checks, review blockers and resolve tenant events before publishing a production storefront.</p></div><div className="v22-readiness-score"><strong>{readiness?.score ?? 0}%</strong><span>ready</span></div><button type="button" className="button button-dark" onClick={() => void runChecks()} disabled={!canEdit || busy}>{busy ? "Working..." : "Run all checks →"}</button></div>
     <div className="v22-ops-grid"><article className="v6-card"><div className="v6-card-heading"><div><p className="eyebrow">Release blockers</p><h3>{readiness?.blockers.length || 0} items need attention</h3></div><span>{readiness?.openOperations || 0} open events</span></div><div className="v22-blocker-list">{readiness?.blockers.slice(0, 12).map((blocker) => <div key={blocker.key}><span className="v22-blocker-icon">!</span><span><strong>{blocker.label}</strong><small>{blocker.detail}</small></span></div>)}{!readiness?.blockers.length && <div className="v6-empty">No release blockers detected. Run checks again after changing provider or domain configuration.</div>}</div></article><article className="v6-card"><div className="v6-card-heading"><div><p className="eyebrow">Runtime health</p><h3>{readyHealth}/{totalHealth || 0} checks ready</h3></div><button type="button" className="text-button" onClick={() => void load()}>Refresh</button></div><div className="v22-health-list">{readiness?.health.map((check) => <div key={check.key}><span><strong>{check.key}</strong><small>{check.detail}</small></span><span className={`v22-status ${check.status}`}>{check.status}</span></div>)}{!readiness?.health.length && <div className="v6-empty">No health snapshot yet. Run all checks.</div>}</div></article></div>
     <article className="v6-card"><div className="v6-card-heading"><div><p className="eyebrow">Unified operation events</p><h3>Trace every important action by tenant.</h3></div><span>Audit + recovery feed</span></div><div className="v22-operation-list">{readiness?.recentOperations.map((event) => <div key={event.id}><span className={`v22-operation-dot ${event.severity}`}></span><div><strong>{event.message}</strong><small>{event.action} · {event.entityType || "cms"} · {new Date(event.createdAt).toLocaleString()}</small></div><div className="v22-operation-actions"><span className={`v22-status ${event.status}`}>{event.status}</span>{event.status !== "resolved" && <button type="button" className="text-button" onClick={() => void resolve(event.id)} disabled={!canEdit || busy}>Resolve</button>}</div></div>)}{!readiness?.recentOperations.length && <div className="v6-empty">No operation events recorded yet.</div>}</div></article>
     <div className="v22-ops-footer"><a className="button button-outline" href={`/admin?tab=setup&siteId=${encodeURIComponent(activeSiteId)}`}>Open provider setup</a><a className="button button-outline" href={`/admin?tab=versions&siteId=${encodeURIComponent(activeSiteId)}`}>Review versions</a></div>
-  </section>;
+  </TaskSections>;
 }

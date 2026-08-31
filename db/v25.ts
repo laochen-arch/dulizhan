@@ -86,6 +86,7 @@ export type AccountOrderDetail = {
 
 export const merchantRoleCapabilities: Record<MerchantRole, string[]> = {
   merchant_owner: [
+    "orders.refund",
     "merchant.read",
     "merchant.settings.read",
     "merchant.settings.write",
@@ -104,6 +105,7 @@ export const merchantRoleCapabilities: Record<MerchantRole, string[]> = {
     "after-sales.write",
   ],
   merchant_manager: [
+    "orders.refund",
     "merchant.read",
     "merchant.storefront.write",
     "products.read",

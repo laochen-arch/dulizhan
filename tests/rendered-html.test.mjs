@@ -167,7 +167,7 @@ test("keeps V23 tenant secrets and client self-service boundaries in source", as
   assert.match(portal, /client\.product_updated/);
   assert.match(configRoute, /requireMember\(siteId, "owner"\)/);
   assert.match(clientRoute, /requireMember\(siteId, "viewer"\)/);
-  assert.match(clientPage, /Save encrypted credentials/);
+  assert.match(clientPage, /保存加密配置/);
 });
 
 test("keeps V24 release approval and client operations in source", async () => {
@@ -188,8 +188,12 @@ test("keeps V24 release approval and client operations in source", async () => {
   assert.match(releases, /reviewReleaseRequest/);
   assert.match(previewShare, /createPreviewShare/);
   assert.match(catalog, /previewClientImport/);
-  assert.match(portal, /Variant \/ SKU management/);
-  assert.match(portal, /Submit a verified after-sales case/);
+  assert.match(portal, /MerchantCatalog/);
+  assert.match(portal, /MerchantAfterSales/);
+  const catalogUi = await readFile(new URL("../app/merchant/catalog-panel.tsx", import.meta.url), "utf8");
+  const serviceUi = await readFile(new URL("../app/merchant/service-panels.tsx", import.meta.url), "utf8");
+  assert.match(catalogUi, /variantOptionValues/);
+  assert.match(serviceUi, /登记售后申请/);
   assert.match(admin, /V24 \/ Production launch center/);
 });
 
@@ -345,7 +349,7 @@ test("keeps V30 identity binding and canonical commerce recovery paths", async (
   assert.match(refunds, /reconcilePayPalRefunds/);
   assert.match(workerSource, /runCommerceRecovery/);
   assert.match(admin, /const selectTab/);
-  assert.match(admin, /admin-workspace-status/);
+  assert.match(admin, /status=\{/);
   assert.match(admin, /cmsRole === "viewer"/);
 });
 
@@ -478,9 +482,10 @@ test("keeps V32 platform onboarding and merchant operations boundaries", async (
   assert.match(cms, /cms_collections/);
   assert.match(cms, /cms_recommendation_rules/);
   assert.match(workerSource, /syncMerchantCampaignSchedules/);
-  assert.match(workspace, /Create draft product/);
-  assert.match(workspace, /Scheduled campaigns/);
-  assert.match(admin, /Create storefront/);
+  assert.match(workspace, /MerchantCatalog/);
+  assert.match(workspace, /MerchantMarketing/);
+  assert.match(admin, /创建商户站点/);
+  assert.match(admin, /createSite:true/);
   assert.equal((await render("/platform")).status, 200);
   assert.equal((await render("/platform/apply")).status, 200);
   assert.equal((await render("/platform/applications")).status, 200);
@@ -573,9 +578,9 @@ test("keeps V47 P0 portal delivery and identity recovery loops", async () => {
   assert.match(ownerInviteApi, /acceptPlatformOwnerInvite/);
   assert.match(ownerPage, /owner-invite/);
   assert.match(supportApi, /updatePlatformSupportTicket/);
-  assert.match(admin, /View details/);
-  assert.match(admin, /Save domain status/);
-  assert.match(admin, /Retry/);
+  assert.match(admin, /审核与交付/);
+  assert.match(admin, /保存域名处理结果/);
+  assert.match(admin, /重试发送/);
   assert.match(auth, /EMAIL_NOT_VERIFIED/);
   assert.match(auth, /email_verified_at IS NOT NULL/);
   assert.match(v32, /owner_invite_status/);
@@ -596,10 +601,13 @@ test("keeps role-specific navigation and canonical workspace entry points", asyn
   assert.match(accessMenu, /hasPlatformAccess/);
   assert.match(merchantWorkspace, /selectSection/);
   assert.match(merchantWorkspace, /params\.set\("section"/);
-  assert.match(merchantWorkspace, /workspace-breadcrumb/);
+  assert.match(merchantWorkspace, /BackofficeShell/);
+  const shell = await readFile(new URL("../app/components/backoffice.tsx", import.meta.url), "utf8");
+  assert.match(shell, /bo-breadcrumb/);
+  assert.match(shell, /aria-expanded/);
   assert.match(platformAdmin, /roleVisibleAdminTabs/);
   assert.match(platformAdmin, /Platform work/);
-  assert.match(platformAdmin, /workspace-breadcrumb/);
+  assert.match(platformAdmin, /BackofficeShell/);
   assert.match(platformHeader, /案例与资源/);
   assert.doesNotMatch(platformHeader, /auth\/register\?return_to=%2Fplatform/);
 });

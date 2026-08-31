@@ -1,7 +1,7 @@
 "use client";
-
-import { useEffect, useMemo, useState } from "react";
-
+import { useEffect, useState } from "react";
+import { AsyncForm, BusinessField as Field, BusinessTable, RecordPage, useBusinessView } from "../components/backoffice";
+import { workspaceRequest } from "../merchant/workspace-api";
 type Application = { id: string; email: string; applicantType: string; contactName: string; phone: string | null; companyName: string; brandName: string; category: string; website: string | null; targetDomain: string | null; markets: string | null; productSource: string | null; notes: string | null; templateSiteId: string; brandPrimaryColor: string | null; homeCopy: string | null; productImport?: { products?: unknown[]; productCsv?: string } | null; status: string; assignedSiteId: string | null; adminNote: string | null; ownerInviteStatus?: string; ownerActivatedAt?: string | null; createdAt: string; updatedAt: string };
 type Event = { id: string; eventType: string; toStatus: string | null; note: string | null; createdAt: string };
 type DomainRequest = { id: string; hostname: string; status: string; note: string | null };
@@ -9,105 +9,46 @@ type Ticket = { id: string; subject: string; message: string; status: string; as
 type Notification = { id: string; eventType: string; subject: string; status: string; attempts: number; lastError: string | null };
 type Detail = { application: Application; events: Event[]; domains: DomainRequest[]; assets: Array<{ id: string; assetKey: string; kind: string; sizeBytes: number }>; tickets: Ticket[]; notifications: Notification[]; canReview: boolean };
 
-const statusLabels: Record<string, string> = { draft: "Draft", submitted: "Submitted", reviewing: "In review", needs_info: "Action required", approved: "Approved", commercial_pending: "Agreement pending", site_creating: "Creating storefront", onboarding_failed: "Delivery failed", rejected: "Not approved", site_created: "Storefront ready", live: "Live", suspended: "Suspended" };
-function statusLabel(status: string) { return statusLabels[status] || status.replaceAll("_", " "); }
 
-export function PlatformApplicationsPanel() {
-  const [applications, setApplications] = useState<Application[]>([]);
-  const [detail, setDetail] = useState<Detail | null>(null);
-  const [busy, setBusy] = useState(false);
-  const [notice, setNotice] = useState<string | null>(null);
-  const [query, setQuery] = useState("");
-  const [filter, setFilter] = useState("all");
-  const [notes, setNotes] = useState<Record<string, string>>({});
-  const [domainDrafts, setDomainDrafts] = useState<Record<string, { status: string; note: string }>>({});
-  const [ticketDrafts, setTicketDrafts] = useState<Record<string, { status: string; assignedTo: string; adminNote: string }>>({});
-
-  async function load() {
-    const response = await fetch("/api/platform/applications", { cache: "no-store" });
-    const payload = await response.json().catch(() => ({})) as { applications?: Application[]; error?: string };
-    if (!response.ok) throw new Error(payload.error || "Unable to load merchant applications.");
-    const next = payload.applications || [];
-    setApplications(next);
-    setNotes(Object.fromEntries(next.map((application) => [application.id, application.adminNote || ""])));
-  }
-
-  async function loadDetail(applicationId: string) {
-    try {
-      const response = await fetch(`/api/platform/applications?id=${encodeURIComponent(applicationId)}`, { cache: "no-store" });
-      const payload = await response.json().catch(() => ({})) as Detail & { error?: string };
-      if (!response.ok || !payload.application) throw new Error(payload.error || "Unable to load application details.");
-      setDetail(payload);
-      setDomainDrafts(Object.fromEntries(payload.domains.map((item) => [item.id, { status: item.status, note: item.note || "" }])));
-      setTicketDrafts(Object.fromEntries(payload.tickets.map((item) => [item.id, { status: item.status, assignedTo: item.assignedTo || "", adminNote: item.adminNote || "" }])));
-    } catch (error) { setNotice(error instanceof Error ? error.message : "Unable to load application details."); }
-  }
-
-  // eslint-disable-next-line react-hooks/set-state-in-effect
-  useEffect(() => { void load().catch((error) => setNotice(error instanceof Error ? error.message : "Unable to load merchant applications.")); }, []);
-
-  async function update(application: Application, nextStatus?: string, createSite = false) {
-    setBusy(true);
-    try {
-      const response = await fetch("/api/platform/applications", { method: "PATCH", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ id: application.id, status: nextStatus || application.status, adminNote: notes[application.id] || null, createSite }) });
-      const payload = await response.json().catch(() => ({})) as { application?: Application; error?: string };
-      if (!response.ok || !payload.application) throw new Error(payload.error || "Unable to update application.");
-      setApplications((current) => current.map((item) => item.id === application.id ? payload.application as Application : item));
-      setNotice(createSite ? (application.assignedSiteId ? "Storefront delivery retried." : "Storefront created. The owner invitation is being sent.") : "Application review saved.");
-      await loadDetail(application.id);
-    } catch (error) { setNotice(error instanceof Error ? error.message : "Unable to update application."); }
-    finally { setBusy(false); }
-  }
-
-  async function updateDomain(item: DomainRequest) {
-    if (!detail) return; const draft = domainDrafts[item.id]; setBusy(true);
-    try {
-      const response = await fetch("/api/platform/applications/domain", { method: "PATCH", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ applicationId: detail.application.id, requestId: item.id, status: draft?.status || item.status, note: draft?.note || null }) });
-      const payload = await response.json().catch(() => ({})) as { error?: string };
-      if (!response.ok) throw new Error(payload.error || "Unable to update domain status.");
-      setNotice("Domain status saved and the applicant was notified."); await loadDetail(detail.application.id);
-    } catch (error) { setNotice(error instanceof Error ? error.message : "Unable to update domain status."); }
-    finally { setBusy(false); }
-  }
-
-  async function updateTicket(item: Ticket) {
-    if (!detail) return; const draft = ticketDrafts[item.id]; setBusy(true);
-    try {
-      const response = await fetch("/api/platform/applications/support", { method: "PATCH", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ applicationId: detail.application.id, ticketId: item.id, status: draft?.status || item.status, assignedTo: draft?.assignedTo || null, adminNote: draft?.adminNote || null }) });
-      const payload = await response.json().catch(() => ({})) as { error?: string };
-      if (!response.ok) throw new Error(payload.error || "Unable to update support request.");
-      setNotice("Support request saved."); await loadDetail(detail.application.id);
-    } catch (error) { setNotice(error instanceof Error ? error.message : "Unable to update support request."); }
-    finally { setBusy(false); }
-  }
-
-  async function retryNotification(notificationId: string) {
-    if (!detail) return; setBusy(true);
-    try {
-      const response = await fetch("/api/platform/applications/notifications", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ applicationId: detail.application.id, notificationId }) });
-      const payload = await response.json().catch(() => ({})) as { error?: string };
-      if (!response.ok) throw new Error(payload.error || "Unable to retry notification.");
-      setNotice("Notification retry recorded."); await loadDetail(detail.application.id);
-    } catch (error) { setNotice(error instanceof Error ? error.message : "Unable to retry notification."); }
-    finally { setBusy(false); }
-  }
-
-  async function inviteOwner() {
-    if (!detail) return; setBusy(true);
-    try {
-      const response = await fetch("/api/platform/applications/access", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ action: "invite_owner", applicationId: detail.application.id }) });
-      const payload = await response.json().catch(() => ({})) as { error?: string };
-      if (!response.ok) throw new Error(payload.error || "Unable to send owner invitation.");
-      setNotice("Owner invitation sent. Delivery status is recorded below."); await loadDetail(detail.application.id);
-    } catch (error) { setNotice(error instanceof Error ? error.message : "Unable to send owner invitation."); }
-    finally { setBusy(false); }
-  }
-
-  const filteredApplications = useMemo(() => applications.filter((application) => {
-    const matchesFilter = filter === "all" || application.status === filter;
-    const haystack = `${application.brandName} ${application.companyName} ${application.email} ${application.category}`.toLowerCase();
-    return matchesFilter && haystack.includes(query.trim().toLowerCase());
-  }), [applications, filter, query]);
-
-  return <section className="v6-card"><div className="v6-card-heading"><div><p className="eyebrow">Merchant applications</p><h2>Turn qualified applications into storefronts.</h2></div><button className="text-button" type="button" onClick={() => void load()} disabled={busy}>Refresh</button></div><p className="v6-muted">Review every applicant material, domain request, support thread and delivery attempt from one workspace. Status changes and retries are recorded in the application history.</p><div className="v6-commerce-toolbar"><input aria-label="Search applications" value={query} onChange={(event) => setQuery(event.target.value)} placeholder="Search brand, company, email or category" /><select aria-label="Filter applications" value={filter} onChange={(event) => setFilter(event.target.value)}><option value="all">All statuses</option>{Object.entries(statusLabels).map(([value, label]) => <option value={value} key={value}>{label}</option>)}</select></div><div className="v6-version-list">{filteredApplications.map((application) => <article key={application.id}><div><strong>{application.brandName} / {application.companyName}</strong><span>{application.contactName} · {application.email}{application.phone ? ` · ${application.phone}` : ""} · {application.category}</span><small>{application.markets || "Markets not provided"} · {application.productSource || "Product source not provided"}{application.targetDomain ? ` · ${application.targetDomain}` : ""}</small><small>{application.notes || "No additional notes."}</small><small>Template: {application.templateSiteId} · Created {new Date(application.createdAt).toLocaleString()}</small></div><div className="platform-admin-application-actions"><span className={`platform-status-badge ${application.status}`}>{statusLabel(application.status)}</span><button type="button" className="button button-outline" disabled={busy} onClick={() => void loadDetail(application.id)}>View details</button><select value={application.status} disabled={busy} aria-label={`Status for ${application.brandName}`} onChange={(event) => void update(application, event.target.value)}>{Object.entries(statusLabels).map(([value, label]) => <option value={value} key={value}>{label}</option>)}</select><label className="v6-field"><span>Review note</span><textarea value={notes[application.id] || ""} onChange={(event) => setNotes((current) => ({ ...current, [application.id]: event.target.value }))} placeholder="Explain approval conditions or missing materials" /></label><button className="button button-outline" type="button" disabled={busy} onClick={() => void update(application)}>Save note</button>{!application.assignedSiteId && application.status === "approved" && <button className="button button-dark" type="button" disabled={busy} onClick={() => void update(application, "site_created", true)}>Create storefront →</button>}{application.status === "onboarding_failed" && application.assignedSiteId && <button className="button button-dark" type="button" disabled={busy} onClick={() => void update(application, "site_created", true)}>Retry delivery →</button>}{application.assignedSiteId && <a className="button button-outline" href={`/admin?siteId=${encodeURIComponent(application.assignedSiteId)}`}>Open site</a>}</div></article>)}{!filteredApplications.length && <div className="v6-empty">No merchant applications match this view.</div>}</div>{detail && <section className="platform-admin-detail"><div className="v6-card-heading"><div><p className="eyebrow">Application detail</p><h3>{detail.application.brandName} · {detail.application.id}</h3><p className="v6-muted">{detail.application.email} · owner invite: {detail.application.ownerInviteStatus || "not_sent"}</p></div><div className="v6-actions"><button type="button" className="text-button" onClick={() => setDetail(null)}>Close</button>{detail.application.assignedSiteId && detail.application.ownerInviteStatus !== "accepted" && <button type="button" className="button button-dark" disabled={busy} onClick={() => void inviteOwner()}>Invite owner →</button>}</div></div><div className="platform-admin-detail-grid"><div className="platform-admin-detail-card"><p className="eyebrow">Applicant and brand</p><p><strong>{detail.application.contactName}</strong><br />{detail.application.companyName}<br />{detail.application.category}<br />{detail.application.markets || "Markets not provided"}</p><p>{detail.application.website || "No existing website"}<br />{detail.application.targetDomain || "No target domain"}</p><div className="platform-admin-brand-preview" style={{ borderColor: detail.application.brandPrimaryColor || "#c9d9e8" }}><strong>{detail.application.brandName}</strong><small>{detail.application.homeCopy || "No homepage direction provided."}</small></div></div><div className="platform-admin-detail-card"><p className="eyebrow">Review and delivery</p><label className="v6-field"><span>Status</span><select value={detail.application.status} disabled={busy} onChange={(event) => void update(detail.application, event.target.value)}>{Object.entries(statusLabels).map(([value, label]) => <option value={value} key={value}>{label}</option>)}</select></label><label className="v6-field"><span>Platform note</span><textarea value={notes[detail.application.id] || detail.application.adminNote || ""} onChange={(event) => setNotes((current) => ({ ...current, [detail.application.id]: event.target.value }))} /></label><button type="button" className="button button-outline" disabled={busy} onClick={() => void update(detail.application)}>Save review decision</button>{detail.application.assignedSiteId && <p className="v6-muted">Site: {detail.application.assignedSiteId}</p>}</div></div><div className="platform-admin-detail-grid"><div className="platform-admin-detail-card"><p className="eyebrow">Domain requests</p>{detail.domains.map((item) => { const draft = domainDrafts[item.id] || { status: item.status, note: item.note || "" }; return <div className="platform-admin-record" key={item.id}><strong>{item.hostname}</strong><select value={draft.status} onChange={(event) => setDomainDrafts((current) => ({ ...current, [item.id]: { ...draft, status: event.target.value } }))}><option value="pending">Pending</option><option value="reviewing">Verifying</option><option value="active">Verified</option><option value="failed">Failed</option></select><textarea value={draft.note} onChange={(event) => setDomainDrafts((current) => ({ ...current, [item.id]: { ...draft, note: event.target.value } }))} placeholder="DNS / SSL result or next action" /><button type="button" className="button button-outline" disabled={busy} onClick={() => void updateDomain(item)}>Save domain status</button></div>; })}{!detail.domains.length && <p className="v6-muted">No domain request yet.</p>}</div><div className="platform-admin-detail-card"><p className="eyebrow">Support requests</p>{detail.tickets.map((item) => { const draft = ticketDrafts[item.id] || { status: item.status, assignedTo: item.assignedTo || "", adminNote: item.adminNote || "" }; return <div className="platform-admin-record" key={item.id}><strong>{item.subject}</strong><small>{item.message}</small><select value={draft.status} onChange={(event) => setTicketDrafts((current) => ({ ...current, [item.id]: { ...draft, status: event.target.value } }))}><option value="open">Open</option><option value="in_progress">In progress</option><option value="resolved">Resolved</option></select><input value={draft.assignedTo} onChange={(event) => setTicketDrafts((current) => ({ ...current, [item.id]: { ...draft, assignedTo: event.target.value } }))} placeholder="Assigned operator" /><textarea value={draft.adminNote} onChange={(event) => setTicketDrafts((current) => ({ ...current, [item.id]: { ...draft, adminNote: event.target.value } }))} placeholder="Reply or internal note" /><button type="button" className="button button-outline" disabled={busy} onClick={() => void updateTicket(item)}>Save support request</button></div>; })}{!detail.tickets.length && <p className="v6-muted">No support requests yet.</p>}</div></div><div className="platform-admin-detail-card"><p className="eyebrow">Notification delivery</p>{detail.notifications.map((item) => <div className="platform-admin-notification" key={item.id}><span><strong>{item.subject}</strong><small>{item.eventType} · {item.attempts} attempt(s){item.lastError ? ` · ${item.lastError}` : ""}</small></span><span className={`platform-status-badge ${item.status}`}>{item.status}</span>{item.status === "failed" && <button type="button" className="button button-outline" disabled={busy} onClick={() => void retryNotification(item.id)}>Retry</button>}</div>)}{!detail.notifications.length && <p className="v6-muted">No notification records yet.</p>}</div><div className="platform-admin-detail-card"><p className="eyebrow">Audit history</p><div className="platform-event-list">{detail.events.map((event) => <div key={event.id}><span>{statusLabel(event.toStatus || event.eventType)}</span><small>{new Date(event.createdAt).toLocaleString()} · {event.note || event.eventType.replaceAll("_", " ")}</small></div>)}</div></div></section>}{notice && <div className="client-notice info" role="status">{notice}</div>}</section>;
+const statusLabels: Record<string,string> = {draft:"未提交",submitted:"待审核",reviewing:"审核中",needs_info:"待补资料",approved:"已通过",commercial_pending:"待确认协议",site_creating:"创建中",onboarding_failed:"交付失败",rejected:"已拒绝",site_created:"站点已创建",live:"已上线",suspended:"已暂停"};
+const statusLabel=(value:string)=>statusLabels[value]||value;
+const reviewChoices:Record<string,string[]>={submitted:["reviewing","needs_info","approved","rejected"],reviewing:["needs_info","approved","rejected"],needs_info:["reviewing","approved","rejected"],approved:["commercial_pending","rejected"],commercial_pending:["approved"],rejected:["reviewing"],site_created:["live","suspended"],live:["suspended"],suspended:["live"]};
+async function write(resource:string,fields:Record<string,unknown>,method="PATCH"){return workspaceRequest<{application?:Application}>("/api/platform/applications"+resource,{method,headers:{"Content-Type":"application/json"},body:JSON.stringify(fields)});}
+export function PlatformApplicationsPanel(){
+  const {view,record,open}=useBusinessView("platform:applications");
+  const [applications,setApplications]=useState<Application[]>([]);
+  const [detail,setDetail]=useState<Detail|null>(null);
+  const [error,setError]=useState("");
+  const [loading,setLoading]=useState(true);
+  const [revision,setRevision]=useState(0);
+  const [panel,setPanel]=useState("review");
+  const [selectedChild,setSelectedChild]=useState("");
+  const [notice,setNotice]=useState("");
+  useEffect(()=>{
+    const abort=new AbortController();
+    async function load(){setLoading(true);setError("");setDetail(null);
+      try{if(view&&record){const payload=await workspaceRequest<Detail>("/api/platform/applications?id="+encodeURIComponent(record),{signal:abort.signal});if(!abort.signal.aborted)setDetail(payload);}
+      else {const payload=await workspaceRequest<{applications:Application[]}>("/api/platform/applications",{signal:abort.signal});if(!abort.signal.aborted)setApplications(payload.applications);}
+      }catch(cause){if(!abort.signal.aborted)setError(cause instanceof Error?cause.message:"申请加载失败");}
+      finally{if(!abort.signal.aborted)setLoading(false);}
+    }void load();return()=>abort.abort();
+  },[view,record,revision]);
+  function refreshed(){setNotice("操作已记录。邮件是否送达，请查看通知记录。");setRevision(value=>value+1);}
+  if(loading)return <div className="bo-card" role="status">正在读取申请资料…</div>;
+  if(error)return <div className="bo-error" role="alert">{error}<button type="button" onClick={()=>setRevision(value=>value+1)}>重试</button><button type="button" onClick={()=>open()}>返回申请列表</button></div>;
+  if(!view)return <BusinessTable title="商户入驻申请" rows={applications} rowKey={a=>a.id} searchText={a=>[a.id,a.brandName,a.companyName,a.email,a.contactName].join(" ")} status={a=>statusLabel(a.status)} columns={[{label:"品牌 / 企业",render:a=><><strong>{a.brandName}</strong><small>{a.companyName}</small></>},{label:"联系人",render:a=><>{a.contactName}<small>{a.email}</small></>},{label:"经营品类",render:a=>a.category},{label:"申请状态",render:a=>statusLabel(a.status)},{label:"提交时间",render:a=>new Date(a.createdAt).toLocaleString()}]} onOpen={a=>{setPanel("review");setSelectedChild("");setNotice("");open("detail",a.id);}} openLabel="审核与交付" actions={<button className="button button-outline" type="button" onClick={()=>setRevision(v=>v+1)}>刷新列表</button>}/>;
+  if(!detail)return <RecordPage title="申请不存在" onBack={()=>open()}><p>无法读取这条申请，请返回列表。</p></RecordPage>;
+  const a=detail.application;
+  const domain=detail.domains.find(item=>item.id===selectedChild);
+  const ticket=detail.tickets.find(item=>item.id===selectedChild);
+  return <RecordPage title={a.brandName+" · 入驻申请"} description={a.id+" · "+statusLabel(a.status)} onBack={()=>open()}>
+    {notice&&<div className="bo-info" role="status">{notice}</div>}
+    <div className="bo-subnav" aria-label="申请详情分区">{[["review","申请审核"],["delivery","站点交付"],["domains","域名申请"],["support","咨询工单"],["notifications","通知记录"],["history","处理历史"]].map(([id,label])=><button key={id} type="button" className={panel===id?"is-active":""} onClick={()=>{setPanel(id);setSelectedChild("");}}>{label}</button>)}</div>
+    {panel==="review"&&<div className="bo-record-layout"><div className="bo-card"><h3>申请资料</h3><dl className="bo-facts">{[["申请类型",a.applicantType==="company"?"企业":a.applicantType==="individual"?"个人":a.applicantType],["企业",a.companyName],["品牌",a.brandName],["联系人",a.contactName],["邮箱",a.email],["手机",a.phone],["经营品类",a.category],["目标市场",a.markets],["商品来源",a.productSource],["原网站",a.website],["申请域名",a.targetDomain],["模板",a.templateSiteId],["首页文案",a.homeCopy],["申请说明",a.notes],["已上传素材",String(detail.assets.length)+" 个"]].map(([label,value])=><div key={label}><dt>{label}</dt><dd>{value||"未提供"}</dd></div>)}</dl></div><div className="bo-card"><h3>审核意见</h3><AsyncForm key={a.updatedAt} disabled={!detail.canReview} label="提交审核结果" onSave={async form=>{const status=String(form.get("status")),adminNote=String(form.get("adminNote")).trim();if(["needs_info","rejected"].includes(status)&&!adminNote)throw new Error("请填写需要补充的资料或拒绝原因。");await write("",{id:a.id,status,adminNote});refreshed();}}><Field label="审核结果"><select name="status" defaultValue={a.status}>{[a.status,...(reviewChoices[a.status]||[])].map(status=><option key={status} value={status}>{statusLabel(status)}</option>)}</select></Field><Field label="原因与下一步说明"><textarea name="adminNote" defaultValue={a.adminNote||""} rows={5}/></Field><p className="bo-info">选项变化不会立即写入。审核结果和说明提交后才通知申请人。</p></AsyncForm></div></div>}
+    {panel==="delivery"&&<div className="bo-card"><h3>站点与负责人</h3><dl className="bo-facts"><div><dt>站点</dt><dd>{a.assignedSiteId||"尚未创建"}</dd></div><div><dt>负责人邮箱</dt><dd>{a.email}</dd></div><div><dt>邀请状态</dt><dd>{a.ownerInviteStatus||"尚未发送"}</dd></div><div><dt>激活时间</dt><dd>{a.ownerActivatedAt||"尚未激活"}</dd></div></dl>{["approved","commercial_pending","onboarding_failed","site_creating"].includes(a.status)&&<AsyncForm disabled={!detail.canReview} label={a.assignedSiteId?"重试站点交付":"创建商户站点"} onSave={async()=>{if(!window.confirm("按此申请的模板、品牌和商品资料创建或重试站点交付？"))return;await write("",{id:a.id,status:"site_created",createSite:true,adminNote:a.adminNote});refreshed();}}><p>按申请资料创建站点并关联商户负责人，保留真实交付和邮件结果。</p></AsyncForm>}{a.assignedSiteId&&<><a className="button button-outline" href={"/admin?tab=delivery&view=detail&siteId="+encodeURIComponent(a.assignedSiteId)}>查看站点交付</a>{a.ownerInviteStatus!=="accepted"&&<AsyncForm disabled={!detail.canReview} label="重新邀请负责人" onSave={async()=>{await write("/access",{action:"invite_owner",applicationId:a.id},"POST");refreshed();}}><p>发送状态记录在“通知记录”，不以按钮成功代替邮件送达。</p></AsyncForm>}</>}</div>}
+    {panel==="domains"&&(domain?<div className="bo-card"><button type="button" className="text-button" onClick={()=>setSelectedChild("")}>← 返回域名申请</button><h3>{domain.hostname}</h3><AsyncForm disabled={!detail.canReview} label="保存域名处理结果" onSave={async form=>{await write("/domain",{applicationId:a.id,requestId:domain.id,status:form.get("status"),note:form.get("note")});refreshed();}}><Field label="处理状态"><select name="status" defaultValue={domain.status}><option value="pending">待处理</option><option value="reviewing">核验中</option><option value="active">已核验</option><option value="failed">需修复</option></select></Field><Field label="核验说明 / 下一步"><textarea name="note" defaultValue={domain.note||""} required/></Field><p>此处记录申请处理意见。正式 DNS / 证书验证请在所选站点的“域名管理”执行。</p></AsyncForm></div>:<BusinessTable title="域名申请" rows={detail.domains} rowKey={d=>d.id} searchText={d=>d.hostname} columns={[{label:"域名",render:d=>d.hostname},{label:"状态",render:d=>d.status},{label:"说明",render:d=>d.note||"暂无"}]} onOpen={d=>setSelectedChild(d.id)} openLabel="处理申请"/> )}
+    {panel==="support"&&(ticket?<div className="bo-card"><button className="text-button" type="button" onClick={()=>setSelectedChild("")}>← 返回咨询工单</button><h3>{ticket.subject}</h3><p>{ticket.message}</p><AsyncForm disabled={!detail.canReview} label="保存工单处理" onSave={async form=>{await write("/support",{applicationId:a.id,ticketId:ticket.id,status:form.get("status"),assignedTo:form.get("assignedTo"),adminNote:form.get("adminNote")});refreshed();}}><Field label="处理状态"><select name="status" defaultValue={ticket.status}><option value="open">待处理</option><option value="in_progress">处理中</option><option value="resolved">已解决</option></select></Field><Field label="跟进人"><input name="assignedTo" defaultValue={ticket.assignedTo||""}/></Field><Field label="处理说明"><textarea name="adminNote" required defaultValue={ticket.adminNote||""}/></Field></AsyncForm></div>:<BusinessTable title="咨询工单" rows={detail.tickets} rowKey={t=>t.id} searchText={t=>t.subject+" "+t.message} columns={[{label:"问题",render:t=>t.subject},{label:"跟进人",render:t=>t.assignedTo||"待分配"},{label:"状态",render:t=>t.status}]} onOpen={t=>setSelectedChild(t.id)} openLabel="处理工单"/>)}
+    {panel==="notifications"&&<BusinessTable title="通知发送记录" rows={detail.notifications} rowKey={n=>n.id} searchText={n=>n.subject+" "+n.eventType} status={n=>n.status} columns={[{label:"主题",render:n=>n.subject},{label:"状态",render:n=>n.status},{label:"尝试次数",render:n=>n.attempts},{label:"失败原因",render:n=>n.lastError||"—"},{label:"操作",render:n=>n.status==="failed"?<AsyncForm disabled={!detail.canReview} label="重试发送" onSave={async()=>{await write("/notifications",{applicationId:a.id,notificationId:n.id},"POST");refreshed();}}><span className="sr-only">{n.subject}</span></AsyncForm>:"—"}]}/>}
+    {panel==="history"&&<BusinessTable title="处理历史" rows={detail.events} rowKey={e=>e.id} searchText={e=>e.eventType+" "+e.note} columns={[{label:"时间",render:e=>new Date(e.createdAt).toLocaleString()},{label:"事件",render:e=>statusLabel(e.toStatus||e.eventType)},{label:"说明",render:e=>e.note||"—"}]}/>}
+  </RecordPage>;
 }

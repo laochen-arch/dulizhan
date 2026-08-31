@@ -2,6 +2,7 @@ import type { Metadata } from "next";
 import { Geist, Geist_Mono } from "next/font/google";
 import { headers } from "next/headers";
 import "./globals.css";
+import "./backoffice.css";
 import type { CmsSnapshot } from "../db/cms";
 import { SiteRuntimeProvider } from "./components/site-runtime";
 import { siteConfig } from "./data/site-config";
