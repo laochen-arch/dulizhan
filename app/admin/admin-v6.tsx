@@ -14,10 +14,11 @@ import { V22DeliveryWizard, V22OperationsPanel } from "./v22-panels";
 import { V23ConfigurationPanel } from "./v23-panels";
 import { V24OperationsPanel } from "./v24-panels";
 import { PlatformApplicationsPanel } from "./platform-applications-panel";
+import { V60PlatformPanel } from "./v60-platform-panel";
 import { PlatformSites, PlatformDomains, PlatformMembers } from "./site-management";
 import { confirmBusinessNavigation, AsyncForm, BackofficeShell, BusinessTable, RecordPage, useBusinessView } from "../components/backoffice";
 
-type AdminTab = "overview" | "merchants" | "setup" | "delivery" | "brand" | "content" | "products" | "media" | "access" | "team" | "domains" | "activity" | "release" | "commerce" | "versions" | "v21" | "v22" | "v23" | "v24";
+type AdminTab = "overview" | "merchants" | "commercial" | "reports" | "setup" | "delivery" | "brand" | "content" | "products" | "media" | "access" | "team" | "domains" | "activity" | "release" | "commerce" | "versions" | "v21" | "v22" | "v23" | "v24";
 type Notice = { tone: "success" | "error" | "info"; text: string } | null;
 type CommerceConfiguration = { paypal: { clientId: boolean; clientSecret: boolean; webhookId: boolean; mode?: string }; resend: { apiKey: boolean; fromEmail: boolean; fromDomain?: string | null }; webhookEndpoint?: string; environmentKeys?: string[] };
 type OnboardingState = { domain?: { hostname: string; status: string } | null; checks: CmsLaunchCheck[]; manualChecks?: CmsManualLaunchCheck[]; replacements: CmsReplacementItem[]; progress: { done: number; total: number }; readiness?: { score: number; done: number; total: number } };
@@ -25,6 +26,8 @@ type OnboardingState = { domain?: { hostname: string; status: string } | null; c
 const tabs: Array<{ id: AdminTab; label: string }> = [
   { id: "overview", label: "工作台首页" },
   { id: "merchants", label: "商户申请" },
+  { id: "commercial", label: "商户与续费" },
+  { id: "reports", label: "收入报表" },
   { id: "setup", label: "平台配置" },
   { id: "delivery", label: "站点列表" },
   { id: "brand", label: "品牌资料" },
@@ -47,6 +50,8 @@ const tabs: Array<{ id: AdminTab; label: string }> = [
 const adminPageCopy: Record<AdminTab, { eyebrow: string; title: string; accent: string; description: string }> = {
   overview: { eyebrow: "Workspace home", title: "Keep every client site", accent: "ready to launch.", description: "See what needs attention, create a new client site and publish only after the launch checks pass." },
   merchants: { eyebrow: "Merchant applications", title: "Review new business", accent: "with confidence.", description: "Approve applications, request missing information and move qualified merchants into site setup." },
+  commercial: { eyebrow: "Merchant lifecycle", title: "Manage every merchant", accent: "from trial to renewal.", description: "Keep applications, subscriptions, delivery, launch readiness and exceptions in one traceable workflow." },
+  reports: { eyebrow: "Platform revenue", title: "Understand recurring revenue", accent: "without mixing merchant sales.", description: "Track platform subscriptions, collected fees, outstanding bills and application conversion." },
   setup: { eyebrow: "Platform settings", title: "Set the rules once", accent: "for every site.", description: "Check payment, email and domain readiness before a client storefront goes live." },
   delivery: { eyebrow: "Client sites", title: "Create a storefront", accent: "from a clear handoff.", description: "Turn a merchant brief into an isolated site with brand, products, media and a review link." },
   brand: { eyebrow: "Brand", title: "Make the storefront", accent: "look like the client.", description: "Update the visual identity and homepage story without touching code." },
@@ -67,7 +72,7 @@ const adminPageCopy: Record<AdminTab, { eyebrow: string; title: string; accent: 
 };
 
 const adminNavGroups: Array<{ label: string; items: AdminTab[] }> = [
-  { label: "平台管理", items: ["overview", "merchants"] },
+  { label: "平台管理", items: ["overview", "merchants", "commercial", "reports"] },
   { label: "商户站点", items: ["setup", "delivery", "domains", "v24"] },
   { label: "模板与素材", items: ["brand", "content", "products", "media"] },
   { label: "账号权限", items: ["access"] },
@@ -77,8 +82,8 @@ const adminNavGroups: Array<{ label: string; items: AdminTab[] }> = [
 
 const roleVisibleAdminTabs: Record<CmsRole, AdminTab[]> = {
   owner: tabs.map((item) => item.id),
-  editor: ["overview", "merchants", "setup", "delivery", "brand", "content", "products", "media", "domains", "activity", "release", "commerce", "versions", "v21", "v22", "v23", "v24"],
-  viewer: ["overview", "merchants", "delivery", "domains", "activity", "versions", "v24"],
+  editor: ["overview", "merchants", "commercial", "reports", "setup", "delivery", "brand", "content", "products", "media", "domains", "activity", "release", "commerce", "versions", "v21", "v22", "v23", "v24"],
+  viewer: ["overview", "merchants", "commercial", "reports", "delivery", "domains", "activity", "versions", "v24"],
 };
 
 // Platform work remains a dedicated operator surface; it is intentionally not
@@ -787,7 +792,7 @@ export function AdminStudioV6() {
   }
 
   return (
-    <BackofficeShell workspaceRole="platform" brand="运营管理中心" title={tabs.find(item => item.id === tab)?.label || "运营后台"} description={({overview:"集中查看商户站点和待交付事项。",merchants:"审核入驻资料，跟进补交、创建站点与负责人激活。",delivery:"一个商户站点一条记录，按站点处理交付事项。",access:"管理当前站点的内容协作者，不混用商家员工权限。",domains:"查看域名解析、证书和接入问题。",products:"当前所选站点的模板目录；日常商品运营请由商家负责。",media:"维护所选站点的图片素材。",brand:"修改所选站点的品牌与配色，保存到草稿。",content:"配置首页内容和导航。",versions:"查看已保存的发布记录，必要时恢复到草稿。"} as Partial<Record<AdminTab,string>>)[tab] || activePageCopy.description} current={tab} groups={visibleAdminNavGroups.map(group => ({label:group.label,items:group.items.map(id => ({id,label:tabs.find(item => item.id === id)!.label}))}))} onNavigate={id => selectTab(id as AdminTab)} user={cmsRole === "owner" ? "管理员" : cmsRole === "editor" ? "运营人员" : "查看权限"}
+    <BackofficeShell workspaceRole="platform" brand="运营管理中心" title={tabs.find(item => item.id === tab)?.label || "运营后台"} description={({overview:"集中查看商户站点和待交付事项。",merchants:"审核入驻资料，跟进补交、创建站点与负责人激活。",commercial:"围绕一个商户处理套餐、续费、交付、上线和异常。",reports:"查看平台服务费、续费收入和入驻转化，不混入商户销售额。",delivery:"一个商户站点一条记录，按站点处理交付事项。",access:"管理当前站点的内容协作者，不混用商家员工权限。",domains:"查看域名解析、证书和接入问题。",products:"当前所选站点的模板目录；日常商品运营请由商家负责。",media:"维护所选站点的图片素材。",brand:"修改所选站点的品牌与配色，保存到草稿。",content:"配置首页内容和导航。",versions:"查看已保存的发布记录，必要时恢复到草稿。"} as Partial<Record<AdminTab,string>>)[tab] || activePageCopy.description} current={tab} groups={visibleAdminNavGroups.map(group => ({label:group.label,items:group.items.map(id => ({id,label:tabs.find(item => item.id === id)!.label}))}))} onNavigate={id => selectTab(id as AdminTab)} user={cmsRole === "owner" ? "管理员" : cmsRole === "editor" ? "运营人员" : "查看权限"}
       context={<><label>当前商户<select value={activeSiteId} onChange={event => selectSite(event.target.value)}>{sites.map(item => <option key={item.id} value={item.id}>{item.name}</option>)}</select></label><span>{cmsStatus === "synced" ? "草稿已同步" : cmsStatus === "saving" ? "保存中" : cmsStatus === "error" ? "同步失败，请重试" : "正在读取"}</span></>}
       actions={<a className="button button-outline" href={`/preview?siteId=${encodeURIComponent(activeSiteId)}`} target="_blank" rel="noreferrer">预览所选站点 ↗</a>}
       status={<>{notice && <div className={notice.tone === "error" ? "bo-error" : "bo-info"} role="status">{notice.text}<button type="button" className="text-button" onClick={() => setNotice(null)} aria-label="关闭消息"> ×</button></div>}{cmsError && <div className="bo-error" role="alert">{cmsError}</div>}</>}>
@@ -796,6 +801,8 @@ export function AdminStudioV6() {
         {!["domains","team","activity"].includes(tab) && <P0Panels tab={tab} config={config} updateConfig={updateConfig} setHome={setHome} toggleModule={toggleModule} moveModule={moveModule} domainForm={domainForm} setDomainForm={setDomainForm} saveDomain={saveDomain} site={site} activeSiteId={activeSiteId} cmsRole={cmsRole} diff={diff} scheduleForm={scheduleForm} setScheduleForm={setScheduleForm} saveSchedule={saveSchedule} schedules={schedules} cancelScheduledPublish={cancelScheduledPublish} busy={busy} publish={publish} members={members} invitations={invitations} changeMemberRole={changeMemberRole} removeAccess={removeAccess} revokeAccessInvite={revokeAccessInvite} auditLogs={auditLogs} loadWorkspaceData={loadWorkspaceData} orders={orders} inventory={inventory} loadCommerceData={loadCommerceData} updateOrder={updateOrder} updateStock={updateStock} loadOrderDetail={loadOrderDetail} orderDetail={orderDetail} orderLoading={orderLoading} commerceConfiguration={commerceConfiguration} domains={domains} onboarding={onboarding} paymentEvents={paymentEvents} retryPaymentEvent={retryPaymentEvent} retryNotification={retryNotification} refundOrder={refundOrder} />}
 
         {tab === "merchants" && <PlatformApplicationsPanel />}
+        {tab === "commercial" && <V60PlatformPanel />}
+        {tab === "reports" && <V60PlatformPanel reportOnly />}
         {tab === "setup" && <LaunchSetupPanel activeSiteId={activeSiteId} commerceConfiguration={commerceConfiguration} domains={domains} onboarding={onboarding} busy={busy} onRefresh={async () => { await loadCommerceData(); await loadWorkspaceData(); }} onNotice={(next) => setNotice(next)} />}
         {tab === "delivery" && (businessView.view === "detail" ? <RecordPage title={(site?.name || "商户站点")+" · 交付详情"} onBack={()=>businessView.open()}><div className="bo-actions"><button className="button button-outline" onClick={()=>selectTab("domains")}>域名管理</button><button className="button button-outline" onClick={()=>selectTab("v24")}>上线检查</button><button className="button button-outline" onClick={()=>selectTab("release")}>发布管理</button></div><V22DeliveryWizard activeSiteId={activeSiteId} site={site} cmsRole={cmsRole} onboarding={onboarding} busy={busy} onRefresh={async () => { await refreshCms(); await loadWorkspaceData(); }} onNotice={(next) => setNotice(next)}><details className="bo-card"><summary>批量导入与高级交付工具</summary><DeliveryPanel sites={sites} site={site} activeSiteId={activeSiteId} setActiveSiteId={setActiveSiteId} siteForm={siteForm} setSiteForm={setSiteForm} createClientSite={createClientSite} onboarding={onboarding} busy={busy} onRefresh={async () => { await refreshCms(); await loadWorkspaceData(); }} onNotice={(next) => setNotice(next)} /></details></V22DeliveryWizard></RecordPage> : <PlatformSites sites={sites} canCreate={cmsRole==="owner"} onCreated={created=>{setSites(current=>[...current.filter(s=>s.id!==created.id),created]);setNotice({tone:"success",text:"站点已创建，请进入交付详情完成配置。"});}} onSelect={selected=>{setActiveSiteId(selected.id);const params=new URLSearchParams(window.location.search);params.set("siteId",selected.id);params.set("view","detail");window.history.pushState({},"","/admin?"+params);window.dispatchEvent(new Event("workspace:navigate"));}}/>)}
         {tab === "domains" && <PlatformDomains key={activeSiteId} siteId={activeSiteId} domains={domains} canWrite={cmsRole==="owner"} onChange={setDomains}/>}
