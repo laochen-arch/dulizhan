@@ -156,9 +156,22 @@ export async function runHealthChecks(siteId: string) {
   const database = getCmsDatabase(); const checks: Array<{ key: string; status: string; detail: string }> = [];
   try { await ensureCmsSchema(database); await database.prepare("SELECT 1 AS ok").first(); checks.push({ key: "d1", status: "ready", detail: "D1 schema and query are available." }); } catch (error) { checks.push({ key: "d1", status: "error", detail: error instanceof Error ? error.message : "D1 unavailable." }); }
   for (const provider of ["paypal", "resend"] as const) { try { const probe = await probeCommerceProvider(provider, siteId); checks.push({ key: provider, status: probe.status, detail: probe.detail }); await markSiteIntegrationCheck(siteId, provider, probe.status === "ready" ? "ready" : probe.status === "missing" ? "missing" : "error", probe.status === "ready" ? null : probe.detail, database); } catch (error) { const detail = error instanceof Error ? error.message : "Provider check failed."; checks.push({ key: provider, status: "error", detail }); await markSiteIntegrationCheck(siteId, provider, "error", detail, database); } }
-  try { getMediaBucket(); checks.push({ key: "r2", status: "ready", detail: "R2 media binding is present." }); } catch (error) { checks.push({ key: "r2", status: "error", detail: error instanceof Error ? error.message : "R2 unavailable." }); }
+  try {
+    const bucket = getMediaBucket();
+    const key = `health/${siteId.replace(/[^A-Za-z0-9_-]/g, "_")}.txt`;
+    const value = `health:${siteId}:${Date.now()}`;
+    await bucket.put(key, value, { httpMetadata: { contentType: "text/plain", cacheControl: "private, no-store" } });
+    const object = await bucket.get(key) as { text?: () => Promise<string> } | null;
+    if (!object?.text || await object.text() !== value) throw new Error("R2_READ_AFTER_WRITE_FAILED");
+    await bucket.delete(key);
+    checks.push({ key: "r2", status: "ready", detail: "R2 write, read and delete probe succeeded." });
+  } catch (error) { checks.push({ key: "r2", status: "error", detail: error instanceof Error ? error.message : "R2 unavailable." }); }
   const domain = await database.prepare("SELECT hostname, status FROM cms_site_domains WHERE site_id = ?1 ORDER BY created_at DESC LIMIT 1").bind(siteId).first<{ hostname: string; status: string }>(); checks.push({ key: "domain", status: domain?.status === "active" || domain?.status === "verified" ? "ready" : domain ? "error" : "missing", detail: domain ? `${domain.hostname} is ${domain.status}.` : "No custom domain mapping." });
-  checks.push({ key: "worker", status: "ready", detail: "Scheduled operations are available in the worker runtime." });
+  try {
+    const maintenance = await database.prepare("SELECT status, completed_at AS completedAt FROM cms_maintenance_runs WHERE run_key LIKE 'commerce:%' ORDER BY started_at DESC LIMIT 1").first<{ status: string; completedAt: string | null }>();
+    const fresh = maintenance?.completedAt && Date.parse(maintenance.completedAt) >= Date.now() - 15 * 60 * 1000;
+    checks.push({ key: "worker", status: maintenance?.status === "completed" && fresh ? "ready" : "error", detail: maintenance?.status === "completed" && fresh ? `Automatic recovery completed at ${maintenance.completedAt}.` : "No successful automatic recovery run was recorded in the last 15 minutes." });
+  } catch { checks.push({ key: "worker", status: "error", detail: "Automatic recovery history is unavailable. Generate storefront traffic, then run checks again." }); }
   const timestamp = now(); await database.batch(checks.map((check) => database.prepare("INSERT INTO cms_health_checks (site_id, check_key, status, detail, checked_at) VALUES (?1, ?2, ?3, ?4, ?5) ON CONFLICT(site_id, check_key) DO UPDATE SET status = excluded.status, detail = excluded.detail, checked_at = excluded.checked_at").bind(siteId, check.key, check.status, check.detail, timestamp)));
   return listHealthChecks(siteId);
 }

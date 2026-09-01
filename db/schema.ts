@@ -378,6 +378,10 @@ export const cmsHealthChecks = sqliteTable("cms_health_checks", {
   siteId: text("site_id").notNull(), checkKey: text("check_key").notNull(), status: text("status").notNull(), detail: text("detail").notNull(), checkedAt: text("checked_at").notNull(),
 }, (table) => [primaryKey({ columns: [table.siteId, table.checkKey] }), index("cms_health_site_idx").on(table.siteId, table.checkedAt)]);
 
+export const cmsTenantBackups = sqliteTable("cms_tenant_backups", {
+  id: text("id").primaryKey(), siteId: text("site_id").notNull(), objectKey: text("object_key").notNull().unique(), status: text("status").notNull(), reason: text("reason").notNull(), checksum: text("checksum").notNull(), rowCounts: text("row_counts").notNull(), sizeBytes: integer("size_bytes").notNull().default(0), createdBy: text("created_by").notNull(), createdAt: text("created_at").notNull(), verifiedAt: text("verified_at"), lastError: text("last_error"),
+}, (table) => [index("cms_tenant_backups_site_idx").on(table.siteId, table.createdAt)]);
+
 export const cmsReleaseRequests = sqliteTable("cms_release_requests", {
   id: text("id").primaryKey(), siteId: text("site_id").notNull(), status: text("status").notNull().default("pending"), label: text("label").notNull(), note: text("note"), requestedBy: text("requested_by").notNull(), requestedByEmail: text("requested_by_email").notNull(), requestedAt: text("requested_at").notNull(), reviewedBy: text("reviewed_by"), reviewedByEmail: text("reviewed_by_email"), reviewedAt: text("reviewed_at"), revisionId: text("revision_id"), publishedAt: text("published_at"), createdAt: text("created_at").notNull(), updatedAt: text("updated_at").notNull(),
 }, (table) => [index("cms_release_requests_site_idx").on(table.siteId, table.status, table.createdAt)]);

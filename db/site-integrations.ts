@@ -243,7 +243,16 @@ export async function getSiteIntegrationReadiness(database: D1DatabaseLike, site
   const statuses = await getSiteIntegrationStatuses(siteId, database);
   const paypal = statuses.find((item) => item.provider === "paypal");
   const resend = statuses.find((item) => item.provider === "resend");
-  return { encryptionKey: siteId === "default" || Boolean(workerSecrets().CMS_SECRETS_KEY?.trim()), paypal: Boolean(paypal?.configured), webhook: Boolean(paypal?.webhookId), resend: Boolean(resend?.configured) };
+  const resendDomain = resend?.fromDomain?.trim().toLowerCase() || "";
+  return {
+    encryptionKey: Boolean(workerSecrets().CMS_SECRETS_KEY?.trim()),
+    paypal: Boolean(paypal?.configured),
+    paypalLive: Boolean(paypal?.configured && paypal.environment === "live"),
+    webhook: Boolean(paypal?.webhookId),
+    resend: Boolean(resend?.configured),
+    resendProductionSender: Boolean(resend?.configured && resendDomain && resendDomain !== "resend.dev"),
+    resendDomain: resendDomain || null,
+  };
 }
 
 export async function saveSiteIntegration(siteId: string, provider: SiteIntegrationProvider, input: { clientId?: string; clientSecret?: string; webhookId?: string; environment?: string; apiKey?: string; fromEmail?: string }, updatedBy: string, database?: D1DatabaseLike) {

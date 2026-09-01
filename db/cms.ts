@@ -126,6 +126,15 @@ export const V20_MANUAL_LAUNCH_CHECKS = [
   { key: "test.resend-email", label: "Resend payment and shipping email delivered", detail: "Confirm the customer and operator messages arrive and retry records are clear." },
 ] as const;
 
+export const V59_MANUAL_LAUNCH_CHECKS = [
+  { key: "v59.paypal-live-order", label: "Live PayPal payment completed", detail: "Complete a small real payment and confirm the order becomes paid only after server-side capture." },
+  { key: "v59.paypal-live-webhook", label: "Live PayPal webhook processed", detail: "Deliver a signed Live event and confirm it is processed once in the webhook event log." },
+  { key: "v59.live-refund", label: "Live refund and inventory rule verified", detail: "Complete a partial or full Live refund and confirm inventory follows the selected restock rule exactly once." },
+  { key: "v59.resend-live", label: "Production customer emails delivered", detail: "Confirm payment, shipping and refund messages arrive from the verified sender and have no failed retry records." },
+  { key: "v59.domain-callback", label: "Custom-domain callbacks verified", detail: "Confirm checkout return, password reset, order lookup and unsubscribe links all use the customer domain." },
+  { key: "v59.restore-drill", label: "Backup restore drill reviewed", detail: "Run the non-destructive restore drill and confirm its row counts and checksum evidence." },
+] as const;
+
 export type CmsReplacementItem = {
   key: string;
   label: string;
@@ -741,6 +750,20 @@ async function initializeCmsSchema(database: D1DatabaseLike) {
       checked_at TEXT NOT NULL,
       PRIMARY KEY(site_id, check_key)
     )`),
+    database.prepare(`CREATE TABLE IF NOT EXISTS cms_tenant_backups (
+      id TEXT PRIMARY KEY,
+      site_id TEXT NOT NULL,
+      object_key TEXT NOT NULL UNIQUE,
+      status TEXT NOT NULL,
+      reason TEXT NOT NULL,
+      checksum TEXT NOT NULL,
+      row_counts TEXT NOT NULL,
+      size_bytes INTEGER NOT NULL DEFAULT 0,
+      created_by TEXT NOT NULL,
+      created_at TEXT NOT NULL,
+      verified_at TEXT,
+      last_error TEXT
+    )`),
     database.prepare(`CREATE TABLE IF NOT EXISTS cms_release_requests (
       id TEXT PRIMARY KEY,
       site_id TEXT NOT NULL,
@@ -957,6 +980,7 @@ async function initializeCmsSchema(database: D1DatabaseLike) {
     database.prepare("CREATE INDEX IF NOT EXISTS cms_analytics_site_idx ON cms_analytics_events(site_id, event_type, created_at)"),
     database.prepare("CREATE INDEX IF NOT EXISTS cms_abandoned_site_idx ON cms_abandoned_checkouts(site_id, status, last_seen_at)"),
     database.prepare("CREATE INDEX IF NOT EXISTS cms_health_site_idx ON cms_health_checks(site_id, checked_at)"),
+    database.prepare("CREATE INDEX IF NOT EXISTS cms_tenant_backups_site_idx ON cms_tenant_backups(site_id, created_at)"),
     database.prepare("CREATE INDEX IF NOT EXISTS cms_release_requests_site_idx ON cms_release_requests(site_id, status, created_at)"),
     database.prepare("CREATE INDEX IF NOT EXISTS cms_preview_tokens_site_idx ON cms_preview_tokens(site_id, expires_at)"),
     database.prepare("CREATE INDEX IF NOT EXISTS merchant_members_site_role_idx ON merchant_members(site_id, role, created_at)"),
@@ -1391,12 +1415,18 @@ async function buildSiteLaunchChecks(database: D1DatabaseLike, siteId: string, c
   const seoReady = Boolean(config.seo.title.trim() && config.seo.description.trim() && (!isClientSite || config.seo.title !== siteConfig.seo.title || config.seo.description !== siteConfig.seo.description));
   const policiesReady = Boolean(config.content.policies.shippingLead.trim() && config.content.policies.returnsLead.trim() && (!isClientSite || config.content.policies.shippingLead !== siteConfig.content.policies.shippingLead || config.content.policies.returnsLead !== siteConfig.content.policies.returnsLead));
   const catalogReady = catalog.some((product) => product.status === "active") && (!isClientSite || JSON.stringify(catalog) !== JSON.stringify(defaultProducts));
-  const manualChecks: CmsManualLaunchCheck[] = V20_MANUAL_LAUNCH_CHECKS.map((definition) => ({
-    ...definition,
-    done: manualRows.get(definition.key)?.completed === 1,
-    required: isClientSite,
-    manual: true,
-  }));
+  const healthRows = await database.prepare("SELECT check_key AS key, status, checked_at AS checkedAt FROM cms_health_checks WHERE site_id = ?1").bind(siteId).all<{ key: string; status: string; checkedAt: string }>();
+  const latestBackup = await database.prepare("SELECT status, verified_at AS verifiedAt, created_at AS createdAt FROM cms_tenant_backups WHERE site_id = ?1 ORDER BY created_at DESC LIMIT 1").bind(siteId).first<{ status: string; verifiedAt: string | null; createdAt: string }>();
+  const healthByKey = new Map(healthRows.results.map((check) => [check.key, check]));
+  const requiredHealthKeys = ["d1", "paypal", "resend", "r2", "domain", "worker"];
+  const freshAfter = Date.now() - 24 * 60 * 60 * 1000;
+  const runtimeHealthy = requiredHealthKeys.every((key) => {
+    const check = healthByKey.get(key);
+    return check?.status === "ready" && Date.parse(check.checkedAt) >= freshAfter;
+  });
+  const historicalChecks: CmsManualLaunchCheck[] = V20_MANUAL_LAUNCH_CHECKS.map((definition) => ({ ...definition, done: manualRows.get(definition.key)?.completed === 1, required: false, manual: true }));
+  const productionChecks: CmsManualLaunchCheck[] = V59_MANUAL_LAUNCH_CHECKS.map((definition) => ({ ...definition, done: manualRows.get(definition.key)?.completed === 1, required: true, manual: true }));
+  const manualChecks = [...productionChecks, ...historicalChecks];
   const checks: CmsLaunchCheck[] = [
     { key: "brand", label: "Brand name and logo mark", done: brandReady, required: true, detail: brandReady ? "The client brand identity is ready." : isClientSite ? "Replace the template logo mark with the client's mark." : "Add the client brand name and logo mark." },
     { key: "hero", label: "Hero media", done: heroReady, required: true, detail: heroReady ? "The client hero image is ready." : isClientSite ? "Replace the template hero image with a client asset." : "Bind a hero image from the client media library." },
@@ -1405,11 +1435,15 @@ async function buildSiteLaunchChecks(database: D1DatabaseLike, siteId: string, c
     { key: "policies", label: "Shipping and returns copy", done: policiesReady, required: true, detail: policiesReady ? "The client delivery and returns policies are ready." : isClientSite ? "Replace the template shipping or returns copy." : "Confirm the client delivery and returns policies." },
     { key: "catalog", label: "At least one active product", done: catalogReady, required: true, detail: catalogReady ? "The client product catalog is ready." : isClientSite ? "Import the client catalog instead of publishing the template catalog." : "Import or activate at least one product." },
     { key: "commerce", label: "Active product commerce validation", done: catalogErrors.length === 0, required: true, detail: catalogErrors[0] || "All active products have valid variants, SKUs, prices and images." },
-    { key: "secrets-key", label: "Tenant secrets encryption key", done: !isClientSite || readiness.encryptionKey, required: isClientSite, detail: readiness.encryptionKey ? "The shared encryption key is available to protect tenant credentials." : "Add CMS_SECRETS_KEY (32+ characters) in the Sites production environment." },
-    { key: "paypal", label: "PayPal site credentials", done: !isClientSite || readiness.paypal, required: isClientSite, detail: readiness.paypal ? "This tenant has encrypted PayPal credentials." : "Save this tenant's PayPal credentials in the configuration center." },
-    { key: "paypal-webhook", label: "PayPal site webhook identity", done: !isClientSite || readiness.webhook, required: isClientSite, detail: readiness.webhook ? "This tenant has an encrypted PayPal webhook identity." : "Save this tenant's PayPal webhook ID in the configuration center." },
-    { key: "resend", label: "Resend site credentials", done: !isClientSite || readiness.resend, required: isClientSite, detail: readiness.resend ? "This tenant has encrypted Resend credentials and a sender." : "Save this tenant's Resend API key and sender in the configuration center." },
-    { key: "domain", label: "Custom domain mapping", done: !isClientSite || Boolean(domain?.hostname && (domain.status === "verified" || domain.status === "active")), required: isClientSite, detail: domain ? `${domain.hostname} is ${domain.status}.` : "Map and verify the client domain." },
+    { key: "secrets-key", label: "Tenant secrets encryption key", done: readiness.encryptionKey, required: true, detail: readiness.encryptionKey ? "The shared encryption key is available to protect tenant credentials." : "Add CMS_SECRETS_KEY (32+ characters) in the Sites production environment." },
+    { key: "paypal", label: "PayPal site credentials", done: readiness.paypal, required: true, detail: readiness.paypal ? "This tenant has encrypted PayPal credentials." : "Save this tenant's PayPal credentials in the configuration center." },
+    { key: "paypal-live", label: "PayPal Live mode", done: readiness.paypalLive, required: true, detail: readiness.paypalLive ? "PayPal uses Live credentials." : "Replace Sandbox credentials with a PayPal Live app before production launch." },
+    { key: "paypal-webhook", label: "PayPal site webhook identity", done: readiness.webhook, required: true, detail: readiness.webhook ? "This tenant has an encrypted PayPal webhook identity." : "Save this tenant's Live PayPal webhook ID in the configuration center." },
+    { key: "resend", label: "Resend site credentials", done: readiness.resend, required: true, detail: readiness.resend ? "This tenant has encrypted Resend credentials and a sender." : "Save this tenant's Resend API key and sender in the configuration center." },
+    { key: "resend-domain", label: "Verified production sender domain", done: readiness.resendProductionSender, required: true, detail: readiness.resendProductionSender ? `${readiness.resendDomain} is configured as the sender domain.` : "Replace onboarding@resend.dev with an address on a verified customer domain." },
+    { key: "domain", label: "Custom domain mapping", done: Boolean(domain?.hostname && (domain.status === "verified" || domain.status === "active")), required: true, detail: domain ? `${domain.hostname} is ${domain.status}.` : "Map and verify the production custom domain." },
+    { key: "runtime-health", label: "Fresh production health snapshot", done: runtimeHealthy, required: true, detail: runtimeHealthy ? "Database, storage, domain, PayPal, Resend and worker checks passed within 24 hours." : "Run production health checks after configuring Live providers and the custom domain." },
+    { key: "verified-backup", label: "Verified tenant backup", done: latestBackup?.status === "verified" && Boolean(latestBackup.verifiedAt), required: true, detail: latestBackup?.status === "verified" ? `Latest backup verified at ${latestBackup.verifiedAt}.` : "Create a tenant backup and run the non-destructive restore drill." },
     { key: "client-intake", label: "Client handoff intake approved", done: !isClientSite || intake?.status === "approved", required: isClientSite, detail: !isClientSite ? "Template site does not require client intake." : intake?.status === "approved" ? "Client delivery intake is approved." : "Collect and approve the client's brand, content, legal and domain details." },
     ...manualChecks,
   ];
@@ -1454,7 +1488,7 @@ export async function updateLaunchCheck(siteId: string, checkKey: string, comple
   await ensureCmsSchema(database);
   const member = await ensureMember(siteId, userId, email, database);
   if (member.role === "viewer") throw new Error("VIEWER_READ_ONLY");
-  if (!V20_MANUAL_LAUNCH_CHECKS.some((check) => check.key === checkKey)) throw new Error("INVALID_LAUNCH_CHECK");
+  if (![...V20_MANUAL_LAUNCH_CHECKS, ...V59_MANUAL_LAUNCH_CHECKS].some((check) => check.key === checkKey)) throw new Error("INVALID_LAUNCH_CHECK");
   const timestamp = now();
   await database.prepare(`INSERT INTO cms_launch_checks (site_id, check_key, completed, note, updated_at, updated_by)
     VALUES (?1, ?2, ?3, NULL, ?4, ?5)

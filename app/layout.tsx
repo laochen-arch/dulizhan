@@ -50,12 +50,18 @@ export async function generateMetadata(): Promise<Metadata> {
     const site = await resolveSiteByHost(requestHeaders.get("host"));
     const snapshot = await readSnapshot(site.id, "published");
     const { config } = snapshot;
+    const requestHost = requestHeaders.get("host") || "localhost";
+    const hostname = site.domain || requestHost;
+    const protocol = hostname.startsWith("localhost") ? "http" : "https";
+    const origin = `${protocol}://${hostname}`;
     return {
       title: { default: `${config.brand.name} - ${config.brand.tagline}`, template: `%s - ${config.brand.name}` },
       description: config.seo.description,
       keywords: config.seo.keywords,
+      metadataBase: new URL(origin),
+      alternates: { canonical: "/" },
       icons: { icon: "/favicon.svg", shortcut: "/favicon.svg" },
-      openGraph: { title: `${config.brand.name} - ${config.brand.tagline}`, description: config.seo.description, images: ["/og.png"] },
+      openGraph: { title: `${config.brand.name} - ${config.brand.tagline}`, description: config.seo.description, url: origin, images: ["/og.png"] },
       twitter: { card: "summary_large_image", title: `${config.brand.name} - ${config.brand.tagline}`, description: config.seo.description, images: ["/og.png"] },
     };
   } catch {

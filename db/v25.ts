@@ -92,6 +92,7 @@ export const merchantRoleCapabilities: Record<MerchantRole, string[]> = {
     "merchant.settings.write",
     "merchant.storefront.write",
     "merchant.team.manage",
+    "merchant.data.export",
     "products.read",
     "products.write",
     "marketing.read",

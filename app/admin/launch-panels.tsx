@@ -16,12 +16,12 @@ type SiteForm = { name: string; slug: string; templateSiteId: string };
 type Probe = { provider: "paypal" | "resend"; configured: boolean; reachable: boolean; status: "ready" | "missing" | "error"; detail: string; checkedAt: string; mode?: string };
 type ImportPreview = { valid: boolean; errors: string[]; warnings: string[]; summary: { configChanged: boolean; totalProducts: number; activeProducts: number; importedProducts: number; assetBindings: number } };
 const productionTests = [
-  { key: "test.paypal-order", label: "Sandbox PayPal order completed" },
-  { key: "test.paypal-webhook", label: "PayPal webhook event processed" },
-  { key: "test.refund-inventory", label: "Refund and inventory rule verified" },
-  { key: "test.resend-email", label: "Resend payment and shipping email delivered" },
-  { key: "test.core-recovery", label: "Core recovery pass completed and reviewed" },
-  { key: "test.customer-account", label: "Signed-in customer can see and claim order history" },
+  { key: "v59.paypal-live-order", label: "Live PayPal payment completed" },
+  { key: "v59.paypal-live-webhook", label: "Live PayPal webhook processed" },
+  { key: "v59.live-refund", label: "Live refund and inventory rule verified" },
+  { key: "v59.resend-live", label: "Production customer emails delivered" },
+  { key: "v59.domain-callback", label: "Custom-domain callbacks verified" },
+  { key: "v59.restore-drill", label: "Backup restore drill reviewed" },
 ];
 
 function StatusPill({ status }: { status: string }) {
@@ -147,7 +147,7 @@ export function LaunchSetupPanel({ activeSiteId, commerceConfiguration, domains,
   const domainReady = Boolean(onboarding?.domain?.hostname && ["verified", "active"].includes(onboarding.domain.status));
 
   return <TaskSections className="v13-setup-stack" labels={["配置检查","支付与邮件","回调与域名","失败重试与验收","平台加密配置"]}>
-    <div className="v6-card v13-setup-hero"><div><p className="eyebrow">V14 / Production launch setup</p><h2>Check the systems behind the storefront.</h2><p className="v6-muted">Secrets stay in the Sites runtime. This panel only reports masked readiness and performs safe provider checks.</p></div><button className="button button-dark" onClick={() => void check("all")} disabled={busy || checking !== null}>{checking === "all" ? "Checking..." : "Run all checks ->"}</button></div>
+    <div className="v6-card v13-setup-hero"><div><p className="eyebrow">V59 / Production launch setup</p><h2>Check the systems behind the storefront.</h2><p className="v6-muted">Live payment, verified email, custom-domain routing, recovery and backup evidence must all pass before a formal release.</p></div><button className="button button-dark" onClick={() => void check("all")} disabled={busy || checking !== null}>{checking === "all" ? "Checking..." : "Run all checks ->"}</button></div>
     <div className="v13-provider-grid">
       <article className="v6-card v13-provider-card"><div className="v6-card-heading"><div><p className="eyebrow">Payments</p><h3>PayPal</h3></div><StatusPill status={paypalProbe?.status || (paypalReady ? "ready" : "missing")} /></div><p className="v6-muted">Accept PayPal checkout payments, receive webhook updates, and issue full or partial refunds from the commerce panel.</p><div className="v13-check-lines"><span><b>Client ID</b>{commerceConfiguration?.paypal.clientId ? "Configured" : "Missing"}</span><span><b>Client secret</b>{commerceConfiguration?.paypal.clientSecret ? "Configured" : "Missing"}</span><span><b>Mode</b>{paypalProbe?.mode || commerceConfiguration?.paypal.mode || "Not detected"}</span></div>{paypalProbe && <p className={`v13-probe-detail ${paypalProbe.status}`}>{paypalProbe.detail}</p>}<button className="button button-outline" onClick={() => void check("paypal")} disabled={checking !== null}>{checking === "paypal" ? "Checking..." : "Test PayPal connection"}</button></article>
       <article className="v6-card v13-provider-card"><div className="v6-card-heading"><div><p className="eyebrow">Transactional email</p><h3>Resend</h3></div><StatusPill status={resendProbe?.status || (resendReady ? "ready" : "missing")} /></div><p className="v6-muted">Send payment receipts, shipping updates, and operational alerts with retry records.</p><div className="v13-check-lines"><span><b>API key</b>{commerceConfiguration?.resend.apiKey ? "Configured" : "Missing"}</span><span><b>From email</b>{commerceConfiguration?.resend.fromEmail ? "Configured" : "Missing"}</span><span><b>From domain</b>{commerceConfiguration?.resend.fromDomain || "Not detected"}</span></div>{resendProbe && <p className={`v13-probe-detail ${resendProbe.status}`}>{resendProbe.detail}</p>}<button className="button button-outline" onClick={() => void check("resend")} disabled={checking !== null}>{checking === "resend" ? "Checking..." : "Test Resend connection"}</button></article>

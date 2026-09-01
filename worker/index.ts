@@ -24,6 +24,7 @@ const RECOVERY_INTERVAL_MS = 5 * 60 * 1000;
 
 function withSecurityHeaders(response: Response, request: Request) {
   const headers = new Headers(response.headers);
+  headers.set("X-Request-ID", request.headers.get("cf-ray") || crypto.randomUUID());
   headers.set("X-Content-Type-Options", "nosniff");
   headers.set("X-Frame-Options", "DENY");
   headers.set("Referrer-Policy", "strict-origin-when-cross-origin");
@@ -48,6 +49,7 @@ async function runTenantMaintenance(env: Env) {
   if (Number((claim as { meta?: { changes?: number } }).meta?.changes || 0) !== 1) return;
   try {
     const { runCommerceRecovery } = await import("../db/commerce");
+    const { ensureDailyTenantBackup } = await import("../db/production");
     const { retryAbandonedCheckoutEmails } = await import("../db/v21");
     const { syncMerchantCampaignSchedules } = await import("../db/v32");
     const sites = await env.DB.prepare("SELECT id FROM cms_sites WHERE status <> 'deleted'").all<{ id: string }>();
@@ -57,6 +59,7 @@ async function runTenantMaintenance(env: Env) {
       try { await runCommerceRecovery(site.id, "system", "system@northlinesupply.com"); } catch (error) { errors.push(error instanceof Error ? error.message : "commerce recovery failed"); }
       try { await retryAbandonedCheckoutEmails(site.id); } catch (error) { errors.push(error instanceof Error ? error.message : "checkout recovery failed"); }
       try { await syncMerchantCampaignSchedules(site.id); } catch (error) { errors.push(error instanceof Error ? error.message : "campaign schedule failed"); }
+      try { await ensureDailyTenantBackup(site.id); } catch (error) { errors.push(error instanceof Error ? error.message : "daily backup failed"); }
       outcomes.push({ siteId: site.id, errors });
     }
     await env.DB.prepare("UPDATE cms_maintenance_runs SET completed_at = ?1, status = ?2, detail = ?3 WHERE run_key = ?4").bind(new Date().toISOString(), outcomes.some((item) => item.errors.length) ? "partial" : "completed", JSON.stringify(outcomes), runKey).run();

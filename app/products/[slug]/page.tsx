@@ -9,6 +9,20 @@ export const dynamicParams = true;
 
 export function generateStaticParams() { return activeProducts.map((product) => ({ slug: product.slug })); }
 
+async function getCanonicalOrigin() {
+  const requestHeaders = await headers();
+  const host = requestHeaders.get("host") || "localhost";
+  try {
+    const { resolveSiteByHost } = await import("../../../db/cms");
+    const site = await resolveSiteByHost(host);
+    const hostname = site.domain || host;
+    return `${hostname.startsWith("localhost") ? "http" : "https"}://${hostname}`;
+  } catch {
+    const protocol = requestHeaders.get("x-forwarded-proto") || (host.startsWith("localhost") ? "http" : "https");
+    return `${protocol}://${host}`;
+  }
+}
+
 async function getPublishedProduct(slug: string) {
   try {
     const [{ attachLiveInventoryToCatalog }, { readSnapshot, resolveSiteByHost }] = await Promise.all([
@@ -28,10 +42,7 @@ async function getPublishedProduct(slug: string) {
 export async function generateMetadata({ params }: { params: { slug: string } }): Promise<Metadata> {
   const product = await getPublishedProduct(params.slug);
   if (!product) return { title: "Product not found" };
-  const requestHeaders = await headers();
-  const host = requestHeaders.get("host") || "localhost";
-  const protocol = requestHeaders.get("x-forwarded-proto") || (host.startsWith("localhost") ? "http" : "https");
-  const origin = `${protocol}://${host}`;
+  const origin = await getCanonicalOrigin();
   const canonical = `${origin}/products/${product.slug}`;
   const images = (product.images.length ? product.images : [product.image]).map((image) => image.startsWith("http") ? image : `${origin}${image.startsWith("/") ? image : `/${image}`}`);
   return {

@@ -3,6 +3,7 @@ import { createAfterSalesRequest, listAfterSalesRequests, type AfterSalesRequest
 import { getCmsDatabase, ensureCmsSchema, getMember, getOperationalMember, getSnapshotDiff, listRevisions, publishDraft, recordAudit, rollbackRevision } from "./cms";
 import { readOrder, listInventory, listOrders, listPaymentEvents } from "./commerce";
 import { getSiteIntegrationStatuses } from "./site-integrations";
+import { listTenantBackups } from "./production";
 import type { CmsOrderDetail } from "./commerce";
 
 function now() {
@@ -150,7 +151,7 @@ export async function getV24LaunchCenter(siteId: string, userId: string, email: 
   await ensureCmsSchema(database);
   if (allowMerchant) await getOperationalMember(siteId, userId, email, true);
   else await getMember(siteId, userId, email);
-  const [readiness, releases, revisions, diff, integrations, orders, inventory, afterSales] = await Promise.all([
+  const [readiness, releases, revisions, diff, integrations, orders, inventory, afterSales, backups] = await Promise.all([
     getProductionReadiness(siteId, userId, email, allowMerchant),
     listReleaseRequests(siteId, userId, email, allowMerchant),
     listRevisions(siteId, userId, email, allowMerchant),
@@ -159,6 +160,7 @@ export async function getV24LaunchCenter(siteId: string, userId: string, email: 
     listOrders(siteId, userId, email),
     listInventory(siteId, userId, email, allowMerchant),
     listAfterSalesRequests(siteId),
+    listTenantBackups(siteId, database),
   ]);
   return {
     siteId,
@@ -167,6 +169,7 @@ export async function getV24LaunchCenter(siteId: string, userId: string, email: 
     revisions,
     diff,
     integrations,
+    backups,
     operations: {
       orders: orders.length,
       paidOrders: orders.filter((order) => ["paid", "partially_refunded", "refunded"].includes(order.paymentStatus)).length,
