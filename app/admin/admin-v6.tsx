@@ -312,6 +312,7 @@ export function AdminStudioV6() {
   const csvInput = useRef<HTMLInputElement>(null);
   const clientImportInput = useRef<HTMLInputElement>(null);
   const mediaInput = useRef<HTMLInputElement>(null);
+  const refundRequestKeys = useRef(new Map<string, string>());
 
   const checks = useMemo(() => launchChecks(config, catalog), [catalog, config]);
   const requiredChecks = useMemo(() => onboarding?.checks.filter((check) => check.required !== false) ?? checks, [checks, onboarding]);
@@ -627,11 +628,15 @@ export function AdminStudioV6() {
   };
 
   const refundOrder = async (order: CmsOrderDetail["order"], amount: number | undefined, reason: string, restockItems: Array<{ productId: string; variantId: string; quantity: number }>) => {
-    const response = await fetch("/api/cms/orders/refund", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ siteId: activeSiteId, orderId: order.id, amount, reason, restockItems }) });
+    const signature = `${activeSiteId}:${order.id}:${amount ?? "all"}:${reason}:${JSON.stringify(restockItems)}`;
+    const idempotencyKey = refundRequestKeys.current.get(signature) || crypto.randomUUID();
+    refundRequestKeys.current.set(signature, idempotencyKey);
+    const response = await fetch("/api/cms/orders/refund", { method: "POST", headers: { "Content-Type": "application/json", "X-Idempotency-Key": idempotencyKey }, body: JSON.stringify({ siteId: activeSiteId, orderId: order.id, amount, reason, restockItems, idempotencyKey }) });
     const payload = await response.json().catch(() => ({})) as CmsOrderDetail & { error?: string };
     if (response.ok && payload.order) {
       setOrderDetail(payload);
       setOrders((current) => current.map((item) => item.id === order.id ? payload.order : item));
+      refundRequestKeys.current.delete(signature);
       setNotice({ tone: "success", text: order.orderNumber + " refund recorded." });
     } else setNotice({ tone: "error", text: payload.error || "Refund failed." });
   };

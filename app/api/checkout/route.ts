@@ -12,7 +12,7 @@ export async function POST(request: Request) {
     const idempotencyKey = request.headers.get("x-idempotency-key") || "";
     const user = await getChatGPTUser();
     const result = await createCheckout(site.id, payload, new URL(request.url).origin, idempotencyKey, user?.userId);
-    if (payload.newsletterOptIn) void subscribeToNewsletter(site.id, payload.email || "", "checkout").catch(() => undefined);
+    if (payload.newsletterOptIn) void subscribeToNewsletter(site.id, payload.email || "", "checkout", new URL(request.url).origin).catch(() => undefined);
     return Response.json({ ok: true, ...result }, { headers: { "Cache-Control": "no-store" } });
   } catch (error) {
     const code = checkoutErrorCode(error);

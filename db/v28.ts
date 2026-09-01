@@ -16,6 +16,20 @@ function normalizeEmail(value: string) {
   return email.slice(0, 254);
 }
 
+async function sha256(value: string) {
+  const digest = await crypto.subtle.digest("SHA-256", new TextEncoder().encode(value));
+  return Array.from(new Uint8Array(digest)).map((item) => item.toString(16).padStart(2, "0")).join("");
+}
+
+async function ensureNewsletterColumn(database: D1DatabaseLike, name: string, definition: string) {
+  const columns = await database.prepare("PRAGMA table_info(store_newsletter_subscribers)").all<{ name: string }>();
+  if (columns.results.some((column) => column.name === name)) return;
+  try { await database.prepare(`ALTER TABLE store_newsletter_subscribers ADD COLUMN ${name} ${definition}`).run(); } catch (error) {
+    const message = error instanceof Error ? error.message.toLowerCase() : "";
+    if (!message.includes("duplicate column") && !message.includes("already exists")) throw error;
+  }
+}
+
 export async function ensureV28Schema(database: D1DatabaseLike = getCmsDatabase()) {
   const key = database as unknown as object;
   const existing = schemaInitializationPromises.get(key);
@@ -50,6 +64,8 @@ export async function ensureV28Schema(database: D1DatabaseLike = getCmsDatabase(
       )`),
       database.prepare("CREATE INDEX IF NOT EXISTS store_stock_alerts_product_idx ON store_stock_alerts(site_id, product_id, variant_id, status)"),
     ]);
+    await ensureNewsletterColumn(database, "unsubscribe_token_hash", "TEXT");
+    await ensureNewsletterColumn(database, "unsubscribed_at", "TEXT");
   })();
   schemaInitializationPromises.set(key, initialization);
   try {
@@ -65,36 +81,57 @@ async function sendResendMessage(siteId: string, input: { to: string; subject: s
   const apiKey = credentials.apiKey?.trim() || "";
   const from = credentials.fromEmail?.trim() || "";
   if (!apiKey || !from) return { sent: false, reason: "RESEND_NOT_CONFIGURED" };
+  const controller = new AbortController();
+  const timeout = setTimeout(() => controller.abort(), 10_000);
   const response = await fetch("https://api.resend.com/emails", {
     method: "POST",
-    headers: { Authorization: `Bearer ${apiKey}`, "Content-Type": "application/json" },
+    headers: { Authorization: `Bearer ${apiKey}`, "Content-Type": "application/json", "Idempotency-Key": `newsletter:${siteId}:${await sha256(input.to)}` },
     body: JSON.stringify({ from, to: [input.to], subject: input.subject, html: input.html }),
-  });
+    signal: controller.signal,
+  }).finally(() => clearTimeout(timeout));
   const payload = await response.json().catch(() => ({})) as { id?: string; message?: string };
   if (!response.ok) throw new Error(payload.message || "RESEND_REJECTED");
   return { sent: true, providerId: payload.id || null };
 }
 
-export async function subscribeToNewsletter(siteId: string, emailInput: string, source = "storefront") {
+export async function subscribeToNewsletter(siteId: string, emailInput: string, source = "storefront", origin = "") {
   const database = getCmsDatabase();
   await ensureV28Schema(database);
   const email = normalizeEmail(emailInput);
   const timestamp = now();
+  const unsubscribeToken = `${crypto.randomUUID()}${crypto.randomUUID().replaceAll("-", "")}`;
+  const unsubscribeTokenHash = await sha256(unsubscribeToken);
   const existing = await database.prepare("SELECT site_id AS siteId, email, status, last_email_status AS lastEmailStatus, last_error AS lastError FROM store_newsletter_subscribers WHERE site_id = ?1 AND email = ?2").bind(siteId, email).first<NewsletterRow>();
-  await database.prepare(`INSERT INTO store_newsletter_subscribers (site_id, email, status, source, consent_at, last_email_status, last_error, created_at, updated_at)
-    VALUES (?1, ?2, 'subscribed', ?3, ?4, 'not_sent', NULL, ?4, ?4)
-    ON CONFLICT(site_id, email) DO UPDATE SET status = 'subscribed', source = excluded.source, consent_at = excluded.consent_at, updated_at = excluded.updated_at`).bind(siteId, email, source.slice(0, 80), timestamp).run();
+  await database.prepare(`INSERT INTO store_newsletter_subscribers (site_id, email, status, source, consent_at, last_email_status, last_error, unsubscribe_token_hash, unsubscribed_at, created_at, updated_at)
+    VALUES (?1, ?2, 'subscribed', ?3, ?4, 'not_sent', NULL, ?5, NULL, ?4, ?4)
+    ON CONFLICT(site_id, email) DO UPDATE SET status = 'subscribed', source = excluded.source, consent_at = excluded.consent_at, unsubscribe_token_hash = excluded.unsubscribe_token_hash, unsubscribed_at = NULL, updated_at = excluded.updated_at`).bind(siteId, email, source.slice(0, 80), timestamp, unsubscribeTokenHash).run();
   if (existing?.lastEmailStatus === "sent") return { subscribed: true, emailSent: true, alreadySubscribed: true };
   try {
     const snapshot = await readSnapshot(siteId, "published");
     const brand = snapshot.config.brand.name.trim() || "Storefront";
-    const result = await sendResendMessage(siteId, { to: email, subject: `Welcome to ${brand}`, html: `<p><strong>${brand}</strong></p><p>You’re on the list. We’ll send occasional field notes, new gear and useful reasons to change your route.</p>` });
+    const unsubscribeUrl = origin ? `${origin.replace(/\/$/, "")}/unsubscribe?token=${encodeURIComponent(unsubscribeToken)}` : "";
+    const result = await sendResendMessage(siteId, { to: email, subject: `Welcome to ${brand}`, html: `<p><strong>${brand}</strong></p><p>You’re on the list. We’ll send occasional field notes, new gear and useful reasons to change your route.</p>${unsubscribeUrl ? `<p><a href="${unsubscribeUrl}">Unsubscribe</a> from marketing emails at any time.</p>` : ""}` });
     await database.prepare("UPDATE store_newsletter_subscribers SET last_email_status = ?1, last_error = ?2, updated_at = ?3 WHERE site_id = ?4 AND email = ?5").bind(result.sent ? "sent" : "not_sent", result.sent ? null : result.reason, now(), siteId, email).run();
     return { subscribed: true, emailSent: result.sent, alreadySubscribed: Boolean(existing) };
   } catch (error) {
     await database.prepare("UPDATE store_newsletter_subscribers SET last_email_status = 'failed', last_error = ?1, updated_at = ?2 WHERE site_id = ?3 AND email = ?4").bind(error instanceof Error ? error.message : "RESEND_REJECTED", now(), siteId, email).run();
     return { subscribed: true, emailSent: false, alreadySubscribed: Boolean(existing) };
   }
+}
+
+export async function unsubscribeFromNewsletter(siteId: string, input: { token?: string; email?: string }) {
+  const database = getCmsDatabase();
+  await ensureV28Schema(database);
+  const timestamp = now();
+  let result: unknown;
+  if (input.token?.trim()) {
+    result = await database.prepare("UPDATE store_newsletter_subscribers SET status = 'unsubscribed', unsubscribed_at = ?1, updated_at = ?1 WHERE site_id = ?2 AND unsubscribe_token_hash = ?3").bind(timestamp, siteId, await sha256(input.token.trim())).run();
+  } else {
+    const email = normalizeEmail(input.email || "");
+    result = await database.prepare("UPDATE store_newsletter_subscribers SET status = 'unsubscribed', unsubscribed_at = ?1, updated_at = ?1 WHERE site_id = ?2 AND email = ?3").bind(timestamp, siteId, email).run();
+  }
+  const changes = Number((result as { meta?: { changes?: number } }).meta?.changes || 0);
+  return { unsubscribed: changes > 0 };
 }
 
 export async function createStockAlert(siteId: string, emailInput: string, productId: string, variantId: string) {

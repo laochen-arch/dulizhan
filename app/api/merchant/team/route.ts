@@ -4,7 +4,7 @@ import { merchantErrorResponse, requireMerchantCapability } from "../helpers";
 export const dynamic = "force-dynamic";
 
 function validRole(value: unknown): MerchantRole {
-  if (value === "merchant_owner" || value === "merchant_manager" || value === "merchant_staff") return value;
+  if (value === "merchant_owner" || value === "merchant_manager" || value === "merchant_staff" || value === "merchant_support") return value;
   throw new Error("INVALID_MEMBER");
 }
 

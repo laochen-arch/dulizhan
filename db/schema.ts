@@ -232,9 +232,13 @@ export const cmsOrders = sqliteTable("cms_orders", {
   customerName: text("customer_name").notNull(),
   currency: text("currency").notNull().default("usd"),
   subtotal: real("subtotal").notNull(),
+  subtotalMinor: integer("subtotal_minor").notNull().default(0),
   shipping: real("shipping").notNull(),
+  shippingMinor: integer("shipping_minor").notNull().default(0),
   tax: real("tax").notNull().default(0),
+  taxMinor: integer("tax_minor").notNull().default(0),
   total: real("total").notNull(),
+  totalMinor: integer("total_minor").notNull().default(0),
   status: text("status").notNull().default("pending"),
   paymentStatus: text("payment_status").notNull().default("pending"),
   fulfillmentStatus: text("fulfillment_status").notNull().default("unfulfilled"),
@@ -250,9 +254,14 @@ export const cmsOrders = sqliteTable("cms_orders", {
   shippedAt: text("shipped_at"),
   adminNote: text("admin_note"),
   refundTotal: real("refund_total").notNull().default(0),
+  refundTotalMinor: integer("refund_total_minor").notNull().default(0),
+  refundReservedMinor: integer("refund_reserved_minor").notNull().default(0),
   refundedAt: text("refunded_at"),
   discount: real("discount").notNull().default(0),
+  discountMinor: integer("discount_minor").notNull().default(0),
   couponCode: text("coupon_code"),
+  couponClaimedAt: text("coupon_claimed_at"),
+  couponReleasedAt: text("coupon_released_at"),
 }, (table) => [uniqueIndex("cms_orders_number_unique").on(table.orderNumber), uniqueIndex("cms_orders_paypal_order_unique").on(table.paypalOrderId), uniqueIndex("cms_orders_checkout_idempotency_unique").on(table.checkoutIdempotencyKey), index("cms_orders_site_status_idx").on(table.siteId, table.status, table.createdAt), index("cms_orders_site_email_idx").on(table.siteId, table.email), index("cms_orders_site_customer_idx").on(table.siteId, table.customerUserId)]);
 
 export const cmsOrderItems = sqliteTable("cms_order_items", {
@@ -265,6 +274,7 @@ export const cmsOrderItems = sqliteTable("cms_order_items", {
   name: text("name").notNull(),
   variantLabel: text("variant_label").notNull(),
   unitPrice: real("unit_price").notNull(),
+  unitPriceMinor: integer("unit_price_minor").notNull().default(0),
   quantity: integer("quantity").notNull(),
   payload: text("payload").notNull(),
 }, (table) => [index("cms_order_items_order_idx").on(table.orderId), index("cms_order_items_site_idx").on(table.siteId)]);
@@ -303,7 +313,9 @@ export const cmsRefunds = sqliteTable("cms_refunds", {
   siteId: text("site_id").notNull(),
   orderId: text("order_id").notNull(),
   paypalRefundId: text("paypal_refund_id"),
+  idempotencyKey: text("idempotency_key"),
   amount: real("amount").notNull(),
+  amountMinor: integer("amount_minor").notNull().default(0),
   currency: text("currency").notNull().default("usd"),
   reason: text("reason"),
   status: text("status").notNull().default("pending"),
@@ -312,7 +324,7 @@ export const cmsRefunds = sqliteTable("cms_refunds", {
   createdBy: text("created_by").notNull(),
   createdAt: text("created_at").notNull(),
   completedAt: text("completed_at"),
-}, (table) => [uniqueIndex("cms_refunds_paypal_unique").on(table.paypalRefundId), index("cms_refunds_site_order_idx").on(table.siteId, table.orderId, table.createdAt)]);
+}, (table) => [uniqueIndex("cms_refunds_paypal_unique").on(table.paypalRefundId), uniqueIndex("cms_refunds_idempotency_unique").on(table.siteId, table.idempotencyKey), index("cms_refunds_site_order_idx").on(table.siteId, table.orderId, table.createdAt)]);
 
 export const cmsOrderStateEvents = sqliteTable("cms_order_state_events", {
   id: text("id").primaryKey(), siteId: text("site_id").notNull(), orderId: text("order_id").notNull(), fromStatus: text("from_status"), toStatus: text("to_status").notNull(), reason: text("reason"), actorId: text("actor_id").notNull(), createdAt: text("created_at").notNull(),

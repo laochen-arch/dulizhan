@@ -142,6 +142,10 @@ export async function resetEmailPassword(rawToken: string, password: string) {
   if (password.length < 8) throw new Error("PASSWORD_TOO_SHORT");
   const userId = await consumeEmailAuthToken(rawToken, "reset_password");
   const salt = token().slice(0, 32); const passwordHash = await hashPassword(password, salt); const timestamp = now();
-  await getCmsDatabase().prepare("UPDATE email_users SET password_hash = ?1, password_salt = ?2, updated_at = ?3 WHERE id = ?4").bind(passwordHash, salt, timestamp, userId).run();
+  const database = getCmsDatabase();
+  await database.batch([
+    database.prepare("UPDATE email_users SET password_hash = ?1, password_salt = ?2, updated_at = ?3 WHERE id = ?4").bind(passwordHash, salt, timestamp, userId),
+    database.prepare("DELETE FROM email_sessions WHERE user_id = ?1").bind(userId),
+  ]);
   return true;
 }

@@ -2,7 +2,7 @@ export type StorefrontAccess = {
   authenticated: boolean;
   user: { id: string; email: string; displayName: string } | null;
   customerRole: "customer" | null;
-  merchantRole: "merchant_owner" | "merchant_manager" | "merchant_staff" | null;
+  merchantRole: "merchant_owner" | "merchant_manager" | "merchant_staff" | "merchant_support" | null;
   cmsRole: "owner" | "editor" | "viewer" | null;
   capabilities?: string[];
 };

@@ -1,0 +1,17 @@
+ALTER TABLE `cms_orders` ADD `subtotal_minor` integer DEFAULT 0 NOT NULL;
+ALTER TABLE `cms_orders` ADD `shipping_minor` integer DEFAULT 0 NOT NULL;
+ALTER TABLE `cms_orders` ADD `tax_minor` integer DEFAULT 0 NOT NULL;
+ALTER TABLE `cms_orders` ADD `total_minor` integer DEFAULT 0 NOT NULL;
+ALTER TABLE `cms_orders` ADD `refund_total_minor` integer DEFAULT 0 NOT NULL;
+ALTER TABLE `cms_orders` ADD `refund_reserved_minor` integer DEFAULT 0 NOT NULL;
+ALTER TABLE `cms_orders` ADD `discount_minor` integer DEFAULT 0 NOT NULL;
+ALTER TABLE `cms_orders` ADD `coupon_claimed_at` text;
+ALTER TABLE `cms_orders` ADD `coupon_released_at` text;
+ALTER TABLE `cms_order_items` ADD `unit_price_minor` integer DEFAULT 0 NOT NULL;
+ALTER TABLE `cms_refunds` ADD `idempotency_key` text;
+ALTER TABLE `cms_refunds` ADD `amount_minor` integer DEFAULT 0 NOT NULL;
+CREATE UNIQUE INDEX `cms_refunds_idempotency_unique` ON `cms_refunds` (`site_id`,`idempotency_key`) WHERE `idempotency_key` IS NOT NULL;
+UPDATE `cms_orders` SET `subtotal_minor` = CAST(ROUND(`subtotal` * 100) AS INTEGER), `shipping_minor` = CAST(ROUND(`shipping` * 100) AS INTEGER), `tax_minor` = CAST(ROUND(`tax` * 100) AS INTEGER), `total_minor` = CAST(ROUND(`total` * 100) AS INTEGER), `refund_total_minor` = CAST(ROUND(`refund_total` * 100) AS INTEGER), `discount_minor` = CAST(ROUND(`discount` * 100) AS INTEGER);
+UPDATE `cms_order_items` SET `unit_price_minor` = CAST(ROUND(`unit_price` * 100) AS INTEGER);
+UPDATE `cms_refunds` SET `amount_minor` = CAST(ROUND(`amount` * 100) AS INTEGER);
+UPDATE `cms_orders` SET `refund_reserved_minor` = COALESCE((SELECT SUM(`amount_minor`) FROM `cms_refunds` WHERE `cms_refunds`.`order_id` = `cms_orders`.`id` AND `cms_refunds`.`status` IN ('pending', 'processing')), 0);

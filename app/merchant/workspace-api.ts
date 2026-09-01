@@ -15,4 +15,4 @@ export function merchantWrite<T>(siteId: string, resource: string, method: "POST
 export const productStatus = (value: string) => value === "active" ? "上架内容" : "草稿";
 export const fulfillmentLabel = (value: string) => ({ unfulfilled: "待处理", processing: "配货中", shipped: "已发货", delivered: "已送达", cancelled: "已取消" }[value] || value);
 export const paymentLabel = (value: string) => ({ pending: "待付款", paid: "已付款", partially_refunded: "部分退款", refunded: "已退款", failed: "付款失败", cancelled: "已取消", expired: "已超时" }[value] || value);
-export const memberRoleLabel = (value: string) => ({ merchant_owner: "店铺所有者", merchant_manager: "店铺管理员", merchant_staff: "订单与售后工作人员" }[value] || value);
+export const memberRoleLabel = (value: string) => ({ merchant_owner: "店铺所有者", merchant_manager: "店铺管理员", merchant_staff: "订单与履约人员", merchant_support: "售后客服" }[value] || value);

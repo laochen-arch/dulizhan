@@ -9,7 +9,7 @@ import {
 } from "./cms";
 import { readOrder, type CmsOrderDetail } from "./commerce";
 
-export type MerchantRole = "merchant_owner" | "merchant_manager" | "merchant_staff";
+export type MerchantRole = "merchant_owner" | "merchant_manager" | "merchant_staff" | "merchant_support";
 
 export type MerchantMember = {
   siteId: string;
@@ -129,6 +129,12 @@ export const merchantRoleCapabilities: Record<MerchantRole, string[]> = {
     "after-sales.read",
     "after-sales.write",
   ],
+  merchant_support: [
+    "merchant.read",
+    "orders.read",
+    "after-sales.read",
+    "after-sales.write",
+  ],
 };
 
 const cmsCapabilities: Record<CmsRole, string[]> = {
@@ -142,7 +148,7 @@ function now() {
 }
 
 function merchantRole(value: string | null | undefined): MerchantRole | null {
-  return value === "merchant_owner" || value === "merchant_manager" || value === "merchant_staff" ? value : null;
+  return value === "merchant_owner" || value === "merchant_manager" || value === "merchant_staff" || value === "merchant_support" ? value : null;
 }
 
 function sourceValue(value: string | null | undefined): MerchantMember["source"] {

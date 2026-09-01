@@ -496,10 +496,14 @@ async function initializeCmsSchema(database: D1DatabaseLike) {
       customer_user_id TEXT,
       customer_name TEXT NOT NULL,
       currency TEXT NOT NULL DEFAULT 'usd',
-      subtotal REAL NOT NULL,
-      shipping REAL NOT NULL,
-      tax REAL NOT NULL DEFAULT 0,
-      total REAL NOT NULL,
+       subtotal REAL NOT NULL,
+       subtotal_minor INTEGER NOT NULL DEFAULT 0,
+       shipping REAL NOT NULL,
+       shipping_minor INTEGER NOT NULL DEFAULT 0,
+       tax REAL NOT NULL DEFAULT 0,
+       tax_minor INTEGER NOT NULL DEFAULT 0,
+       total REAL NOT NULL,
+       total_minor INTEGER NOT NULL DEFAULT 0,
       status TEXT NOT NULL DEFAULT 'pending',
       payment_status TEXT NOT NULL DEFAULT 'pending',
       fulfillment_status TEXT NOT NULL DEFAULT 'unfulfilled',
@@ -515,7 +519,14 @@ async function initializeCmsSchema(database: D1DatabaseLike) {
        shipped_at TEXT,
        admin_note TEXT,
        refund_total REAL NOT NULL DEFAULT 0,
-       refunded_at TEXT
+       refund_total_minor INTEGER NOT NULL DEFAULT 0,
+       refund_reserved_minor INTEGER NOT NULL DEFAULT 0,
+       refunded_at TEXT,
+       discount REAL NOT NULL DEFAULT 0,
+       discount_minor INTEGER NOT NULL DEFAULT 0,
+       coupon_code TEXT,
+       coupon_claimed_at TEXT,
+       coupon_released_at TEXT
     )`),
     database.prepare(`CREATE TABLE IF NOT EXISTS cms_order_items (
       id TEXT PRIMARY KEY,
@@ -527,6 +538,7 @@ async function initializeCmsSchema(database: D1DatabaseLike) {
       name TEXT NOT NULL,
       variant_label TEXT NOT NULL,
       unit_price REAL NOT NULL,
+      unit_price_minor INTEGER NOT NULL DEFAULT 0,
       quantity INTEGER NOT NULL,
       payload TEXT NOT NULL
     )`),
@@ -561,7 +573,9 @@ async function initializeCmsSchema(database: D1DatabaseLike) {
       site_id TEXT NOT NULL,
       order_id TEXT NOT NULL,
       paypal_refund_id TEXT UNIQUE,
+      idempotency_key TEXT,
       amount REAL NOT NULL,
+      amount_minor INTEGER NOT NULL DEFAULT 0,
       currency TEXT NOT NULL DEFAULT 'usd',
       reason TEXT,
       status TEXT NOT NULL DEFAULT 'pending',
@@ -961,6 +975,16 @@ async function initializeCmsSchema(database: D1DatabaseLike) {
   await ensureColumn(database, "cms_orders", "discount", "REAL NOT NULL DEFAULT 0");
   await ensureColumn(database, "cms_orders", "coupon_code", "TEXT");
   await ensureColumn(database, "cms_orders", "customer_user_id", "TEXT");
+  await ensureColumn(database, "cms_orders", "subtotal_minor", "INTEGER NOT NULL DEFAULT 0");
+  await ensureColumn(database, "cms_orders", "shipping_minor", "INTEGER NOT NULL DEFAULT 0");
+  await ensureColumn(database, "cms_orders", "tax_minor", "INTEGER NOT NULL DEFAULT 0");
+  await ensureColumn(database, "cms_orders", "total_minor", "INTEGER NOT NULL DEFAULT 0");
+  await ensureColumn(database, "cms_orders", "refund_total_minor", "INTEGER NOT NULL DEFAULT 0");
+  await ensureColumn(database, "cms_orders", "refund_reserved_minor", "INTEGER NOT NULL DEFAULT 0");
+  await ensureColumn(database, "cms_orders", "discount_minor", "INTEGER NOT NULL DEFAULT 0");
+  await ensureColumn(database, "cms_orders", "coupon_claimed_at", "TEXT");
+  await ensureColumn(database, "cms_orders", "coupon_released_at", "TEXT");
+  await ensureColumn(database, "cms_order_items", "unit_price_minor", "INTEGER NOT NULL DEFAULT 0");
   await database.prepare("CREATE INDEX IF NOT EXISTS cms_orders_site_customer_idx ON cms_orders(site_id, customer_user_id)").run();
   await ensureColumn(database, "cms_payment_events", "attempts", "INTEGER NOT NULL DEFAULT 0");
   await ensureColumn(database, "cms_payment_events", "last_error", "TEXT");
@@ -970,6 +994,8 @@ async function initializeCmsSchema(database: D1DatabaseLike) {
   await ensureColumn(database, "cms_order_notifications", "attempts", "INTEGER NOT NULL DEFAULT 0");
   await ensureColumn(database, "cms_order_notifications", "next_retry_at", "TEXT");
   await ensureColumn(database, "cms_refunds", "paypal_refund_id", "TEXT");
+  await ensureColumn(database, "cms_refunds", "idempotency_key", "TEXT");
+  await ensureColumn(database, "cms_refunds", "amount_minor", "INTEGER NOT NULL DEFAULT 0");
   await ensureColumn(database, "cms_inventory_transactions", "idempotency_key", "TEXT");
   await ensureColumn(database, "cms_site_domains", "dns_target", "TEXT");
   await ensureColumn(database, "cms_site_domains", "ssl_status", "TEXT");
@@ -993,6 +1019,13 @@ async function initializeCmsSchema(database: D1DatabaseLike) {
   await ensureColumn(database, "platform_applications", "owner_invited_at", "TEXT");
   await ensureColumn(database, "platform_applications", "owner_activated_at", "TEXT");
   await database.prepare("CREATE UNIQUE INDEX IF NOT EXISTS cms_inventory_tx_idempotency_unique ON cms_inventory_transactions(idempotency_key) WHERE idempotency_key IS NOT NULL").run();
+  await database.prepare("CREATE UNIQUE INDEX IF NOT EXISTS cms_refunds_idempotency_unique ON cms_refunds(site_id, idempotency_key) WHERE idempotency_key IS NOT NULL").run();
+  await database.prepare(`UPDATE cms_orders SET subtotal_minor = CAST(ROUND(subtotal * 100) AS INTEGER), shipping_minor = CAST(ROUND(shipping * 100) AS INTEGER), tax_minor = CAST(ROUND(tax * 100) AS INTEGER), total_minor = CAST(ROUND(total * 100) AS INTEGER), refund_total_minor = CAST(ROUND(refund_total * 100) AS INTEGER), discount_minor = CAST(ROUND(discount * 100) AS INTEGER)
+    WHERE total_minor = 0 AND total <> 0`).run();
+  await database.prepare("UPDATE cms_order_items SET unit_price_minor = CAST(ROUND(unit_price * 100) AS INTEGER) WHERE unit_price_minor = 0 AND unit_price <> 0").run();
+  await database.prepare("UPDATE cms_refunds SET amount_minor = CAST(ROUND(amount * 100) AS INTEGER) WHERE amount_minor = 0 AND amount <> 0").run();
+  await database.prepare(`UPDATE cms_orders SET refund_reserved_minor = COALESCE((SELECT SUM(CASE WHEN amount_minor > 0 THEN amount_minor ELSE CAST(ROUND(amount * 100) AS INTEGER) END) FROM cms_refunds WHERE cms_refunds.order_id = cms_orders.id AND cms_refunds.status IN ('pending', 'processing')), 0)
+    WHERE refund_reserved_minor = 0`).run();
 }
 
 export async function ensureCmsSchema(database: D1DatabaseLike) {

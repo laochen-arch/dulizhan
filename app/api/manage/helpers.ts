@@ -2,7 +2,7 @@ import { getChatGPTUser } from "../../chatgpt-auth";
 import { getMerchantMembership, type MerchantRole } from "../../../db/v25";
 import { resolveSiteByHost, getSiteById, type CmsSite } from "../../../db/cms";
 
-const roleRank: Record<MerchantRole, number> = { merchant_staff: 1, merchant_manager: 2, merchant_owner: 3 };
+const roleRank: Record<MerchantRole, number> = { merchant_support: 1, merchant_staff: 1, merchant_manager: 2, merchant_owner: 3 };
 
 export async function resolveManageSite(request: Request): Promise<CmsSite> {
   const requested = new URL(request.url).searchParams.get("siteId");
