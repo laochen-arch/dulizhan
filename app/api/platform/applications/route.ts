@@ -1,5 +1,5 @@
 import { getChatGPTUser } from "../../../chatgpt-auth";
-import { createSiteFromTemplate, findMember } from "../../../../db/cms";
+import { createSiteFromTemplate } from "../../../../db/cms";
 import {
   applyPlatformApplicationToSite,
   createPlatformOwnerInvite,
@@ -18,6 +18,7 @@ import { upsertMerchantMember } from "../../../../db/v25";
 import { attachPlatformReferral, getPlatformCommercialSnapshot, getPlatformPlan, getReferralCodeSummary, qualifyPlatformReferral, selectPlatformPlan } from "../../../../db/v34";
 import { applicationAccessCookieName } from "../application-access";
 import { sendPlatformApplicationNotification, sendPlatformOwnerInviteNotification } from "../../../../app/platform/application-notifications";
+import { getPlatformStaffAccess } from "../staff-access";
 
 export const dynamic = "force-dynamic";
 
@@ -27,13 +28,6 @@ function responseError(message: string, status = 400, code = "PLATFORM_APPLICATI
 
 function slugify(value: string) {
   return value.toLowerCase().trim().replace(/[^a-z0-9]+/g, "-").replace(/^-|-$/g, "").slice(0, 42) || "merchant-store";
-}
-
-async function isPlatformOwner() {
-  const user = await getChatGPTUser();
-  if (!user) return null;
-  const member = await findMember("default", user.userId, user.email);
-  return member?.role === "owner" ? user : null;
 }
 
 async function resolveApplicantApplication(id: string, token: string | null, user: Awaited<ReturnType<typeof getChatGPTUser>>) {
@@ -50,16 +44,16 @@ export async function GET(request: Request) {
     const id = url.searchParams.get("id") || url.searchParams.get("application");
     const token = url.searchParams.get("token");
     const user = await getChatGPTUser();
-    const owner = await isPlatformOwner();
+    const staff = await getPlatformStaffAccess();
     if (id) {
-      const application = owner ? await getPlatformApplication(id) : await resolveApplicantApplication(id, token, user);
+      const application = staff ? await getPlatformApplication(id) : await resolveApplicantApplication(id, token, user);
       if (!application) return responseError(token ? "This application link is invalid or expired." : "You do not have access to this application.", token ? 401 : 403, token ? "INVALID_APPLICATION_ACCESS" : "FORBIDDEN");
-      const response = Response.json({ application, events: await listPlatformApplicationEvents(id), domains: await listPlatformDomainRequests(id), assets: await listPlatformApplicationAssets(id), tickets: await listPlatformSupportTickets(id), notifications: await listPlatformApplicationNotifications(id), commercial: await getPlatformCommercialSnapshot(id), canReview: Boolean(owner) }, { headers: { "Cache-Control": "no-store" } });
-      if (token && !owner) response.headers.set("Set-Cookie", `${applicationAccessCookieName(id)}=${encodeURIComponent(token)}; Path=/api/platform/applications; Max-Age=7776000; HttpOnly; SameSite=Lax; Secure`);
+      const response = Response.json({ application, events: await listPlatformApplicationEvents(id), domains: await listPlatformDomainRequests(id), assets: await listPlatformApplicationAssets(id), tickets: await listPlatformSupportTickets(id), notifications: await listPlatformApplicationNotifications(id), commercial: await getPlatformCommercialSnapshot(id), canReview: Boolean(staff?.canReview), canSupport: Boolean(staff?.canSupport), platformRole: staff?.role || null }, { headers: { "Cache-Control": "no-store" } });
+      if (token && !staff) response.headers.set("Set-Cookie", `${applicationAccessCookieName(id)}=${encodeURIComponent(token)}; Path=/api/platform/applications; Max-Age=7776000; HttpOnly; SameSite=Lax; Secure`);
       return response;
     }
     if (!user) return responseError("Sign in with email or open the secure application link to view application status.", 401, "AUTH_REQUIRED");
-    return Response.json({ applications: await listPlatformApplications(owner ? {} : { userId: user.userId, email: user.email }), canReview: Boolean(owner) }, { headers: { "Cache-Control": "no-store" } });
+    return Response.json({ applications: await listPlatformApplications(staff ? {} : { userId: user.userId, email: user.email }), canReview: Boolean(staff?.canReview), canSupport: Boolean(staff?.canSupport), platformRole: staff?.role || null }, { headers: { "Cache-Control": "no-store" } });
   } catch (error) {
     return responseError(error instanceof Error ? error.message : "Unable to load applications.", 500);
   }
@@ -127,11 +121,11 @@ export async function PATCH(request: Request) {
       billingInterval?: "monthly" | "annual";
     };
     if (!payload.id) return responseError("Application id is required.");
-    const owner = await isPlatformOwner();
+    const staff = await getPlatformStaffAccess();
     const user = await getChatGPTUser();
-    const current = owner ? await getPlatformApplication(payload.id) : await resolveApplicantApplication(payload.id, payload.token || null, user);
+    const current = staff ? await getPlatformApplication(payload.id) : await resolveApplicantApplication(payload.id, payload.token || null, user);
     if (!current) return responseError("The application was not found or is not accessible.", 404, "APPLICATION_NOT_FOUND");
-    if (!owner) {
+    if (!staff) {
       const application = await updatePlatformApplication(payload.id, {
         status: payload.draft === true ? "draft" : "submitted",
         applicantType: payload.applicantType,
@@ -161,9 +155,10 @@ export async function PATCH(request: Request) {
         : null;
       return Response.json({ application, notification, commercial: await getPlatformCommercialSnapshot(payload.id) }, { headers: { "Cache-Control": "no-store" } });
     }
+    if (!staff.canReview) return responseError("Only platform owners and operators can review applications or create sites.", 403, "FORBIDDEN");
     let assignedSiteId = payload.assignedSiteId;
     let status = payload.status;
-    const platformActor = { userId: owner.userId, email: owner.email, role: "platform" as const };
+    const platformActor = { userId: staff.user.userId, email: staff.user.email, role: "platform" as const };
     if (payload.createSite && !["approved", "commercial_pending", "onboarding_failed", "site_creating"].includes(current.status) && payload.status !== "approved") return responseError("请先将申请审核通过，再创建商户站点。", 409, "APPLICATION_NOT_APPROVED");
     // Approval and storefront delivery are separate business actions. A new
     // application must be able to become approved before the operator starts
@@ -174,12 +169,12 @@ export async function PATCH(request: Request) {
       try {
         if (current.assignedSiteId) {
           assignedSiteId = current.assignedSiteId;
-          await applyPlatformApplicationToSite(current.id, current.assignedSiteId, owner.userId, owner.email);
+          await applyPlatformApplicationToSite(current.id, current.assignedSiteId, staff.user.userId, staff.user.email);
         } else {
-          const created = await createSiteFromTemplate(current.brandName || current.companyName, `${slugify(current.brandName || current.companyName)}-${current.id.slice(-6)}`, current.templateSiteId || "default", owner.userId, owner.email);
+          const created = await createSiteFromTemplate(current.brandName || current.companyName, `${slugify(current.brandName || current.companyName)}-${current.id.slice(-6)}`, current.templateSiteId || "default", staff.user.userId, staff.user.email);
           assignedSiteId = created.id;
           await upsertMerchantMember(created.id, { userId: current.userId || `applicant:${current.email}`, email: current.email, role: "merchant_owner" }, "invited");
-          await applyPlatformApplicationToSite(current.id, created.id, owner.userId, owner.email);
+          await applyPlatformApplicationToSite(current.id, created.id, staff.user.userId, staff.user.email);
         }
       } catch (deliveryError) {
         const errorNote = deliveryError instanceof Error ? deliveryError.message : "Storefront delivery failed.";

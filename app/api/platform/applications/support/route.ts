@@ -25,7 +25,7 @@ export async function PATCH(request: Request) {
     const payload = await request.json().catch(() => ({})) as { applicationId?: string; ticketId?: string; status?: string; assignedTo?: string | null; adminNote?: string | null };
     if (!payload.applicationId || !payload.ticketId) return errorResponse("Application id and ticket id are required.");
     const access = await resolvePlatformApplicationAccess(payload.applicationId);
-    if (!access?.canReview) return errorResponse("Only platform operators can update support requests.", 403, "FORBIDDEN");
+    if (!access?.canSupport) return errorResponse("Only platform support staff can update support requests.", 403, "FORBIDDEN");
     return Response.json({ tickets: await updatePlatformSupportTicket(payload.applicationId, payload.ticketId, { status: payload.status, assignedTo: payload.assignedTo, adminNote: payload.adminNote }, access.actor) }, { headers: { "Cache-Control": "no-store" } });
   } catch (error) {
     const message = error instanceof Error ? error.message : "Unable to update the support request.";

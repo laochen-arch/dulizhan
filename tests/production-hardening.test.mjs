@@ -52,3 +52,16 @@ test("merchant support is a least-privilege role", async () => {
   assert.match(support[1], /after-sales\.write/);
   assert.doesNotMatch(support[1], /products\.write|orders\.refund|fulfillment\.write/);
 });
+
+test("platform owner, operator and support permissions stay separated", async () => {
+  const roles = await source("db/platform-access.ts");
+  const access = await source("app/api/platform/application-access.ts");
+  const supportRoute = await source("app/api/platform/applications/support/route.ts");
+  const support = roles.match(/platform_support:\s*\[([^\]]*)\]/);
+  assert.ok(support);
+  assert.match(support[1], /applications\.read/);
+  assert.match(support[1], /support\.manage/);
+  assert.doesNotMatch(support[1], /applications\.review|sites\.create|billing\.manage/);
+  assert.match(access, /canSupport: staff\.canSupport/);
+  assert.match(supportRoute, /access\?\.canSupport/);
+});

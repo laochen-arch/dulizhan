@@ -778,6 +778,13 @@ async function initializeCmsSchema(database: D1DatabaseLike) {
       updated_at TEXT NOT NULL,
       PRIMARY KEY (site_id, user_id)
     )`),
+    database.prepare(`CREATE TABLE IF NOT EXISTS platform_members (
+      user_id TEXT PRIMARY KEY,
+      email TEXT NOT NULL,
+      role TEXT NOT NULL DEFAULT 'platform_support',
+      created_at TEXT NOT NULL,
+      updated_at TEXT NOT NULL
+    )`),
     database.prepare(`CREATE TABLE IF NOT EXISTS platform_applications (
       id TEXT PRIMARY KEY,
       user_id TEXT,
@@ -954,6 +961,8 @@ async function initializeCmsSchema(database: D1DatabaseLike) {
     database.prepare("CREATE INDEX IF NOT EXISTS cms_preview_tokens_site_idx ON cms_preview_tokens(site_id, expires_at)"),
     database.prepare("CREATE INDEX IF NOT EXISTS merchant_members_site_role_idx ON merchant_members(site_id, role, created_at)"),
     database.prepare("CREATE INDEX IF NOT EXISTS merchant_members_site_email_idx ON merchant_members(site_id, email)"),
+    database.prepare("CREATE INDEX IF NOT EXISTS platform_members_role_idx ON platform_members(role, updated_at)"),
+    database.prepare("CREATE UNIQUE INDEX IF NOT EXISTS platform_members_email_unique ON platform_members(lower(email))"),
     database.prepare("CREATE INDEX IF NOT EXISTS platform_applications_email_idx ON platform_applications(email, created_at)"),
     database.prepare("CREATE INDEX IF NOT EXISTS platform_applications_status_idx ON platform_applications(status, updated_at)"),
     database.prepare("CREATE INDEX IF NOT EXISTS platform_application_events_idx ON platform_application_events(application_id, created_at)"),

@@ -15,3 +15,6 @@ UPDATE `cms_orders` SET `subtotal_minor` = CAST(ROUND(`subtotal` * 100) AS INTEG
 UPDATE `cms_order_items` SET `unit_price_minor` = CAST(ROUND(`unit_price` * 100) AS INTEGER);
 UPDATE `cms_refunds` SET `amount_minor` = CAST(ROUND(`amount` * 100) AS INTEGER);
 UPDATE `cms_orders` SET `refund_reserved_minor` = COALESCE((SELECT SUM(`amount_minor`) FROM `cms_refunds` WHERE `cms_refunds`.`order_id` = `cms_orders`.`id` AND `cms_refunds`.`status` IN ('pending', 'processing')), 0);
+CREATE TABLE IF NOT EXISTS `platform_members` (`user_id` text PRIMARY KEY NOT NULL, `email` text NOT NULL, `role` text DEFAULT 'platform_support' NOT NULL, `created_at` text NOT NULL, `updated_at` text NOT NULL);
+CREATE INDEX IF NOT EXISTS `platform_members_role_idx` ON `platform_members` (`role`,`updated_at`);
+CREATE UNIQUE INDEX IF NOT EXISTS `platform_members_email_unique` ON `platform_members` (lower(`email`));

@@ -440,6 +440,14 @@ export const customerSessions = sqliteTable("customer_sessions", {
   lastSeenAt: text("last_seen_at"),
 });
 
+export const platformMembers = sqliteTable("platform_members", {
+  userId: text("user_id").primaryKey(),
+  email: text("email").notNull(),
+  role: text("role").notNull().default("platform_support"),
+  createdAt: text("created_at").notNull(),
+  updatedAt: text("updated_at").notNull(),
+}, (table) => [index("platform_members_role_idx").on(table.role, table.updatedAt), uniqueIndex("platform_members_email_unique").on(table.email)]);
+
 export const customerAddresses = sqliteTable("customer_addresses", {
   id: text("id").primaryKey(),
   siteId: text("site_id").notNull(),
