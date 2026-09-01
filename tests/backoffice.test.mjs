@@ -81,21 +81,22 @@ test("product patch requires actual productId and uses authenticated tenant scop
   const saved=await route.PATCH(request("/api/merchant/products",{siteId:"tenant-a",productId:"product-x",name:"Updated"},"PATCH"));assert.equal(saved.status,200);assert.equal(calls[0][0],"tenant-a");assert.equal(calls[0][1],"product-x");
 });
 
-test("refund endpoint checks capability, validates inputs, preserves pending result and never auto-restocks",async()=>{
+test("refund endpoint checks capability, validates inputs and forwards only explicit restock rules",async()=>{
   const calls=[];let forbidden=false;const route=load("app/api/merchant/refunds/route.ts",{"../../../../db/commerce":{createRefund:async(...args)=>{calls.push(args);return {refunds:[{status:"pending"}],order:{paymentStatus:"paid",refundTotal:0}};}},"../helpers":{requireMerchantCapability:async(_r,capability)=>{assert.equal(capability,"orders.refund");if(forbidden)throw new Error("FORBIDDEN");return access;},merchantErrorResponse:errors}});
   for(const amount of [0,-1,"20"]){assert.equal((await route.POST(request("/api/merchant/refunds",{orderId:"order-a",amount,reason:"test"}))).status,400);}
   assert.equal(calls.length,0);
-  const result=await route.POST(request("/api/merchant/refunds",{siteId:"tenant-a",orderId:"order-a",amount:20,reason:"return"}));assert.equal(result.status,200);
-  assert.equal((await result.json()).refundTotal,0);assert.deepEqual(calls[0].slice(0,5),["tenant-a","order-a",20,"return",[]]);
+  const restockItems=[{productId:"product-a",variantId:"variant-a",quantity:1}];const result=await route.POST(request("/api/merchant/refunds",{siteId:"tenant-a",orderId:"order-a",amount:20,reason:"return",restockItems}));assert.equal(result.status,200);
+  assert.equal((await result.json()).refundTotal,0);assert.deepEqual(calls[0].slice(0,5),["tenant-a","order-a",20,"return",restockItems]);
   forbidden=true;assert.equal((await route.POST(request("/api/merchant/refunds",{orderId:"order-a",amount:20,reason:"test"}))).status,403);assert.equal(calls.length,1);
 });
 
-test("shipping update leaves notes untouched; note update leaves shipping untouched",async()=>{
-  const shipments=[],notes=[];const route=load("app/api/merchant/orders/route.ts",{"../../../../db/cms":{},"../../../../db/v24":{},"../../../../db/v23":{},"../../../../db/commerce":{updateOrderFulfillment:async(...args)=>shipments.push(args),updateOrderAdminNote:async(...args)=>notes.push(args),getOrder:async()=>({order:{id:"order-a"}})},"../helpers":{requireMerchantCapability:async()=>access,merchantErrorResponse:errors}});
+test("shipping, notes and pending cancellation stay separate",async()=>{
+  const shipments=[],notes=[],cancellations=[];const route=load("app/api/merchant/orders/route.ts",{"../../../../db/cms":{},"../../../../db/v24":{},"../../../../db/v23":{},"../../../../db/commerce":{cancelPendingOrder:async(...args)=>cancellations.push(args),updateOrderFulfillment:async(...args)=>shipments.push(args),updateOrderAdminNote:async(...args)=>notes.push(args),getOrder:async()=>({order:{id:"order-a"}})},"../helpers":{requireMerchantCapability:async()=>access,merchantErrorResponse:errors}});
   assert.equal((await route.PATCH(request("/api/merchant/orders",{orderId:"order-a",fulfillmentStatus:"shipped",trackingNumber:"TRACK-1"},"PATCH"))).status,200);
   assert.equal(shipments.length,1);assert.equal(notes.length,0);
   assert.equal((await route.PATCH(request("/api/merchant/orders",{orderId:"order-a",adminNote:"Internal note"},"PATCH"))).status,200);
   assert.equal(notes.length,1);assert.equal(shipments.length,1);
+  assert.equal((await route.PATCH(request("/api/merchant/orders",{orderId:"order-a",action:"cancel"},"PATCH"))).status,200);assert.equal(cancellations.length,1);assert.equal(shipments.length,1);assert.equal(notes.length,1);
 });
 
 test("domain conflict cannot transfer hostname ownership; duplicate same-site binding retains verification",async()=>{

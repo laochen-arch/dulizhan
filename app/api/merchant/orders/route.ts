@@ -1,5 +1,5 @@
 import { getCmsDatabase } from "../../../../db/cms";
-import { getOrder, readOrder, updateOrderAdminNote, updateOrderFulfillment } from "../../../../db/commerce";
+import { cancelPendingOrder, getOrder, readOrder, updateOrderAdminNote, updateOrderFulfillment } from "../../../../db/commerce";
 import { getClientOrderDetail, type ClientOrderDetail } from "../../../../db/v24";
 import { listClientOrders } from "../../../../db/v23";
 import { merchantErrorResponse, requireMerchantCapability } from "../helpers";
@@ -23,10 +23,11 @@ export async function GET(request: Request) {
 
 export async function PATCH(request: Request) {
   try {
-    const payload = await request.json().catch(() => ({})) as { siteId?: string; orderId?: string; fulfillmentStatus?: string; trackingNumber?: string; adminNote?: string };
+    const payload = await request.json().catch(() => ({})) as { siteId?: string; orderId?: string; action?: string; fulfillmentStatus?: string; trackingNumber?: string; adminNote?: string };
     const access = await requireMerchantCapability(request, "orders.write", payload.siteId);
     if (!payload.orderId) throw new Error("ORDER_NOT_FOUND");
-    if (payload.fulfillmentStatus) await updateOrderFulfillment(access.site.id, payload.orderId, payload.fulfillmentStatus, payload.trackingNumber || "", access.user!.userId, access.user!.email);
+    if (payload.action === "cancel") await cancelPendingOrder(access.site.id, payload.orderId, access.user!.userId, access.user!.email);
+    else if (payload.fulfillmentStatus) await updateOrderFulfillment(access.site.id, payload.orderId, payload.fulfillmentStatus, payload.trackingNumber || "", access.user!.userId, access.user!.email);
     if (payload.adminNote !== undefined) await updateOrderAdminNote(access.site.id, payload.orderId, payload.adminNote, access.user!.userId, access.user!.email);
     return Response.json({ order: (await getOrder(access.site.id, payload.orderId, access.user!.userId, access.user!.email)).order }, { headers: { "Cache-Control": "no-store" } });
   } catch (error) {

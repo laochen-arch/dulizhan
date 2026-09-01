@@ -110,7 +110,8 @@ export async function getAnalyticsSummary(siteId: string, days = 30) {
   const events = await database.prepare("SELECT event_type AS eventType, COUNT(*) AS count FROM cms_analytics_events WHERE site_id = ?1 AND created_at >= ?2 GROUP BY event_type ORDER BY count DESC").bind(siteId, since).all<{ eventType: string; count: number }>();
   const orders = await database.prepare("SELECT COUNT(*) AS count, COALESCE(SUM(total), 0) AS revenue FROM cms_orders WHERE site_id = ?1 AND payment_status IN ('paid', 'partially_refunded', 'refunded') AND created_at >= ?2").bind(siteId, since).first<{ count: number; revenue: number }>();
   const abandoned = await database.prepare("SELECT COUNT(*) AS count FROM cms_abandoned_checkouts WHERE site_id = ?1 AND status IN ('open', 'sent') AND created_at >= ?2").bind(siteId, since).first<{ count: number }>();
-  return { days, since, events: events.results, paidOrders: Number(orders?.count || 0), revenue: Number(orders?.revenue || 0), openAbandonedCheckouts: Number(abandoned?.count || 0) };
+  const paidOrders = Number(orders?.count || 0); const revenue = Number(orders?.revenue || 0);
+  return { days, since, events: events.results, paidOrders, revenue, averageOrderValue: paidOrders ? Math.round(revenue / paidOrders * 100) / 100 : 0, openAbandonedCheckouts: Number(abandoned?.count || 0) };
 }
 
 export async function recordAbandonedCheckout(siteId: string, input: { email?: string; cart: unknown; subtotal?: number; currency?: string }) {

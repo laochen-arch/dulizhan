@@ -395,6 +395,16 @@ async function transitionPendingOrder(database: D1DatabaseLike, siteId: string, 
   return readOrder(database, orderId, siteId);
 }
 
+export async function cancelPendingOrder(siteId: string, orderId: string, userId: string, email: string) {
+  const database = getCmsDatabase();
+  await ensureCmsSchema(database);
+  const existing = await readOrder(database, orderId, siteId);
+  if (existing.order.paymentStatus !== "pending") throw new Error("ORDER_CANCEL_REQUIRES_REFUND");
+  const result = await transitionPendingOrder(database, siteId, orderId, "cancelled", "cancelled");
+  await recordAudit(database, siteId, { userId, email }, "order.cancelled", "order", orderId, { releasedInventory: true, releasedCoupon: true });
+  return result;
+}
+
 async function reserveItems(database: D1DatabaseLike, siteId: string, items: Array<{ productId: string; variantId: string; quantity: number }>) {
   const reserved: typeof items = [];
   try {
@@ -864,6 +874,7 @@ export async function updateOrderFulfillment(siteId: string, orderId: string, fu
   const database = getCmsDatabase();
   await ensureCmsSchema(database);
   const existing = await readOrder(database, orderId, siteId);
+  if (fulfillmentStatus === "cancelled") throw new Error("ORDER_CANCEL_REQUIRES_REFUND");
   if (existing.order.fulfillmentStatus !== fulfillmentStatus && !fulfillmentTransitions[existing.order.fulfillmentStatus]?.includes(fulfillmentStatus)) throw new Error("INVALID_ORDER_STATUS");
   if (["processing", "shipped", "delivered"].includes(fulfillmentStatus) && !["paid", "partially_refunded"].includes(existing.order.paymentStatus)) throw new Error("ORDER_NOT_PAID");
   const timestamp = now();

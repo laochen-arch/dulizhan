@@ -34,7 +34,10 @@ type EditableConfig = {
   brand: Record<string, string>;
   theme: { colors: Record<string, string> };
   assets: Record<string, string>;
-  content: { contact: Record<string, string> };
+  navigation: Array<{ label: string; href: string }>;
+  announcement: Record<string, string>;
+  content: { contact: Record<string, string>; home: Record<string, string>; policies: Record<string, string> };
+  seo: Record<string, string>;
 };
 
 export async function getClientPortalOverview(siteId: string, userId: string, email: string, allowMerchant = false): Promise<ClientPortalOverview> {
@@ -44,7 +47,7 @@ export async function getClientPortalOverview(siteId: string, userId: string, em
   const snapshot = await readSnapshot(siteId, "draft", { userId, email }, false, allowMerchant);
   const orderRows = await database.prepare(`SELECT id, order_number AS orderNumber, customer_name AS customerName, email, currency, total,
       payment_status AS paymentStatus, fulfillment_status AS fulfillmentStatus, tracking_number AS trackingNumber, created_at AS createdAt
-    FROM cms_orders WHERE site_id = ?1 ORDER BY created_at DESC LIMIT 50`).bind(siteId).all<ClientPortalOrder>();
+    FROM cms_orders WHERE site_id = ?1 ORDER BY created_at DESC LIMIT 100`).bind(siteId).all<ClientPortalOrder>();
   const inventory = await database.prepare(`SELECT COUNT(DISTINCT product_id) AS products,
       SUM(CASE WHEN quantity - reserved_quantity <= 5 THEN 1 ELSE 0 END) AS lowStock,
       COALESCE(SUM(MAX(0, quantity - reserved_quantity)), 0) AS units
@@ -73,7 +76,7 @@ function getProductIdentityErrors(product: Product, catalog: Product[]) {
   return Array.from(new Set(errors));
 }
 
-export async function updateClientBrand(siteId: string, input: { brand?: Partial<Record<"name" | "mark" | "descriptor" | "tagline" | "footerLine" | "originLine", string>>; colors?: Partial<Record<"ink" | "muted" | "paper" | "warm" | "white" | "line" | "rust" | "sage", string>>; hero?: string; contactEmail?: string; tradeEmail?: string }, userId: string, email: string, allowMerchant = false) {
+export async function updateClientBrand(siteId: string, input: { brand?: Partial<Record<"name" | "mark" | "descriptor" | "tagline" | "footerLine" | "originLine", string>>; colors?: Partial<Record<"ink" | "muted" | "paper" | "warm" | "white" | "line" | "rust" | "sage", string>>; hero?: string; contactEmail?: string; tradeEmail?: string; navigation?: Array<{label?:string;href?:string}>; announcement?: Partial<Record<"text"|"accent",string>>; home?: Partial<Record<"heroLabel"|"heroTitleLead"|"heroTitleAccent"|"heroBody"|"heroCta",string>>; policies?: Partial<Record<"shippingLead"|"deliveryLead"|"returnsLead"|"shippingThreshold",string>>; seo?: Partial<Record<"title"|"description"|"keywords",string>> }, userId: string, email: string, allowMerchant = false) {
   const database = getCmsDatabase();
   await ensureCmsSchema(database);
   const member = allowMerchant ? await getOperationalMember(siteId, userId, email, true) : await getMember(siteId, userId, email);
@@ -94,8 +97,17 @@ export async function updateClientBrand(siteId: string, input: { brand?: Partial
   if (contactEmail !== undefined) config.content.contact.email = contactEmail;
   const tradeEmail = validText(input.tradeEmail, 160);
   if (tradeEmail !== undefined) config.content.contact.tradeEmail = tradeEmail;
+  if (Array.isArray(input.navigation)) {
+    const navigation = input.navigation.slice(0, 6).map((item) => ({ label: validText(item.label, 50) || "", href: validText(item.href, 240) || "" })).filter((item) => item.label && (/^\/(?!\/)/.test(item.href) || /^https:\/\//.test(item.href)));
+    if (!navigation.length) throw new Error("INVALID_BRAND");
+    config.navigation = navigation;
+  }
+  for (const field of ["text", "accent"] as const) { const value = validText(input.announcement?.[field], 200); if (value !== undefined) config.announcement[field] = value; }
+  for (const field of ["heroLabel", "heroTitleLead", "heroTitleAccent", "heroBody", "heroCta"] as const) { const value = validText(input.home?.[field], field === "heroBody" ? 800 : 200); if (value !== undefined) config.content.home[field] = value; }
+  for (const field of ["shippingLead", "deliveryLead", "returnsLead", "shippingThreshold"] as const) { const value = validText(input.policies?.[field], 1000); if (value !== undefined) config.content.policies[field] = value; }
+  for (const field of ["title", "description", "keywords"] as const) { const value = validText(input.seo?.[field], field === "description" ? 500 : 240); if (value !== undefined) config.seo[field] = value; }
   if (!config.brand.name.trim() || !config.brand.mark.trim()) throw new Error("INVALID_BRAND");
-  await writeDraft(siteId, config as SiteConfig, snapshot.catalog, userId, email, allowMerchant);
+  await writeDraft(siteId, config as unknown as SiteConfig, snapshot.catalog, userId, email, allowMerchant);
   await recordAudit(database, siteId, { userId, email }, "client.brand_updated", "brand", siteId, { fields: Object.keys(input) });
   return readSnapshot(siteId, "draft", { userId, email }, false, allowMerchant);
 }
