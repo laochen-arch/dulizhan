@@ -3,7 +3,7 @@ import { createSiteFromTemplate } from "./cms";
 import { getCmsDatabase } from "./cms";
 import { upsertMerchantMember } from "./v25";
 import { applyPlatformApplicationToSite, getPlatformApplication, recordPlatformApplicationEvent, updatePlatformApplication } from "./v32";
-import { getPlatformCommercialSnapshot, managePlatformSubscription, recordPlatformPayment, type PlatformActor } from "./v34";
+import { ensurePlatformCommercialSchema, getPlatformCommercialSnapshot, managePlatformSubscription, recordPlatformPayment, type PlatformActor } from "./v34";
 
 type Row = Record<string, unknown>;
 type PlatformPayPalEnv = {
@@ -25,6 +25,7 @@ const now = () => new Date().toISOString();
 const safeText = (value: unknown, max = 500) => typeof value === "string" ? value.slice(0, max) : "";
 
 export async function ensureV61Schema() {
+  await ensurePlatformCommercialSchema();
   const database = getCmsDatabase();
   const statements = [
     "ALTER TABLE platform_plans ADD COLUMN paypal_monthly_plan_id TEXT",
