@@ -15,16 +15,18 @@ import { V23ConfigurationPanel } from "./v23-panels";
 import { V24OperationsPanel } from "./v24-panels";
 import { PlatformApplicationsPanel } from "./platform-applications-panel";
 import { V60PlatformPanel } from "./v60-platform-panel";
+import { V61OperationsPanel } from "./v61-operations-panel";
 import { PlatformSites, PlatformDomains, PlatformMembers } from "./site-management";
 import { confirmBusinessNavigation, AsyncForm, BackofficeShell, BusinessTable, RecordPage, useBusinessView } from "../components/backoffice";
 
-type AdminTab = "overview" | "merchants" | "commercial" | "reports" | "setup" | "delivery" | "brand" | "content" | "products" | "media" | "access" | "team" | "domains" | "activity" | "release" | "commerce" | "versions" | "v21" | "v22" | "v23" | "v24";
+type AdminTab = "overview" | "tasks" | "merchants" | "commercial" | "reports" | "setup" | "delivery" | "brand" | "content" | "products" | "media" | "access" | "team" | "domains" | "activity" | "release" | "commerce" | "versions" | "v21" | "v22" | "v23" | "v24";
 type Notice = { tone: "success" | "error" | "info"; text: string } | null;
 type CommerceConfiguration = { paypal: { clientId: boolean; clientSecret: boolean; webhookId: boolean; mode?: string }; resend: { apiKey: boolean; fromEmail: boolean; fromDomain?: string | null }; webhookEndpoint?: string; environmentKeys?: string[] };
 type OnboardingState = { domain?: { hostname: string; status: string } | null; checks: CmsLaunchCheck[]; manualChecks?: CmsManualLaunchCheck[]; replacements: CmsReplacementItem[]; progress: { done: number; total: number }; readiness?: { score: number; done: number; total: number } };
 
 const tabs: Array<{ id: AdminTab; label: string }> = [
   { id: "overview", label: "工作台首页" },
+  { id: "tasks", label: "运营待办" },
   { id: "merchants", label: "商户申请" },
   { id: "commercial", label: "商户与续费" },
   { id: "reports", label: "收入报表" },
@@ -49,6 +51,7 @@ const tabs: Array<{ id: AdminTab; label: string }> = [
 
 const adminPageCopy: Record<AdminTab, { eyebrow: string; title: string; accent: string; description: string }> = {
   overview: { eyebrow: "Workspace home", title: "Keep every client site", accent: "ready to launch.", description: "See what needs attention, create a new client site and publish only after the launch checks pass." },
+  tasks: { eyebrow: "Operations queue", title: "Handle the next action", accent: "before it becomes an exception.", description: "Bring reviews, renewals, delivery failures and merchant requests into one assigned, time-bound queue." },
   merchants: { eyebrow: "Merchant applications", title: "Review new business", accent: "with confidence.", description: "Approve applications, request missing information and move qualified merchants into site setup." },
   commercial: { eyebrow: "Merchant lifecycle", title: "Manage every merchant", accent: "from trial to renewal.", description: "Keep applications, subscriptions, delivery, launch readiness and exceptions in one traceable workflow." },
   reports: { eyebrow: "Platform revenue", title: "Understand recurring revenue", accent: "without mixing merchant sales.", description: "Track platform subscriptions, collected fees, outstanding bills and application conversion." },
@@ -72,7 +75,7 @@ const adminPageCopy: Record<AdminTab, { eyebrow: string; title: string; accent: 
 };
 
 const adminNavGroups: Array<{ label: string; items: AdminTab[] }> = [
-  { label: "平台管理", items: ["overview", "merchants", "commercial", "reports"] },
+  { label: "平台管理", items: ["overview", "tasks", "merchants", "commercial", "reports"] },
   { label: "商户站点", items: ["setup", "delivery", "domains", "v24"] },
   { label: "模板与素材", items: ["brand", "content", "products", "media"] },
   { label: "账号权限", items: ["access"] },
@@ -82,8 +85,8 @@ const adminNavGroups: Array<{ label: string; items: AdminTab[] }> = [
 
 const roleVisibleAdminTabs: Record<CmsRole, AdminTab[]> = {
   owner: tabs.map((item) => item.id),
-  editor: ["overview", "merchants", "commercial", "reports", "setup", "delivery", "brand", "content", "products", "media", "domains", "activity", "release", "commerce", "versions", "v21", "v22", "v23", "v24"],
-  viewer: ["overview", "merchants", "commercial", "reports", "delivery", "domains", "activity", "versions", "v24"],
+  editor: ["overview", "tasks", "merchants", "commercial", "reports", "setup", "delivery", "brand", "content", "products", "media", "domains", "activity", "release", "commerce", "versions", "v21", "v22", "v23", "v24"],
+  viewer: ["overview", "tasks", "merchants", "commercial", "reports", "delivery", "domains", "activity", "versions", "v24"],
 };
 
 // Platform work remains a dedicated operator surface; it is intentionally not
@@ -792,7 +795,7 @@ export function AdminStudioV6() {
   }
 
   return (
-    <BackofficeShell workspaceRole="platform" brand="运营管理中心" title={tabs.find(item => item.id === tab)?.label || "运营后台"} description={({overview:"集中查看商户站点和待交付事项。",merchants:"审核入驻资料，跟进补交、创建站点与负责人激活。",commercial:"围绕一个商户处理套餐、续费、交付、上线和异常。",reports:"查看平台服务费、续费收入和入驻转化，不混入商户销售额。",delivery:"一个商户站点一条记录，按站点处理交付事项。",access:"管理当前站点的内容协作者，不混用商家员工权限。",domains:"查看域名解析、证书和接入问题。",products:"当前所选站点的模板目录；日常商品运营请由商家负责。",media:"维护所选站点的图片素材。",brand:"修改所选站点的品牌与配色，保存到草稿。",content:"配置首页内容和导航。",versions:"查看已保存的发布记录，必要时恢复到草稿。"} as Partial<Record<AdminTab,string>>)[tab] || activePageCopy.description} current={tab} groups={visibleAdminNavGroups.map(group => ({label:group.label,items:group.items.map(id => ({id,label:tabs.find(item => item.id === id)!.label}))}))} onNavigate={id => selectTab(id as AdminTab)} user={cmsRole === "owner" ? "管理员" : cmsRole === "editor" ? "运营人员" : "查看权限"}
+    <BackofficeShell workspaceRole="platform" brand="运营管理中心" title={tabs.find(item => item.id === tab)?.label || "运营后台"} description={({overview:"集中查看商户站点和待交付事项。",tasks:"统一领取、分配和跟进审核、账单、交付与异常事项。",merchants:"审核入驻资料，跟进补交、创建站点与负责人激活。",commercial:"围绕一个商户处理套餐、续费、交付、上线和异常。",reports:"查看平台服务费、续费收入和入驻转化，不混入商户销售额。",delivery:"一个商户站点一条记录，按站点处理交付事项。",access:"管理当前站点的内容协作者，不混用商家员工权限。",domains:"查看域名解析、证书和接入问题。",products:"当前所选站点的模板目录；日常商品运营请由商家负责。",media:"维护所选站点的图片素材。",brand:"修改所选站点的品牌与配色，保存到草稿。",content:"配置首页内容和导航。",versions:"查看已保存的发布记录，必要时恢复到草稿。"} as Partial<Record<AdminTab,string>>)[tab] || activePageCopy.description} current={tab} groups={visibleAdminNavGroups.map(group => ({label:group.label,items:group.items.map(id => ({id,label:tabs.find(item => item.id === id)!.label}))}))} onNavigate={id => selectTab(id as AdminTab)} user={cmsRole === "owner" ? "管理员" : cmsRole === "editor" ? "运营人员" : "查看权限"}
       context={<><label>当前商户<select value={activeSiteId} onChange={event => selectSite(event.target.value)}>{sites.map(item => <option key={item.id} value={item.id}>{item.name}</option>)}</select></label><span>{cmsStatus === "synced" ? "草稿已同步" : cmsStatus === "saving" ? "保存中" : cmsStatus === "error" ? "同步失败，请重试" : "正在读取"}</span></>}
       actions={<a className="button button-outline" href={`/preview?siteId=${encodeURIComponent(activeSiteId)}`} target="_blank" rel="noreferrer">预览所选站点 ↗</a>}
       status={<>{notice && <div className={notice.tone === "error" ? "bo-error" : "bo-info"} role="status">{notice.text}<button type="button" className="text-button" onClick={() => setNotice(null)} aria-label="关闭消息"> ×</button></div>}{cmsError && <div className="bo-error" role="alert">{cmsError}</div>}</>}>
@@ -801,6 +804,7 @@ export function AdminStudioV6() {
         {!["domains","team","activity"].includes(tab) && <P0Panels tab={tab} config={config} updateConfig={updateConfig} setHome={setHome} toggleModule={toggleModule} moveModule={moveModule} domainForm={domainForm} setDomainForm={setDomainForm} saveDomain={saveDomain} site={site} activeSiteId={activeSiteId} cmsRole={cmsRole} diff={diff} scheduleForm={scheduleForm} setScheduleForm={setScheduleForm} saveSchedule={saveSchedule} schedules={schedules} cancelScheduledPublish={cancelScheduledPublish} busy={busy} publish={publish} members={members} invitations={invitations} changeMemberRole={changeMemberRole} removeAccess={removeAccess} revokeAccessInvite={revokeAccessInvite} auditLogs={auditLogs} loadWorkspaceData={loadWorkspaceData} orders={orders} inventory={inventory} loadCommerceData={loadCommerceData} updateOrder={updateOrder} updateStock={updateStock} loadOrderDetail={loadOrderDetail} orderDetail={orderDetail} orderLoading={orderLoading} commerceConfiguration={commerceConfiguration} domains={domains} onboarding={onboarding} paymentEvents={paymentEvents} retryPaymentEvent={retryPaymentEvent} retryNotification={retryNotification} refundOrder={refundOrder} />}
 
         {tab === "merchants" && <PlatformApplicationsPanel />}
+        {tab === "tasks" && <V61OperationsPanel />}
         {tab === "commercial" && <V60PlatformPanel />}
         {tab === "reports" && <V60PlatformPanel reportOnly />}
         {tab === "setup" && <LaunchSetupPanel activeSiteId={activeSiteId} commerceConfiguration={commerceConfiguration} domains={domains} onboarding={onboarding} busy={busy} onRefresh={async () => { await loadCommerceData(); await loadWorkspaceData(); }} onNotice={(next) => setNotice(next)} />}

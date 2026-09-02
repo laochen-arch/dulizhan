@@ -54,6 +54,7 @@ async function runTenantMaintenance(env: Env) {
     const { retryAbandonedCheckoutEmails } = await import("../db/v21");
     const { syncMerchantCampaignSchedules } = await import("../db/v32");
     const { runV61PlatformAutomation } = await import("../db/v61");
+    const { syncPlatformWorkQueue } = await import("../db/v61-operations");
     const sites = await env.DB.prepare("SELECT id FROM cms_sites WHERE status <> 'deleted'").all<{ id: string }>();
     const outcomes: Array<{ siteId: string; errors: string[] }> = [];
     for (const site of sites.results) {
@@ -67,6 +68,7 @@ async function runTenantMaintenance(env: Env) {
     try {
       const platform = await runV61PlatformAutomation();
       if (platform.errors.length) outcomes.push({ siteId: "platform", errors: platform.errors });
+      await syncPlatformWorkQueue();
     } catch (error) {
       outcomes.push({ siteId: "platform", errors: [error instanceof Error ? error.message : "platform automation failed"] });
     }

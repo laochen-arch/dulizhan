@@ -9,7 +9,7 @@
     "dev": "vinext dev",
     "build": "vinext build",
     "start": "vinext start",
-    "test": "npm run build && node --test tests/rendered-html.test.mjs tests/backoffice.test.mjs tests/production-hardening.test.mjs tests/v59-production-readiness.test.mjs tests/v59-merchant-operations.test.mjs tests/v60-platform-commercial-delivery.test.mjs tests/v61-platform-automation-security.test.mjs",
+    "test": "npm run build && node --test tests/rendered-html.test.mjs tests/backoffice.test.mjs tests/production-hardening.test.mjs tests/v59-production-readiness.test.mjs tests/v59-merchant-operations.test.mjs tests/v60-platform-commercial-delivery.test.mjs tests/v61-platform-automation-security.test.mjs tests/v61-platform-operations-efficiency.test.mjs",
     "lint": "eslint app db tests worker --ignore-pattern dist --ignore-pattern .next",
     "db:generate": "drizzle-kit generate"
   },
