@@ -5,6 +5,7 @@ import handler from "vinext/server/app-router-entry";
 interface Env {
   ASSETS: Fetcher;
   DB: D1Database;
+  PUBLIC_SITE_URL?: string;
   IMAGES: {
     input(stream: ReadableStream): {
       transform(options: Record<string, unknown>): {
@@ -52,6 +53,7 @@ async function runTenantMaintenance(env: Env) {
     const { ensureDailyTenantBackup } = await import("../db/production");
     const { retryAbandonedCheckoutEmails } = await import("../db/v21");
     const { syncMerchantCampaignSchedules } = await import("../db/v32");
+    const { runV61PlatformAutomation } = await import("../db/v61");
     const sites = await env.DB.prepare("SELECT id FROM cms_sites WHERE status <> 'deleted'").all<{ id: string }>();
     const outcomes: Array<{ siteId: string; errors: string[] }> = [];
     for (const site of sites.results) {
@@ -61,6 +63,21 @@ async function runTenantMaintenance(env: Env) {
       try { await syncMerchantCampaignSchedules(site.id); } catch (error) { errors.push(error instanceof Error ? error.message : "campaign schedule failed"); }
       try { await ensureDailyTenantBackup(site.id); } catch (error) { errors.push(error instanceof Error ? error.message : "daily backup failed"); }
       outcomes.push({ siteId: site.id, errors });
+    }
+    try {
+      const platform = await runV61PlatformAutomation();
+      if (platform.errors.length) outcomes.push({ siteId: "platform", errors: platform.errors });
+    } catch (error) {
+      outcomes.push({ siteId: "platform", errors: [error instanceof Error ? error.message : "platform automation failed"] });
+    }
+    if (env.PUBLIC_SITE_URL) {
+      try {
+        const { retryFailedPlatformApplicationNotifications } = await import("../app/platform/application-notifications");
+        const emailRetry = await retryFailedPlatformApplicationNotifications(env.PUBLIC_SITE_URL);
+        if (emailRetry.failed) outcomes.push({ siteId: "platform-email", errors: [`${emailRetry.failed} notification retries remain failed`] });
+      } catch (error) {
+        outcomes.push({ siteId: "platform-email", errors: [error instanceof Error ? error.message : "platform email retry failed"] });
+      }
     }
     await env.DB.prepare("UPDATE cms_maintenance_runs SET completed_at = ?1, status = ?2, detail = ?3 WHERE run_key = ?4").bind(new Date().toISOString(), outcomes.some((item) => item.errors.length) ? "partial" : "completed", JSON.stringify(outcomes), runKey).run();
     await env.DB.prepare("DELETE FROM cms_maintenance_runs WHERE started_at < ?1").bind(new Date(Date.now() - 30 * 24 * 60 * 60 * 1000).toISOString()).run();

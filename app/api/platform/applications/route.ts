@@ -1,7 +1,5 @@
 import { getChatGPTUser } from "../../../chatgpt-auth";
-import { createSiteFromTemplate } from "../../../../db/cms";
 import {
-  applyPlatformApplicationToSite,
   createPlatformOwnerInvite,
   createPlatformApplication,
   getPlatformApplication,
@@ -14,20 +12,16 @@ import {
   listPlatformSupportTickets,
   updatePlatformApplication,
 } from "../../../../db/v32";
-import { upsertMerchantMember } from "../../../../db/v25";
 import { attachPlatformReferral, getPlatformCommercialSnapshot, getPlatformPlan, getReferralCodeSummary, qualifyPlatformReferral, selectPlatformPlan } from "../../../../db/v34";
 import { applicationAccessCookieName } from "../application-access";
 import { sendPlatformApplicationNotification, sendPlatformOwnerInviteNotification } from "../../../../app/platform/application-notifications";
 import { getPlatformStaffAccess } from "../staff-access";
+import { enforcePlatformRateLimit, recordPlatformSecurityEvent, runPlatformDeliveryJob } from "../../../../db/v61";
 
 export const dynamic = "force-dynamic";
 
 function responseError(message: string, status = 400, code = "PLATFORM_APPLICATION_ERROR", extra?: Record<string, unknown>) {
   return Response.json({ error: message, code, ...extra }, { status, headers: { "Cache-Control": "no-store" } });
-}
-
-function slugify(value: string) {
-  return value.toLowerCase().trim().replace(/[^a-z0-9]+/g, "-").replace(/^-|-$/g, "").slice(0, 42) || "merchant-store";
 }
 
 async function resolveApplicantApplication(id: string, token: string | null, user: Awaited<ReturnType<typeof getChatGPTUser>>) {
@@ -164,25 +158,19 @@ export async function PATCH(request: Request) {
     // application must be able to become approved before the operator starts
     // the isolated storefront creation flow from the list action.
     if (payload.createSite) {
-      await updatePlatformApplication(current.id, { status: "site_creating", assignedSiteId: current.assignedSiteId, adminNote: "Storefront delivery is in progress." }, platformActor);
-      status = "site_created";
       try {
-        if (current.assignedSiteId) {
-          assignedSiteId = current.assignedSiteId;
-          await applyPlatformApplicationToSite(current.id, current.assignedSiteId, staff.user.userId, staff.user.email);
-        } else {
-          const created = await createSiteFromTemplate(current.brandName || current.companyName, `${slugify(current.brandName || current.companyName)}-${current.id.slice(-6)}`, current.templateSiteId || "default", staff.user.userId, staff.user.email);
-          assignedSiteId = created.id;
-          await upsertMerchantMember(created.id, { userId: current.userId || `applicant:${current.email}`, email: current.email, role: "merchant_owner" }, "invited");
-          await applyPlatformApplicationToSite(current.id, created.id, staff.user.userId, staff.user.email);
-        }
+        await enforcePlatformRateLimit("platform-delivery", `${platformActor.userId}:${request.headers.get("cf-connecting-ip") || "unknown"}`, 5, 60);
+        await recordPlatformSecurityEvent({ actor: platformActor, action: "platform.delivery.run", targetType: "platform_application", targetId: current.id, riskLevel: "high", requestId: request.headers.get("cf-ray"), ip: request.headers.get("cf-connecting-ip"), metadata: { retry: Boolean(current.assignedSiteId) } });
+        const delivery = await runPlatformDeliveryJob(current.id, platformActor);
+        assignedSiteId = typeof delivery?.siteId === "string" ? delivery.siteId : current.assignedSiteId;
+        status = "site_created";
       } catch (deliveryError) {
         const errorNote = deliveryError instanceof Error ? deliveryError.message : "Storefront delivery failed.";
         await updatePlatformApplication(current.id, { status: "onboarding_failed", assignedSiteId: assignedSiteId || current.assignedSiteId, adminNote: `交付失败：${errorNote}。请修复资料后重试。` }, platformActor);
         return responseError("站点交付未完成，已记录失败状态，请修复资料后重试。", 502, "ONBOARDING_APPLY_FAILED");
       }
     }
-    const application = await updatePlatformApplication(payload.id, { status, assignedSiteId, adminNote: payload.adminNote }, platformActor);
+    const application = await updatePlatformApplication(payload.id, { status, assignedSiteId, adminNote: payload.createSite ? undefined : payload.adminNote }, platformActor);
     if (application && ["approved", "site_created", "live"].includes(application.status)) await qualifyPlatformReferral(application.id, platformActor);
     const notification = application && application.status !== current.status
       ? await sendPlatformApplicationNotification({ request, application, eventType: `status_${application.status}`, dedupeKey: `${application.id}:status:${application.status}` })
@@ -199,7 +187,7 @@ export async function PATCH(request: Request) {
     return Response.json({ application: latestApplication, notification, ownerInviteNotification }, { headers: { "Cache-Control": "no-store" } });
   } catch (error) {
     const message = error instanceof Error ? error.message : "Unable to update the application.";
-    const status = message === "APPLICATION_NOT_FOUND" ? 404 : message === "FORBIDDEN" ? 403 : ["INVALID_STATUS_TRANSITION", "APPLICATION_NOT_EDITABLE", "APPLICATION_NOT_APPROVED", "SITE_REQUIRED_FOR_CREATED_STATUS"].includes(message) ? 409 : 400;
+    const status = message === "APPLICATION_NOT_FOUND" ? 404 : message === "FORBIDDEN" ? 403 : message === "RATE_LIMITED" ? 429 : ["INVALID_STATUS_TRANSITION", "APPLICATION_NOT_EDITABLE", "APPLICATION_NOT_APPROVED", "SITE_REQUIRED_FOR_CREATED_STATUS"].includes(message) ? 409 : 400;
     const userMessage = message === "AGREEMENT_REQUIRED" ? "请先确认服务条款、隐私政策和平台入驻协议。" : message === "INVALID_TEMPLATE" ? "请选择有效的站点模板。" : message;
     return responseError(userMessage, status, message);
   }

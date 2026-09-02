@@ -21,6 +21,12 @@ export type PlatformSubscription = {
   nextBillingAt: string | null;
   graceUntil: string | null;
   trialEndsAt: string | null;
+  provider: string | null;
+  providerSubscriptionId: string | null;
+  providerStatus: string | null;
+  entitlementStatus: "pending" | "active" | "grace" | "suspended";
+  failedAttempts: number;
+  nextRetryAt: string | null;
   cancelAtPeriodEnd: boolean;
   agreementId: string | null;
   createdAt: string;
@@ -141,6 +147,12 @@ function subscriptionFromRow(row: Row): PlatformSubscription {
     currentPeriodStart: row.currentPeriodStart ? String(row.currentPeriodStart) : null, currentPeriodEnd: row.currentPeriodEnd ? String(row.currentPeriodEnd) : null,
     nextBillingAt: row.nextBillingAt ? String(row.nextBillingAt) : null, graceUntil: row.graceUntil ? String(row.graceUntil) : null,
     trialEndsAt: row.trialEndsAt ? String(row.trialEndsAt) : null,
+    provider: row.provider ? String(row.provider) : null,
+    providerSubscriptionId: row.providerSubscriptionId ? String(row.providerSubscriptionId) : null,
+    providerStatus: row.providerStatus ? String(row.providerStatus) : null,
+    entitlementStatus: ["active", "grace", "suspended"].includes(String(row.entitlementStatus)) ? String(row.entitlementStatus) as PlatformSubscription["entitlementStatus"] : "pending",
+    failedAttempts: Number(row.failedAttempts || 0),
+    nextRetryAt: row.nextRetryAt ? String(row.nextRetryAt) : null,
     cancelAtPeriodEnd: Number(row.cancelAtPeriodEnd || 0) === 1, agreementId: row.agreementId ? String(row.agreementId) : null,
     createdAt: String(row.createdAt), updatedAt: String(row.updatedAt),
   };
@@ -218,6 +230,16 @@ export async function ensurePlatformCommercialSchema() {
     database.prepare("CREATE INDEX IF NOT EXISTS platform_referrals_code_idx ON platform_referrals(code_id, status)"),
   ]);
   try { await database.prepare("ALTER TABLE platform_subscriptions ADD COLUMN trial_ends_at TEXT").run(); } catch { /* already present */ }
+  for (const statement of [
+    "ALTER TABLE platform_subscriptions ADD COLUMN provider TEXT",
+    "ALTER TABLE platform_subscriptions ADD COLUMN provider_subscription_id TEXT",
+    "ALTER TABLE platform_subscriptions ADD COLUMN provider_plan_id TEXT",
+    "ALTER TABLE platform_subscriptions ADD COLUMN provider_status TEXT",
+    "ALTER TABLE platform_subscriptions ADD COLUMN provider_updated_at TEXT",
+    "ALTER TABLE platform_subscriptions ADD COLUMN entitlement_status TEXT NOT NULL DEFAULT 'pending'",
+    "ALTER TABLE platform_subscriptions ADD COLUMN failed_attempts INTEGER NOT NULL DEFAULT 0",
+    "ALTER TABLE platform_subscriptions ADD COLUMN next_retry_at TEXT",
+  ]) { try { await database.prepare(statement).run(); } catch { /* already present */ } }
   const timestamp = now();
   for (const plan of platformPlans) {
     await database.prepare(`INSERT OR IGNORE INTO platform_plans
@@ -257,7 +279,9 @@ async function getSubscription(applicationId: string) {
   const row = await database.prepare(`SELECT id, application_id AS applicationId, plan_id AS planId, status, billing_interval AS billingInterval,
       currency, setup_fee AS setupFee, recurring_fee AS recurringFee, service_fee_percent AS serviceFeePercent, current_period_start AS currentPeriodStart,
       current_period_end AS currentPeriodEnd, next_billing_at AS nextBillingAt, grace_until AS graceUntil, trial_ends_at AS trialEndsAt, cancel_at_period_end AS cancelAtPeriodEnd,
-      agreement_id AS agreementId, created_at AS createdAt, updated_at AS updatedAt FROM platform_subscriptions WHERE application_id = ?1`).bind(applicationId).first<Row>();
+      agreement_id AS agreementId, provider, provider_subscription_id AS providerSubscriptionId, provider_status AS providerStatus,
+      entitlement_status AS entitlementStatus, failed_attempts AS failedAttempts, next_retry_at AS nextRetryAt,
+      created_at AS createdAt, updated_at AS updatedAt FROM platform_subscriptions WHERE application_id = ?1`).bind(applicationId).first<Row>();
   return row ? subscriptionFromRow(row) : null;
 }
 
@@ -313,9 +337,9 @@ export async function signPlatformAgreement(applicationId: string, actor: Platfo
     VALUES (?1, ?2, ?3, 'platform-commercial-v1', ?4, ?5, ?6, 'signed', ?7, ?7)`)
     .bind(agreementId, applicationId, subscription.id, JSON.stringify(plan), actor.userId, actor.email, timestamp).run();
   const periodEnd = subscription.billingInterval === "annual" ? new Date(Date.now() + 365 * 24 * 60 * 60 * 1000).toISOString() : new Date(Date.now() + 30 * 24 * 60 * 60 * 1000).toISOString();
-  await database.prepare(`UPDATE platform_subscriptions SET status = 'active', agreement_id = ?1, current_period_start = ?2, current_period_end = ?3, next_billing_at = ?3, updated_at = ?2 WHERE id = ?4`)
-    .bind(agreementId, timestamp, periodEnd, subscription.id).run();
-  await ensureInvoice({ applicationId, subscriptionId: subscription.id, kind: "recurring", amount: subscription.recurringFee, currency: subscription.currency, dueAt: periodEnd, idempotencyKey: `recurring:${subscription.id}:${periodEnd.slice(0, 10)}` });
+  await database.prepare(`UPDATE platform_subscriptions SET status = 'pending_signature', agreement_id = ?1, entitlement_status = 'pending', updated_at = ?2 WHERE id = ?3`)
+    .bind(agreementId, timestamp, subscription.id).run();
+  await ensureInvoice({ applicationId, subscriptionId: subscription.id, kind: "recurring", amount: subscription.recurringFee, currency: subscription.currency, dueAt: timestamp, idempotencyKey: `recurring:${subscription.id}:${periodEnd.slice(0, 10)}` });
   await recordPlatformApplicationEvent(applicationId, { eventType: "agreement_signed", actor, note: "Platform commercial agreement signed online.", payload: { agreementId, planId: plan.id } });
   if (application.assignedSiteId) await recordAudit(database, application.assignedSiteId, { userId: actor.userId, email: actor.email }, "platform.agreement.signed", "platform_agreement", agreementId, { planId: plan.id });
   return getPlatformCommercialSnapshot(applicationId);
@@ -386,9 +410,11 @@ export async function recordPlatformPayment(input: { invoiceId: string; status: 
     VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?9)`).bind(`platform_payment_${crypto.randomUUID()}`, invoice.id, invoice.amount, invoice.currency, input.status, input.provider || "manual", input.providerReference || null, input.failureReason || null, timestamp).run();
   if (input.status === "paid") {
     await database.prepare(`UPDATE platform_billing_invoices SET status = 'paid', paid_at = ?1, payment_provider = ?2, provider_reference = ?3, failure_reason = NULL, updated_at = ?1 WHERE id = ?4`).bind(timestamp, input.provider || "manual", input.providerReference || null, invoice.id).run();
-    const subscription = await database.prepare("SELECT billing_interval AS billingInterval FROM platform_subscriptions WHERE id = ?1").bind(invoice.subscriptionId).first<{ billingInterval: string }>();
-    const periodEnd = subscription?.billingInterval === "annual" ? isoAfterDays(365) : isoAfterDays(30);
-    await database.prepare("UPDATE platform_subscriptions SET status = 'active', current_period_start = ?1, current_period_end = ?2, next_billing_at = ?2, trial_ends_at = NULL, grace_until = NULL, updated_at = ?1 WHERE id = ?3").bind(timestamp, periodEnd, invoice.subscriptionId).run();
+    if (["recurring", "renewal"].includes(invoice.kind)) {
+      const subscription = await database.prepare("SELECT billing_interval AS billingInterval FROM platform_subscriptions WHERE id = ?1").bind(invoice.subscriptionId).first<{ billingInterval: string }>();
+      const periodEnd = subscription?.billingInterval === "annual" ? isoAfterDays(365) : isoAfterDays(30);
+      await database.prepare("UPDATE platform_subscriptions SET status = 'active', entitlement_status = 'active', current_period_start = ?1, current_period_end = ?2, next_billing_at = ?2, trial_ends_at = NULL, grace_until = NULL, updated_at = ?1 WHERE id = ?3").bind(timestamp, periodEnd, invoice.subscriptionId).run();
+    }
   } else {
     await database.prepare(`UPDATE platform_billing_invoices SET status = 'failed', retry_count = retry_count + 1, payment_provider = ?1, provider_reference = ?2, failure_reason = ?3, updated_at = ?4 WHERE id = ?5`).bind(input.provider || "manual", input.providerReference || null, input.failureReason || "Payment could not be confirmed.", timestamp, invoice.id).run();
     await database.prepare("UPDATE platform_subscriptions SET status = 'past_due', grace_until = ?1, updated_at = ?2 WHERE id = ?3").bind(isoAfterDays(7), timestamp, invoice.subscriptionId).run();

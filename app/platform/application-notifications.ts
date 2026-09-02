@@ -7,6 +7,7 @@ import {
   type PlatformApplication,
   type PlatformApplicationNotification,
 } from "../../db/v32";
+import { getCmsDatabase } from "../../db/cms";
 
 type NotificationRequest = {
   request: Request;
@@ -127,4 +128,20 @@ export async function retryPlatformApplicationNotification(input: { request: Req
   if (!application) throw new Error("APPLICATION_NOT_FOUND");
   if (!notification) throw new Error("NOTIFICATION_NOT_FOUND");
   return deliver(notification, application, input.request);
+}
+
+export async function retryFailedPlatformApplicationNotifications(baseUrl: string) {
+  const origin = new URL(baseUrl).origin;
+  const database = getCmsDatabase();
+  const cutoff = new Date(Date.now() - 15 * 60 * 1000).toISOString();
+  const rows = await database.prepare("SELECT id, application_id AS applicationId FROM platform_application_notifications WHERE status = 'failed' AND attempts < 5 AND updated_at <= ?1 ORDER BY updated_at ASC LIMIT 20").bind(cutoff).all<{ id: string; applicationId: string }>();
+  const result = { attempted: 0, sent: 0, failed: 0 };
+  for (const row of rows.results) {
+    result.attempted += 1;
+    try {
+      const notification = await retryPlatformApplicationNotification({ request: new Request(origin), applicationId: row.applicationId, notificationId: row.id });
+      if (notification?.status === "sent") result.sent += 1; else result.failed += 1;
+    } catch { result.failed += 1; }
+  }
+  return result;
 }

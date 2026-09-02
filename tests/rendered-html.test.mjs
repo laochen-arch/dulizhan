@@ -436,6 +436,7 @@ test("keeps V32 platform onboarding and merchant operations boundaries", async (
   const merchantCampaigns = await readFile(new URL("../app/api/merchant/campaigns/route.ts", import.meta.url), "utf8");
   const merchantOperations = await readFile(new URL("../app/api/merchant/operations/route.ts", import.meta.url), "utf8");
   const v32 = await readFile(new URL("../db/v32.ts", import.meta.url), "utf8");
+  const v61 = await readFile(new URL("../db/v61.ts", import.meta.url), "utf8");
   const cms = await readFile(new URL("../db/cms.ts", import.meta.url), "utf8");
   const workerSource = await readFile(new URL("../worker/index.ts", import.meta.url), "utf8");
   const workspace = await readFile(new URL("../app/client/client-portal.tsx", import.meta.url), "utf8");
@@ -456,8 +457,9 @@ test("keeps V32 platform onboarding and merchant operations boundaries", async (
   assert.match(applicationForm, /agreementAccepted/);
   assert.match(applicationForm, /platform\/agreement/);
   assert.match(applicationForm, /productImport/);
-  assert.match(applicationsRoute, /createSiteFromTemplate/);
-  assert.match(applicationsRoute, /merchant_owner/);
+  assert.match(applicationsRoute, /runPlatformDeliveryJob/);
+  assert.match(v61, /createSiteFromTemplate/);
+  assert.match(v61, /merchant_owner/);
   assert.match(applicationsRoute, /DUPLICATE_APPLICATION/);
   assert.match(applicationsRoute, /ONBOARDING_APPLY_FAILED/);
   assert.match(status, /Launch checklist/);
